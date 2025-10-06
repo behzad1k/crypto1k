@@ -40,7 +40,7 @@ def login_required(f):
 def login():
   if request.method == 'POST':
     data = request.get_json()
-    if data.get('username') == 'admin' and data.get('password') == 'crypto2025':
+    if data.get('username') == 'iheartsogol' and data.get('password') == 'sogolpleasecomeback:(((':
       session['logged_in'] = True
       return jsonify({'success': True})
     return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
@@ -307,4 +307,4 @@ if __name__ == '__main__':
   init_database()
 
   # Run Flask app
-  app.run(host='0.0.0.0', port=5001, debug=False)
+  app.run(host='0.0.0.0', port=5001, debug=True)

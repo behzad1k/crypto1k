@@ -95,7 +95,6 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 
 Open your browser and navigate to:
 - `http://your-server-ip:5000`
-- Login with: **admin** / **crypto2025**
 
 ## Production Deployment
 
