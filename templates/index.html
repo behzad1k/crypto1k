@@ -1,0 +1,397 @@
+
+
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Pattern Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-900 min-h-screen">
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <h1 class="text-2xl font-bold text-white">Crypto Pattern Dashboard</h1>
+                <a href="/logout" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
+                    <i data-lucide="log-out" class="w-5 h-5"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="bg-slate-800 border-b border-slate-700">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex gap-4">
+                <button onclick="showPage('signals')" id="tab-signals"
+                    class="px-4 py-3 font-medium transition-colors border-b-2 text-purple-400 border-purple-400">
+                    Signals
+                </button>
+                <button onclick="showPage('control')" id="tab-control"
+                    class="px-4 py-3 font-medium transition-colors border-b-2 text-slate-400 border-transparent hover:text-white">
+                    Control Panel
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Signals Page -->
+        <div id="page-signals">
+            <!-- Filters -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <i data-lucide="filter" class="w-5 h-5 text-purple-400"></i>
+                    <h2 class="text-lg font-semibold text-white">Filters</h2>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <input type="text" id="filter-symbol" placeholder="Symbol (e.g., BTC)"
+                        class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+
+                    <input type="number" id="filter-accuracy" placeholder="Min Accuracy (0.70)" step="0.01" min="0" max="1"
+                        class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+
+                    <input type="number" id="filter-patterns" placeholder="Min Patterns (100)"
+                        class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+
+                    <button onclick="exportSignals()"
+                        class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        Export Excel
+                    </button>
+                </div>
+            </div>
+
+            <!-- Signals Table -->
+            <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-slate-700">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Symbol</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Signal</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Confidence</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Patterns</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Price</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Valid For</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="signals-tbody" class="divide-y divide-slate-700">
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="bg-slate-700 px-6 py-4 flex items-center justify-between">
+                    <button onclick="prevPage()" id="prev-btn"
+                        class="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors">
+                        <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                        Previous
+                    </button>
+
+                    <span id="page-info" class="text-slate-300"></span>
+
+                    <button onclick="nextPage()" id="next-btn"
+                        class="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors">
+                        Next
+                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Symbol Detail (hidden by default) -->
+            <div id="symbol-detail" class="hidden">
+                <button onclick="hideSymbolDetail()" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors mb-6">
+                    <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                    Back to Signals
+                </button>
+
+                <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                    <h2 id="symbol-title" class="text-2xl font-bold text-white mb-4"></h2>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div class="bg-slate-700 rounded-lg p-4">
+                            <p class="text-slate-400 text-sm">Total Signals</p>
+                            <p id="symbol-total" class="text-2xl font-bold text-white">0</p>
+                        </div>
+                        <div class="bg-slate-700 rounded-lg p-4">
+                            <p class="text-slate-400 text-sm">Avg Confidence</p>
+                            <p id="symbol-avg-conf" class="text-2xl font-bold text-white">0%</p>
+                        </div>
+                        <div class="bg-slate-700 rounded-lg p-4">
+                            <p class="text-slate-400 text-sm">Avg Patterns</p>
+                            <p id="symbol-avg-patterns" class="text-2xl font-bold text-white">0</p>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-slate-700">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Signal</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Confidence</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Patterns</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Price</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Valid For</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody id="symbol-history-tbody" class="divide-y divide-slate-700">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Panel Page -->
+        <div id="page-control" class="hidden">
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+                <div class="flex items-center gap-2 mb-6">
+                    <i data-lucide="settings" class="w-6 h-6 text-purple-400"></i>
+                    <h2 class="text-2xl font-bold text-white">Control Panel</h2>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">
+                            Priority Coins (comma-separated)
+                        </label>
+                        <p class="text-sm text-slate-400 mb-3">
+                            These coins will be monitored first before fetching from Nobitex
+                        </p>
+                        <input type="text" id="priority-coins" placeholder="BTC, ETH, SOL"
+                            class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    </div>
+
+                    <button onclick="savePriorityCoins()"
+                        class="bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-6 rounded-lg transition-colors">
+                        Save Settings
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h3 class="text-lg font-semibold text-white mb-4">System Info</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Min Pattern Accuracy:</span>
+                        <span class="text-white font-medium">70%</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Pattern Threshold:</span>
+                        <span class="text-white font-medium">100+ patterns</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Confidence Threshold:</span>
+                        <span class="text-white font-medium">80%+</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Signal Validity:</span>
+                        <span class="text-white font-medium">12-60 hours</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentSymbol = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            loadSignals();
+            loadPriorityCoins();
+
+            // Add filter listeners
+            ['filter-symbol', 'filter-accuracy', 'filter-patterns'].forEach(id => {
+                document.getElementById(id).addEventListener('input', () => {
+                    currentPage = 1;
+                    loadSignals();
+                });
+            });
+        });
+
+        function showPage(page) {
+            document.querySelectorAll('[id^="page-"]').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`page-${page}`).classList.remove('hidden');
+
+            document.querySelectorAll('[id^="tab-"]').forEach(el => {
+                el.classList.remove('text-purple-400', 'border-purple-400');
+                el.classList.add('text-slate-400', 'border-transparent');
+            });
+            document.getElementById(`tab-${page}`).classList.add('text-purple-400', 'border-purple-400');
+            document.getElementById(`tab-${page}`).classList.remove('text-slate-400', 'border-transparent');
+
+            if (page === 'control') loadPriorityCoins();
+        }
+
+        async function loadSignals() {
+            const symbol = document.getElementById('filter-symbol').value;
+            const minAccuracy = document.getElementById('filter-accuracy').value;
+            const minPatterns = document.getElementById('filter-patterns').value;
+
+            const params = new URLSearchParams({
+                page: currentPage,
+                ...(symbol && {symbol}),
+                ...(minAccuracy && {minAccuracy}),
+                ...(minPatterns && {minPatterns})
+            });
+
+            const response = await fetch(`/api/signals?${params}`);
+            const data = await response.json();
+
+            totalPages = data.pages;
+            renderSignals(data.signals);
+            updatePagination();
+        }
+
+        function renderSignals(signals) {
+            const tbody = document.getElementById('signals-tbody');
+            tbody.innerHTML = '';
+
+            signals.forEach(signal => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-700/50 transition-colors';
+                tr.innerHTML = `
+                    <td class="px-6 py-4">
+                        <button onclick="showSymbolDetail('${signal.symbol}')" class="text-purple-400 hover:text-purple-300 font-medium">
+                            ${signal.symbol}
+                        </button>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                            signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                        }">
+                            <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
+                            ${signal.signal}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-slate-300">${(signal.pattern_confidence * 100).toFixed(1)}%</td>
+                    <td class="px-6 py-4 text-slate-300">${signal.pattern_count}</td>
+                    <td class="px-6 py-4 text-slate-300">$${signal.price.toFixed(2)}</td>
+                    <td class="px-6 py-4 text-slate-300">${signal.validity_hours}h</td>
+                    <td class="px-6 py-4 text-slate-400 text-sm">${new Date(signal.datetime_created).toLocaleString()}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            lucide.createIcons();
+        }
+
+        function updatePagination() {
+            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+            document.getElementById('prev-btn').disabled = currentPage === 1;
+            document.getElementById('next-btn').disabled = currentPage === totalPages;
+        }
+
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                loadSignals();
+            }
+        }
+
+        function nextPage() {
+            if (currentPage < totalPages) {
+                currentPage++;
+                loadSignals();
+            }
+        }
+
+        async function showSymbolDetail(symbol) {
+            currentSymbol = symbol;
+            const response = await fetch(`/api/symbols/${symbol}`);
+            const history = await response.json();
+
+            document.getElementById('page-signals').querySelector('.bg-slate-800.rounded-lg').classList.add('hidden');
+            document.getElementById('symbol-detail').classList.remove('hidden');
+
+            document.getElementById('symbol-title').textContent = `${symbol} Signal History`;
+            document.getElementById('symbol-total').textContent = history.length;
+
+            const avgConf = history.reduce((a, b) => a + b.pattern_confidence, 0) / history.length;
+            document.getElementById('symbol-avg-conf').textContent = `${(avgConf * 100).toFixed(1)}%`;
+
+            const avgPatterns = Math.round(history.reduce((a, b) => a + b.pattern_count, 0) / history.length);
+            document.getElementById('symbol-avg-patterns').textContent = avgPatterns;
+
+            const tbody = document.getElementById('symbol-history-tbody');
+            tbody.innerHTML = '';
+
+            history.forEach(signal => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-700/50';
+                tr.innerHTML = `
+                    <td class="px-4 py-3">
+                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                            signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                        }">
+                            <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
+                            ${signal.signal}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-slate-300">${(signal.pattern_confidence * 100).toFixed(1)}%</td>
+                    <td class="px-4 py-3 text-slate-300">${signal.pattern_count}</td>
+                    <td class="px-4 py-3 text-slate-300">$${signal.price.toFixed(2)}</td>
+                    <td class="px-4 py-3 text-slate-300">${signal.validity_hours}h</td>
+                    <td class="px-4 py-3 text-slate-400 text-sm">${new Date(signal.datetime_created).toLocaleString()}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            lucide.createIcons();
+        }
+
+        function hideSymbolDetail() {
+            document.getElementById('symbol-detail').classList.add('hidden');
+            document.getElementById('page-signals').querySelector('.bg-slate-800.rounded-lg').classList.remove('hidden');
+            currentSymbol = null;
+        }
+
+        async function loadPriorityCoins() {
+            const response = await fetch('/api/priority-coins');
+            const coins = await response.json();
+            document.getElementById('priority-coins').value = coins.join(', ');
+        }
+
+        async function savePriorityCoins() {
+            const input = document.getElementById('priority-coins').value;
+            const coins = input.split(',').map(c => c.trim()).filter(c => c);
+
+            await fetch('/api/priority-coins', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({coins})
+            });
+
+            alert('Priority coins saved!');
+        }
+
+        function exportSignals() {
+            const symbol = document.getElementById('filter-symbol').value;
+            const minAccuracy = document.getElementById('filter-accuracy').value;
+            const minPatterns = document.getElementById('filter-patterns').value;
+
+            const params = new URLSearchParams({
+                ...(symbol && {symbol}),
+                ...(minAccuracy && {minAccuracy}),
+                ...(minPatterns && {minPatterns})
+            });
+
+            window.location.href = `/api/export?${params}`;
+        }
+    </script>
+</body>
+</html>

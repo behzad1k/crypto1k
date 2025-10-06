@@ -1,0 +1,4 @@
+crypto_signals.db
+venv
+data_analysis/indictaor_testing/datasets/*
+*.csv
