@@ -34,10 +34,10 @@ def fetch_nobitex_top_symbols(limit: int = 100) -> List[str]:
     sorted_coins = sorted(
       [x for x in coins if 'usdt' in x['symbol'].lower()],
       key=lambda c: float(c['dayChange']),
-      reverse=False
+      reverse=True
     )
 
-    top_symbols = [c['symbol'].split('-')[0].upper() for c in sorted_coins[:limit]]
+    top_symbols = [c['symbol'].split('-')[0].upper() for c in sorted_coins
     logging.info(f"✅ Fetched {len(top_symbols)} symbols from Nobitex")
     return top_symbols
 
