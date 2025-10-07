@@ -164,7 +164,10 @@ class CryptoPatternMonitor:
       'close_time', 'quote_volume', 'trades', 'buy_volume', 'buy_quote_volume', 'ignore'
     ])
 
+    # Convert timestamp to numeric first, then to datetime
+    df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+
     for col in ['open', 'high', 'low', 'close', 'volume']:
       df[col] = pd.to_numeric(df[col], errors='coerce')
 
