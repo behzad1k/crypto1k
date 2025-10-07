@@ -1097,5 +1097,5 @@ if __name__ == '__main__':
     logging.error("Trading features will not be available!")
     # Don't exit - let app run without trading features
 
-# Run Flask app
-app.run(host='0.0.0.0', port=5000, debug=True)  # Set debug=False for production
+  # Run Flask app
+  app.run(host='0.0.0.0', port=5000, debug=True)  # Set debug=False for production
