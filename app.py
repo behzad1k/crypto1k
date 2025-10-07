@@ -34,9 +34,9 @@ monitor = None
 monitor_thread = None
 live_analyzer = None
 live_db = None
-fact_checker = None
 trading_manager = None
-sock = Sock(app)
+fact_checker = None
+sock = None
 
 
 # ==================== AUTH ====================
@@ -515,10 +515,20 @@ def cleanup_old_signals():
 @login_required
 def trading_positions():
   """Get all positions or create new position"""
+    global trading_manager
+
+    # Safety check
+    if trading_manager is None:
+        return jsonify({
+            'success': False,
+            'error': 'Trading manager not initialized. Please restart the application.'
+        }), 500
+
   if request.method == 'GET':
     status = request.args.get('status')
     symbol = request.args.get('symbol')
 
+        try:
     positions = trading_manager.get_all_positions(status, symbol)
     summary = trading_manager.get_position_summary()
 
@@ -527,6 +537,9 @@ def trading_positions():
       'positions': positions,
       'summary': summary
     })
+        except Exception as e:
+            logging.error(f"Error getting positions: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
 
   elif request.method == 'POST':
     data = request.get_json()
@@ -537,11 +550,11 @@ def trading_positions():
         entry_price=float(data['entry_price']),
         amount=float(data['amount']),
         status=data.get('status', 'waiting_for_right_time_to_enter'),
-        leverage_multiplier=data.get('leverage_multiplier'),
-        liquidation_at=data.get('liquidation_at'),
-        break_even=data.get('break_even'),
-        stop_loss=data.get('stop_loss'),
-        stop_profit=data.get('stop_profit'),
+                leverage_multiplier=float(data['leverage_multiplier']) if data.get('leverage_multiplier') else None,
+                liquidation_at=float(data['liquidation_at']) if data.get('liquidation_at') else None,
+                break_even=float(data['break_even']) if data.get('break_even') else None,
+                stop_loss=float(data['stop_loss']) if data.get('stop_loss') else None,
+                stop_profit=float(data['stop_profit']) if data.get('stop_profit') else None,
         entry_reason=data.get('entry_reason'),
         notes=data.get('notes')
       )
@@ -553,6 +566,7 @@ def trading_positions():
       })
 
     except Exception as e:
+            logging.error(f"Error creating position: {e}")
       return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -560,7 +574,13 @@ def trading_positions():
 @login_required
 def trading_position_detail(position_id):
   """Get, update, or delete specific position"""
+    global trading_manager
+
+    if trading_manager is None:
+        return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+
   if request.method == 'GET':
+        try:
     position = trading_manager.get_position(position_id)
 
     if not position:
@@ -574,32 +594,49 @@ def trading_position_detail(position_id):
       'position': position,
       'signals': signals
     })
+        except Exception as e:
+            logging.error(f"Error getting position: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
 
   elif request.method == 'PUT':
     data = request.get_json()
 
+        try:
     success = trading_manager.update_position(position_id, **data)
 
     if success:
       return jsonify({'success': True, 'message': 'Position updated'})
     else:
       return jsonify({'success': False, 'error': 'Update failed'}), 404
+        except Exception as e:
+            logging.error(f"Error updating position: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
 
   elif request.method == 'DELETE':
+        try:
     success = trading_manager.delete_position(position_id)
 
     if success:
       return jsonify({'success': True, 'message': 'Position deleted'})
     else:
       return jsonify({'success': False, 'error': 'Delete failed'}), 404
+        except Exception as e:
+            logging.error(f"Error deleting position: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/trading/positions/<int:position_id>/close', methods=['POST'])
 @login_required
 def close_trading_position(position_id):
   """Close a position"""
+    global trading_manager
+
+    if trading_manager is None:
+        return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+
   data = request.get_json()
 
+    try:
   success = trading_manager.close_position(
     position_id,
     float(data['sold_price']),
@@ -610,12 +647,20 @@ def close_trading_position(position_id):
     return jsonify({'success': True, 'message': 'Position closed'})
   else:
     return jsonify({'success': False, 'error': 'Failed to close position'}), 404
+    except Exception as e:
+        logging.error(f"Error closing position: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/trading/calculate-stops', methods=['POST'])
 @login_required
 def calculate_stops():
   """Calculate suggested stop loss and stop profit"""
+    global trading_manager
+
+    if trading_manager is None:
+        return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+
   data = request.get_json()
 
   try:
@@ -632,6 +677,7 @@ def calculate_stops():
     })
 
   except Exception as e:
+        logging.error(f"Error calculating stops: {e}")
     return jsonify({'success': False, 'error': str(e)}), 400
 
 
@@ -640,8 +686,11 @@ def calculate_stops():
 @sock.route('/ws/position/<int:position_id>')
 def position_websocket(ws, position_id):
   """WebSocket for real-time position monitoring"""
-  import time
-  from scalp_signal_analyzer import ScalpSignalAnalyzer
+    global trading_manager, fact_checker
+
+    if trading_manager is None:
+        ws.send(json.dumps({'error': 'Trading manager not initialized'}))
+        return
 
   # Get position details
   position = trading_manager.get_position(position_id)
@@ -722,6 +771,7 @@ def fact_check_position(position_id):
     })
 
   except Exception as e:
+        logging.error(f"Error fact-checking: {e}")
     return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -729,8 +779,14 @@ def fact_check_position(position_id):
 @login_required
 def get_signal_accuracy(signal_name):
   """Get accuracy stats for a specific signal"""
+    global fact_checker
+
+    if fact_checker is None:
+        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
   timeframe = request.args.get('timeframe')
 
+    try:
   accuracy = fact_checker.calculate_signal_accuracy(signal_name, timeframe)
 
   if accuracy:
@@ -747,8 +803,14 @@ def get_signal_accuracy(signal_name):
 @login_required
 def adjust_signal_confidence():
   """Adjust confidence for a specific signal"""
+    global fact_checker
+
+    if fact_checker is None:
+        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
   data = request.get_json()
 
+    try:
   result = fact_checker.adjust_signal_confidence(
     data['signal_name'],
     data['timeframe'],
@@ -762,12 +824,20 @@ def adjust_signal_confidence():
       'success': False,
       'error': 'Insufficient samples'
     }), 400
+    except Exception as e:
+        logging.error(f"Error adjusting confidence: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/fact-check/bulk-adjust', methods=['POST'])
 @login_required
 def bulk_adjust_signals():
   """Adjust all signals with sufficient data"""
+    global fact_checker
+
+    if fact_checker is None:
+        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
   data = request.get_json()
   min_samples = data.get('min_samples', 10)
 
@@ -780,6 +850,7 @@ def bulk_adjust_signals():
     })
 
   except Exception as e:
+        logging.error(f"Error bulk adjusting: {e}")
     return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -787,6 +858,12 @@ def bulk_adjust_signals():
 @login_required
 def get_all_adjustments():
   """Get all signal confidence adjustments"""
+    global fact_checker
+
+    if fact_checker is None:
+        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
+    try:
   adjustments = fact_checker.get_all_adjustments()
 
   return jsonify({
@@ -794,15 +871,24 @@ def get_all_adjustments():
     'adjustments': adjustments,
     'count': len(adjustments)
   })
+    except Exception as e:
+        logging.error(f"Error getting adjustments: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/fact-check/cleanup', methods=['POST'])
 @login_required
 def cleanup_fact_checks():
   """Clean up old fact-check records"""
+    global fact_checker
+
+    if fact_checker is None:
+        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
   data = request.get_json()
   days = data.get('days', 90)
 
+    try:
   deleted = fact_checker.cleanup_old_fact_checks(days)
 
   return jsonify({
@@ -810,116 +896,9 @@ def cleanup_fact_checks():
     'deleted': deleted,
     'message': f'Cleaned up records older than {days} days'
   })
-
-
-# Helper functions
-
-def get_signal_description(signal_name: str) -> str:
-  """Get human-readable description of signal"""
-  descriptions = {
-    # Candlestick patterns
-    'engulfing_bullish': 'Bullish engulfing pattern - strong reversal signal',
-    'engulfing_bearish': 'Bearish engulfing pattern - strong reversal signal',
-    'hammer': 'Hammer pattern - bullish reversal at support',
-    'shooting_star': 'Shooting star - bearish reversal at resistance',
-    'doji_reversal': 'Doji candle - indecision and potential reversal',
-    'morning_star': 'Morning star pattern - strong bullish reversal',
-    'evening_star': 'Evening star pattern - strong bearish reversal',
-    'three_white_soldiers': 'Three white soldiers - strong bullish continuation',
-    'three_black_crows': 'Three black crows - strong bearish continuation',
-
-    # Moving averages
-    'ma_cross_golden': 'Golden cross - 50 MA crosses above 200 MA (bullish)',
-    'ma_cross_death': 'Death cross - 50 MA crosses below 200 MA (bearish)',
-    'price_above_ma20': 'Price crosses above 20 MA (bullish)',
-    'price_below_ma20': 'Price crosses below 20 MA (bearish)',
-    'ma_ribbon_bullish': 'MA ribbon aligned bullish (5>10>20 EMAs)',
-    'ma_ribbon_bearish': 'MA ribbon aligned bearish (5<10<20 EMAs)',
-
-    # Momentum
-    'rsi_oversold': 'RSI below 30 - oversold condition',
-    'rsi_overbought': 'RSI above 70 - overbought condition',
-    'rsi_divergence_bullish': 'Bullish RSI divergence - very strong signal',
-    'rsi_divergence_bearish': 'Bearish RSI divergence - very strong signal',
-    'macd_cross_bullish': 'MACD bullish crossover',
-    'macd_cross_bearish': 'MACD bearish crossover',
-    'macd_divergence_bullish': 'Bullish MACD divergence',
-    'macd_divergence_bearish': 'Bearish MACD divergence',
-    'stoch_oversold': 'Stochastic oversold (<20)',
-    'stoch_overbought': 'Stochastic overbought (>80)',
-
-    # Volume
-    'volume_spike_bullish': 'Volume spike on bullish candle',
-    'volume_spike_bearish': 'Volume spike on bearish candle',
-    'volume_divergence_bullish': 'Bullish volume divergence',
-    'volume_divergence_bearish': 'Bearish volume divergence',
-    'obv_bullish': 'On-Balance Volume trending up',
-    'obv_bearish': 'On-Balance Volume trending down',
-    'vwap_cross_above': 'Price crosses above VWAP',
-    'vwap_cross_below': 'Price crosses below VWAP',
-
-    # Volatility
-    'bollinger_squeeze': 'Bollinger Band squeeze - breakout pending',
-    'bollinger_breakout_up': 'Price breaks above upper Bollinger Band',
-    'bollinger_breakout_down': 'Price breaks below lower Bollinger Band',
-    'bollinger_bounce_up': 'Price bounces off lower Bollinger Band',
-    'bollinger_bounce_down': 'Price bounces off upper Bollinger Band',
-    'atr_expansion': 'ATR expanding - increased volatility',
-
-    # Trend
-    'adx_strong_trend': 'ADX >25 - strong trend in place',
-    'adx_weak_trend': 'ADX <20 - weak or no trend',
-    'supertrend_bullish': 'SuperTrend indicator bullish',
-    'supertrend_bearish': 'SuperTrend indicator bearish',
-    'parabolic_sar_flip_bullish': 'Parabolic SAR flips bullish',
-    'parabolic_sar_flip_bearish': 'Parabolic SAR flips bearish',
-
-    # Price action
-    'higher_high': 'Price making higher high',
-    'lower_low': 'Price making lower low',
-    'break_of_structure_bullish': 'Bullish break of structure',
-    'break_of_structure_bearish': 'Bearish break of structure',
-    'support_bounce': 'Price bouncing off support level',
-    'resistance_rejection': 'Price rejected at resistance level',
-    'support_break': 'Price breaks below support',
-    'resistance_break': 'Price breaks above resistance',
-  }
-
-  return descriptions.get(signal_name, 'Technical analysis signal')
-
-
-def categorize_signal(signal_name: str) -> str:
-  """Categorize signal by type"""
-  if 'engulfing' in signal_name or 'hammer' in signal_name or 'star' in signal_name or 'doji' in signal_name or 'marubozu' in signal_name or 'soldiers' in signal_name or 'crows' in signal_name:
-    return 'Candlestick Pattern'
-  elif 'ma_' in signal_name or 'ema_' in signal_name or 'ribbon' in signal_name:
-    return 'Moving Average'
-  elif 'rsi' in signal_name or 'macd' in signal_name or 'stoch' in signal_name or 'cci' in signal_name or 'williams' in signal_name or 'momentum' in signal_name:
-    return 'Momentum'
-  elif 'volume' in signal_name or 'obv' in signal_name or 'vwap' in signal_name or 'accumulation' in signal_name:
-    return 'Volume'
-  elif 'bollinger' in signal_name or 'atr' in signal_name or 'keltner' in signal_name:
-    return 'Volatility'
-  elif 'adx' in signal_name or 'supertrend' in signal_name or 'sar' in signal_name or 'ichimoku' in signal_name:
-    return 'Trend'
-  elif 'support' in signal_name or 'resistance' in signal_name or 'structure' in signal_name or 'pivot' in signal_name or 'fibonacci' in signal_name:
-    return 'Price Action'
-  else:
-    return 'Other'
-
-
-# Add this to your app initialization section:
-"""
-# Import the new modules at the top of app.py:
-from scalp_signal_analyzer import ScalpSignalAnalyzer
-from live_analysis_handler import LiveAnalysisDB
-
-# Initialize after other globals:
-live_analyzer = ScalpSignalAnalyzer()
-live_db = LiveAnalysisDB()
-
-# Then add all the routes above before if __name__ == '__main__':
-"""
+    except Exception as e:
+        logging.error(f"Error cleaning up: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -971,14 +950,21 @@ if __name__ == '__main__':
   # Initialize database
   init_database()
 
-  # NEW: Initialize live analysis
-  # global live_analyzer, live_db
+    # Initialize live analysis
   live_analyzer = ScalpSignalAnalyzer()
   live_db = LiveAnalysisDB()
-  trading_manager = TradingPositionManager()
-  fact_checker = SignalFactChecker()
-
   logging.info("✅ Live analysis system initialized")
+
+    # NEW: Initialize trading modules
+    try:
+        trading_manager = TradingPositionManager(db_path=app.config['DB_PATH'])
+        fact_checker = SignalFactChecker(db_path=app.config['DB_PATH'])
+        sock = Sock(app)
+        logging.info("✅ Trading management system initialized")
+    except Exception as e:
+        logging.error(f"❌ Failed to initialize trading modules: {e}")
+        logging.error("Trading features will not be available!")
+        # Don't exit - let app run without trading features
 
   # Run Flask app
   app.run(host='0.0.0.0', port=5001, debug=True)  # Set debug=False for production
