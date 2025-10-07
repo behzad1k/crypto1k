@@ -40,6 +40,38 @@ sock = None
 
 
 # ==================== INITIALIZATION FUNCTION ====================
+
+def init_database():
+  """Initialize database if it doesn't exist"""
+  conn = sqlite3.connect(app.config['DB_PATH'])
+  cursor = conn.cursor()
+
+  cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pattern_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            signal TEXT NOT NULL,
+            pattern_confidence REAL NOT NULL,
+            pattern_count INTEGER NOT NULL,
+            best_pattern TEXT NOT NULL,
+            best_pattern_accuracy REAL NOT NULL,
+            all_patterns TEXT,
+            price REAL NOT NULL,
+            stop_loss REAL,
+            datetime_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+  cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_symbol_datetime 
+        ON pattern_signals(symbol, datetime_created)
+    ''')
+
+  conn.commit()
+  conn.close()
+  logging.info("✅ Database initialized")
+
+
 def initialize_app():
   """Initialize all modules - called on import for gunicorn compatibility"""
   global live_analyzer, live_db, trading_manager, fact_checker, sock
@@ -1069,37 +1101,6 @@ def calculate_validity_hours(confidence, pattern_count):
   total_factor = (confidence_factor * 0.6 + pattern_factor * 0.4)
   validity = base + (48 * total_factor)
   return int(validity)
-
-
-def init_database():
-  """Initialize database if it doesn't exist"""
-  conn = sqlite3.connect(app.config['DB_PATH'])
-  cursor = conn.cursor()
-
-  cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pattern_signals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL,
-            signal TEXT NOT NULL,
-            pattern_confidence REAL NOT NULL,
-            pattern_count INTEGER NOT NULL,
-            best_pattern TEXT NOT NULL,
-            best_pattern_accuracy REAL NOT NULL,
-            all_patterns TEXT,
-            price REAL NOT NULL,
-            stop_loss REAL,
-            datetime_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-  cursor.execute('''
-        CREATE INDEX IF NOT EXISTS idx_symbol_datetime 
-        ON pattern_signals(symbol, datetime_created)
-    ''')
-
-  conn.commit()
-  conn.close()
-  logging.info("✅ Database initialized")
 
 
 # ==================== STARTUP ====================
