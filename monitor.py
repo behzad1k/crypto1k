@@ -191,7 +191,7 @@ class CryptoPatternMonitor:
 
     df = pd.DataFrame(data['data'], columns=['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover'])
     df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+    df['timestamp'] = pd.to_datetime(pd.to_numeric(df['timestamp'], errors='coerce'), unit='s')
 
     for col in ['open', 'high', 'low', 'close', 'volume']:
       df[col] = pd.to_numeric(df[col], errors='coerce')
