@@ -1098,4 +1098,4 @@ if __name__ == '__main__':
     # Don't exit - let app run without trading features
 
 # Run Flask app
-app.run(host='0.0.0.0', port=5001, debug=True)  # Set debug=False for production
+app.run(host='0.0.0.0', port=5000, debug=True)  # Set debug=False for production
