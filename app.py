@@ -919,7 +919,7 @@ def position_websocket(ws, position_id):
       }))
 
       # Wait 60 seconds before next update
-      time.sleep(10)
+      # time.sleep(10)
 
   except Exception as e:
     logging.error(f"WebSocket error: {e}")
