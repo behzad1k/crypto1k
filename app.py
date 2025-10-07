@@ -73,23 +73,6 @@ def init_database():
   logging.info("✅ Database initialized")
 
 
-def upgrade_database():
-  """Add scalp_validation column to existing database"""
-  conn = sqlite3.connect(app.config['DB_PATH'])
-  cursor = conn.cursor()
-
-  try:
-    cursor.execute('ALTER TABLE pattern_signals ADD COLUMN scalp_validation TEXT')
-    conn.commit()
-    logging.info("✅ Database upgraded: scalp_validation column added")
-  except sqlite3.OperationalError as e:
-    if "duplicate column" in str(e).lower():
-      logging.info("✅ Database already has scalp_validation column")
-    else:
-      raise
-  finally:
-    conn.close()
-
 def initialize_app():
   """Initialize all modules - called on import for gunicorn compatibility"""
   global live_analyzer, live_db, trading_manager, fact_checker, sock
@@ -102,7 +85,6 @@ def initialize_app():
 
   # Initialize database
   init_database()
-  upgrade_database();
   # Initialize live analysis
   try:
     live_analyzer = ScalpSignalAnalyzer()

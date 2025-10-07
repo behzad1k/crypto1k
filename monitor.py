@@ -37,7 +37,7 @@ def fetch_nobitex_top_symbols(limit: int = 100) -> List[str]:
       reverse=True
     )
 
-    top_symbols = [c['symbol'].split('-')[0].upper() for c in sorted_coins
+    top_symbols = [c['symbol'].split('-')[0].upper() for c in sorted_coins]
     logging.info(f"✅ Fetched {len(top_symbols)} symbols from Nobitex")
     return top_symbols
 
