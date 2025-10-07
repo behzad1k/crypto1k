@@ -1,6 +1,7 @@
 """
 Complete Flask Application with Integrated Crypto Pattern Monitoring
 """
+import time
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file
 import sqlite3
@@ -16,6 +17,9 @@ import logging
 from monitor import CryptoPatternMonitor
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 from live_analysis_handler import LiveAnalysisDB
+from trading_position_manager import TradingPositionManager
+from signal_fact_checker import SignalFactChecker
+from flask_sock import Sock  # pip install flask-sock
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -30,6 +34,9 @@ monitor = None
 monitor_thread = None
 live_analyzer = None
 live_db = None
+fact_checker = None
+trading_manager = None
+sock = Sock(app)
 
 
 # ==================== AUTH ====================
@@ -227,16 +234,60 @@ def export_signals():
 
 # ==================== MONITORING CONTROL ====================
 
+@app.route('/api/monitor/status')
+@login_required
+def monitor_status():
+  global monitor
+
+  if monitor is None:
+    return jsonify({
+      'running': False,
+      'message': 'Monitor not initialized',
+      'symbols_processed': 0,
+      'alerts_triggered': 0,
+      'current_symbol': None,
+      'patterns_loaded': 0,
+      'last_update': None,
+      'current_symbols_count': 0
+    })
+
+  # Get stats from monitor
+  stats = monitor.get_stats()
+
+  # Return consistent status
+  return jsonify({
+    'running': monitor.running,
+    'symbols_processed': stats.get('symbols_processed', 0),
+    'alerts_triggered': stats.get('alerts_triggered', 0),
+    'current_symbol': stats.get('current_symbol'),
+    'patterns_loaded': len(monitor.indicator_patterns) if hasattr(monitor, 'indicator_patterns') else 0,
+    'last_update': stats.get('last_update'),
+    'current_symbols_count': len(monitor.current_symbols) if hasattr(monitor, 'current_symbols') else 0,
+    'message': 'Running' if monitor.running else 'Stopped'
+  })
+
+
+# REPLACE your start_monitor route with this:
 @app.route('/api/monitor/start')
 @login_required
 def start_monitor():
   global monitor, monitor_thread
 
+  # Check if already running
   if monitor is not None and monitor.running:
-    return jsonify({'success': False, 'message': 'Already running'})
+    return jsonify({
+      'success': False,
+      'message': 'Monitor is already running'
+    })
 
   try:
-    # Create monitor instance
+    # Stop any existing monitor first
+    if monitor is not None:
+      monitor.stop()
+      if monitor_thread and monitor_thread.is_alive():
+        monitor_thread.join(timeout=2)
+
+    # Create fresh monitor instance
     monitor = CryptoPatternMonitor(
       db_path=app.config['DB_PATH'],
       pattern_file=app.config['PATTERNS_FILE'],
@@ -246,52 +297,59 @@ def start_monitor():
     # Start monitoring in background thread
     monitor_thread = threading.Thread(
       target=monitor.run,
-      args=(100,),  # Top 100 coins
+      args=(100,),
       daemon=True
     )
     monitor_thread.start()
 
-    logging.info("✅ Monitoring started")
-    return jsonify({'success': True, 'message': 'Monitoring started'})
+    # Give it a moment to start
+    time.sleep(0.5)
+
+    logging.info("✅ Monitoring started successfully")
+    return jsonify({
+      'success': True,
+      'message': 'Monitoring started'
+    })
 
   except Exception as e:
     logging.error(f"Failed to start monitoring: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
+    return jsonify({
+      'success': False,
+      'message': f'Failed to start: {str(e)}'
+    }), 500
 
 
+# REPLACE your stop_monitor route with this:
 @app.route('/api/monitor/stop')
 @login_required
 def stop_monitor():
-  global monitor
+  global monitor, monitor_thread
 
   if monitor is None or not monitor.running:
-    return jsonify({'success': False, 'message': 'Not running'})
+    return jsonify({
+      'success': False,
+      'message': 'Monitor is not running'
+    })
 
   try:
     monitor.stop()
+
+    # Wait for thread to finish (with timeout)
+    if monitor_thread and monitor_thread.is_alive():
+      monitor_thread.join(timeout=3)
+
     logging.info("⏸️ Monitoring stopped")
-    return jsonify({'success': True, 'message': 'Monitoring stopped'})
+    return jsonify({
+      'success': True,
+      'message': 'Monitoring stopped'
+    })
 
   except Exception as e:
     logging.error(f"Failed to stop monitoring: {e}")
-    return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/monitor/status')
-@login_required
-def monitor_status():
-  global monitor
-
-  if monitor is None:
     return jsonify({
-      'running': False,
-      'message': 'Monitor not initialized'
-    })
-
-  stats = monitor.get_stats()
-  return jsonify(stats)
-
-
+      'success': False,
+      'message': f'Failed to stop: {str(e)}'
+    }), 500
 
 
 # ==================== LIVE ANALYSIS ROUTES ====================
@@ -449,6 +507,309 @@ def cleanup_old_signals():
 
   except Exception as e:
     return jsonify({'error': str(e)}), 500
+
+
+# ==================== TRADING POSITION ROUTES ====================
+
+@app.route('/api/trading/positions', methods=['GET', 'POST'])
+@login_required
+def trading_positions():
+  """Get all positions or create new position"""
+  if request.method == 'GET':
+    status = request.args.get('status')
+    symbol = request.args.get('symbol')
+
+    positions = trading_manager.get_all_positions(status, symbol)
+    summary = trading_manager.get_position_summary()
+
+    return jsonify({
+      'success': True,
+      'positions': positions,
+      'summary': summary
+    })
+
+  elif request.method == 'POST':
+    data = request.get_json()
+
+    try:
+      position_id = trading_manager.create_position(
+        symbol=data['symbol'],
+        entry_price=float(data['entry_price']),
+        amount=float(data['amount']),
+        status=data.get('status', 'waiting_for_right_time_to_enter'),
+        leverage_multiplier=data.get('leverage_multiplier'),
+        liquidation_at=data.get('liquidation_at'),
+        break_even=data.get('break_even'),
+        stop_loss=data.get('stop_loss'),
+        stop_profit=data.get('stop_profit'),
+        entry_reason=data.get('entry_reason'),
+        notes=data.get('notes')
+      )
+
+      return jsonify({
+        'success': True,
+        'position_id': position_id,
+        'message': 'Position created successfully'
+      })
+
+    except Exception as e:
+      return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/trading/positions/<int:position_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def trading_position_detail(position_id):
+  """Get, update, or delete specific position"""
+  if request.method == 'GET':
+    position = trading_manager.get_position(position_id)
+
+    if not position:
+      return jsonify({'success': False, 'error': 'Position not found'}), 404
+
+    # Get signals for this position
+    signals = trading_manager.get_position_signals(position_id)
+
+    return jsonify({
+      'success': True,
+      'position': position,
+      'signals': signals
+    })
+
+  elif request.method == 'PUT':
+    data = request.get_json()
+
+    success = trading_manager.update_position(position_id, **data)
+
+    if success:
+      return jsonify({'success': True, 'message': 'Position updated'})
+    else:
+      return jsonify({'success': False, 'error': 'Update failed'}), 404
+
+  elif request.method == 'DELETE':
+    success = trading_manager.delete_position(position_id)
+
+    if success:
+      return jsonify({'success': True, 'message': 'Position deleted'})
+    else:
+      return jsonify({'success': False, 'error': 'Delete failed'}), 404
+
+
+@app.route('/api/trading/positions/<int:position_id>/close', methods=['POST'])
+@login_required
+def close_trading_position(position_id):
+  """Close a position"""
+  data = request.get_json()
+
+  success = trading_manager.close_position(
+    position_id,
+    float(data['sold_price']),
+    data.get('exit_reason')
+  )
+
+  if success:
+    return jsonify({'success': True, 'message': 'Position closed'})
+  else:
+    return jsonify({'success': False, 'error': 'Failed to close position'}), 404
+
+
+@app.route('/api/trading/calculate-stops', methods=['POST'])
+@login_required
+def calculate_stops():
+  """Calculate suggested stop loss and stop profit"""
+  data = request.get_json()
+
+  try:
+    result = trading_manager.calculate_stop_loss_profit(
+      signal_type=data['signal_type'],
+      entry_price=float(data['entry_price']),
+      confidence=int(data['confidence']),
+      leverage=float(data.get('leverage', 1.0))
+    )
+
+    return jsonify({
+      'success': True,
+      'suggestions': result
+    })
+
+  except Exception as e:
+    return jsonify({'success': False, 'error': str(e)}), 400
+
+
+# ==================== WEBSOCKET FOR LIVE MONITORING ====================
+
+@sock.route('/ws/position/<int:position_id>')
+def position_websocket(ws, position_id):
+  """WebSocket for real-time position monitoring"""
+  import time
+  from scalp_signal_analyzer import ScalpSignalAnalyzer
+
+  # Get position details
+  position = trading_manager.get_position(position_id)
+
+  if not position:
+    ws.send(json.dumps({'error': 'Position not found'}))
+    return
+
+  symbol = position['symbol']
+  analyzer = ScalpSignalAnalyzer()
+
+  # Timeframes to monitor (can be customized)
+  timeframes = ['1m', '5m', '15m', '1h']
+
+  try:
+    while True:
+      # Fetch and analyze data
+      result = analyzer.analyze_symbol_all_timeframes(symbol, timeframes)
+
+      # Get adjusted confidences
+      for tf, data in result['timeframes'].items():
+        if 'error' in data:
+          continue
+
+        for signal_name, signal_data in data['signals'].items():
+          adjusted_conf = fact_checker.get_adjusted_confidence(signal_name, tf)
+          signal_data['adjusted_confidence'] = adjusted_conf
+
+          # Save signal to position
+          trading_manager.add_signal_to_position(
+            position_id,
+            signal_name,
+            signal_data.get('signal', 'UNKNOWN'),
+            tf,
+            adjusted_conf,
+            data['price']
+          )
+
+      # Send update to client
+      ws.send(json.dumps({
+        'timestamp': datetime.now().isoformat(),
+        'position_id': position_id,
+        'symbol': symbol,
+        'analysis': result
+      }))
+
+      # Wait 60 seconds before next update
+      time.sleep(60)
+
+  except Exception as e:
+    logging.error(f"WebSocket error: {e}")
+    ws.send(json.dumps({'error': str(e)}))
+
+
+# ==================== FACT-CHECKING ROUTES ====================
+
+@app.route('/api/fact-check/position/<int:position_id>', methods=['POST'])
+@login_required
+def fact_check_position(position_id):
+  """Fact-check all signals for a position"""
+  position = trading_manager.get_position(position_id)
+
+  if not position:
+    return jsonify({'success': False, 'error': 'Position not found'}), 404
+
+  try:
+    candles_ahead = int(request.args.get('candles_ahead', 5))
+
+    results = fact_checker.fact_check_position_signals(
+      position_id,
+      position['symbol'],
+      candles_ahead
+    )
+
+    return jsonify({
+      'success': True,
+      'results': results
+    })
+
+  except Exception as e:
+    return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/fact-check/signal-accuracy/<signal_name>')
+@login_required
+def get_signal_accuracy(signal_name):
+  """Get accuracy stats for a specific signal"""
+  timeframe = request.args.get('timeframe')
+
+  accuracy = fact_checker.calculate_signal_accuracy(signal_name, timeframe)
+
+  if accuracy:
+    return jsonify({'success': True, 'accuracy': accuracy})
+  else:
+    return jsonify({
+      'success': False,
+      'error': 'Insufficient data',
+      'message': 'Need at least 10 samples'
+    }), 404
+
+
+@app.route('/api/fact-check/adjust-confidence', methods=['POST'])
+@login_required
+def adjust_signal_confidence():
+  """Adjust confidence for a specific signal"""
+  data = request.get_json()
+
+  result = fact_checker.adjust_signal_confidence(
+    data['signal_name'],
+    data['timeframe'],
+    data.get('min_samples', 10)
+  )
+
+  if result:
+    return jsonify({'success': True, 'adjustment': result})
+  else:
+    return jsonify({
+      'success': False,
+      'error': 'Insufficient samples'
+    }), 400
+
+
+@app.route('/api/fact-check/bulk-adjust', methods=['POST'])
+@login_required
+def bulk_adjust_signals():
+  """Adjust all signals with sufficient data"""
+  data = request.get_json()
+  min_samples = data.get('min_samples', 10)
+
+  try:
+    results = fact_checker.bulk_adjust_all_signals(min_samples)
+
+    return jsonify({
+      'success': True,
+      'results': results
+    })
+
+  except Exception as e:
+    return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/fact-check/adjustments')
+@login_required
+def get_all_adjustments():
+  """Get all signal confidence adjustments"""
+  adjustments = fact_checker.get_all_adjustments()
+
+  return jsonify({
+    'success': True,
+    'adjustments': adjustments,
+    'count': len(adjustments)
+  })
+
+
+@app.route('/api/fact-check/cleanup', methods=['POST'])
+@login_required
+def cleanup_fact_checks():
+  """Clean up old fact-check records"""
+  data = request.get_json()
+  days = data.get('days', 90)
+
+  deleted = fact_checker.cleanup_old_fact_checks(days)
+
+  return jsonify({
+    'success': True,
+    'deleted': deleted,
+    'message': f'Cleaned up records older than {days} days'
+  })
 
 
 # Helper functions
@@ -614,6 +975,9 @@ if __name__ == '__main__':
   # global live_analyzer, live_db
   live_analyzer = ScalpSignalAnalyzer()
   live_db = LiveAnalysisDB()
+  trading_manager = TradingPositionManager()
+  fact_checker = SignalFactChecker()
+
   logging.info("✅ Live analysis system initialized")
 
   # Run Flask app
