@@ -32,9 +32,9 @@ def fetch_nobitex_top_symbols(limit: int = 100) -> List[str]:
         coins.append({'symbol': key, 'dayChange': val['dayChange']})
 
     sorted_coins = sorted(
-      [x for x in coins if 'usdt' in x['symbol'].lower() and float(x['dayChange']) > 0],
+      [x for x in coins if 'usdt' in x['symbol'].lower()],
       key=lambda c: float(c['dayChange']),
-      reverse=True
+      reverse=False
     )
 
     top_symbols = [c['symbol'].split('-')[0].upper() for c in sorted_coins[:limit]]
