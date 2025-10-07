@@ -1,6 +1,3 @@
-
-
-<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,7 +6,6 @@
     <title>Crypto Pattern Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://unpkg.com/jalali-moment/dist/jalali-moment.browser.js"></script>
 </head>
 <body class="bg-slate-900 min-h-screen">
     <!-- Header -->
@@ -17,10 +13,17 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-16">
                 <h1 class="text-2xl font-bold text-white">Crypto Pattern Dashboard</h1>
-                <a href="/logout" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
-                    <i data-lucide="log-out" class="w-5 h-5"></i>
-                    Logout
-                </a>
+                <div class="flex items-center gap-4">
+                    <!-- Monitor Status Badge -->
+                    <div id="monitor-status" class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-700">
+                        <div id="status-dot" class="w-2 h-2 rounded-full bg-slate-500"></div>
+                        <span id="status-text" class="text-sm text-slate-400">Offline</span>
+                    </div>
+                    <a href="/logout" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
+                        <i data-lucide="log-out" class="w-5 h-5"></i>
+                        Logout
+                    </a>
+                </div>
             </div>
         </div>
     </header>
@@ -155,10 +158,57 @@
 
         <!-- Control Panel Page -->
         <div id="page-control" class="hidden">
+            <!-- Monitor Control -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="activity" class="w-6 h-6 text-purple-400"></i>
+                        <h2 class="text-2xl font-bold text-white">Monitoring Control</h2>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="start-btn" onclick="startMonitoring()"
+                            class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                            <i data-lucide="play" class="w-4 h-4"></i>
+                            Start
+                        </button>
+                        <button id="stop-btn" onclick="stopMonitoring()"
+                            class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                            <i data-lucide="pause" class="w-4 h-4"></i>
+                            Stop
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Real-time Stats -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                    <div class="bg-slate-700 rounded-lg p-4">
+                        <p class="text-slate-400 text-sm">Status</p>
+                        <p id="stat-status" class="text-xl font-bold text-white">Offline</p>
+                    </div>
+                    <div class="bg-slate-700 rounded-lg p-4">
+                        <p class="text-slate-400 text-sm">Symbols Processed</p>
+                        <p id="stat-processed" class="text-xl font-bold text-white">0</p>
+                    </div>
+                    <div class="bg-slate-700 rounded-lg p-4">
+                        <p class="text-slate-400 text-sm">Alerts Triggered</p>
+                        <p id="stat-alerts" class="text-xl font-bold text-white">0</p>
+                    </div>
+                    <div class="bg-slate-700 rounded-lg p-4">
+                        <p class="text-slate-400 text-sm">Current Symbol</p>
+                        <p id="stat-current" class="text-xl font-bold text-white">-</p>
+                    </div>
+                </div>
+
+                <div class="text-sm text-slate-400">
+                    <p><strong>Last Update:</strong> <span id="stat-last-update">Never</span></p>
+                </div>
+            </div>
+
+            <!-- Priority Coins -->
             <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
                 <div class="flex items-center gap-2 mb-6">
                     <i data-lucide="settings" class="w-6 h-6 text-purple-400"></i>
-                    <h2 class="text-2xl font-bold text-white">Control Panel</h2>
+                    <h2 class="text-2xl font-bold text-white">Priority Coins</h2>
                 </div>
 
                 <div class="space-y-4">
@@ -180,8 +230,9 @@
                 </div>
             </div>
 
+            <!-- System Info -->
             <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-                <h3 class="text-lg font-semibold text-white mb-4">System Info</h3>
+                <h3 class="text-lg font-semibold text-white mb-4">System Configuration</h3>
                 <div class="space-y-2 text-sm">
                     <div class="flex justify-between">
                         <span class="text-slate-400">Min Pattern Accuracy:</span>
@@ -199,6 +250,10 @@
                         <span class="text-slate-400">Signal Validity:</span>
                         <span class="text-white font-medium">12-60 hours</span>
                     </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Patterns Loaded:</span>
+                        <span id="stat-patterns" class="text-white font-medium">0</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -208,12 +263,17 @@
         let currentPage = 1;
         let totalPages = 1;
         let currentSymbol = null;
+        let statusInterval = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
             loadSignals();
             loadPriorityCoins();
+            updateMonitorStatus();
+
+            // Start status polling
+            statusInterval = setInterval(updateMonitorStatus, 3000);
 
             // Add filter listeners
             ['filter-symbol', 'filter-accuracy', 'filter-patterns'].forEach(id => {
@@ -235,7 +295,82 @@
             document.getElementById(`tab-${page}`).classList.add('text-purple-400', 'border-purple-400');
             document.getElementById(`tab-${page}`).classList.remove('text-slate-400', 'border-transparent');
 
-            if (page === 'control') loadPriorityCoins();
+            if (page === 'control') {
+                loadPriorityCoins();
+                updateMonitorStatus();
+            }
+        }
+
+        async function updateMonitorStatus() {
+            try {
+                const response = await fetch('/api/monitor/status');
+                const status = await response.json();
+
+                const isRunning = status.running || false;
+
+                // Update header badge
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+
+                if (isRunning) {
+                    statusDot.className = 'w-2 h-2 rounded-full bg-green-500 animate-pulse';
+                    statusText.textContent = 'Online';
+                    statusText.className = 'text-sm text-green-400';
+                } else {
+                    statusDot.className = 'w-2 h-2 rounded-full bg-slate-500';
+                    statusText.textContent = 'Offline';
+                    statusText.className = 'text-sm text-slate-400';
+                }
+
+                // Update control panel stats
+                if (document.getElementById('stat-status')) {
+                    document.getElementById('stat-status').textContent = isRunning ? 'Running' : 'Stopped';
+                    document.getElementById('stat-processed').textContent = status.symbols_processed || 0;
+                    document.getElementById('stat-alerts').textContent = status.alerts_triggered || 0;
+                    document.getElementById('stat-current').textContent = status.current_symbol || '-';
+                    document.getElementById('stat-patterns').textContent = status.patterns_loaded || 0;
+                    document.getElementById('stat-last-update').textContent =
+                        status.last_update ? new Date(status.last_update).toLocaleString() : 'Never';
+
+                    // Update button states
+                    document.getElementById('start-btn').disabled = isRunning;
+                    document.getElementById('stop-btn').disabled = !isRunning;
+                }
+            } catch (error) {
+                console.error('Failed to fetch monitor status:', error);
+            }
+        }
+
+        async function startMonitoring() {
+            try {
+                const response = await fetch('/api/monitor/start');
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Monitoring started successfully!');
+                    updateMonitorStatus();
+                } else {
+                    alert('Failed to start monitoring: ' + data.message);
+                }
+            } catch (error) {
+                alert('Error starting monitoring: ' + error.message);
+            }
+        }
+
+        async function stopMonitoring() {
+            try {
+                const response = await fetch('/api/monitor/stop');
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Monitoring stopped');
+                    updateMonitorStatus();
+                } else {
+                    alert('Failed to stop monitoring: ' + data.message);
+                }
+            } catch (error) {
+                alert('Error stopping monitoring: ' + error.message);
+            }
         }
 
         async function loadSignals() {
@@ -262,6 +397,12 @@
             const tbody = document.getElementById('signals-tbody');
             tbody.innerHTML = '';
 
+            if (signals.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-slate-400">No signals found</td></tr>';
+                lucide.createIcons();
+                return;
+            }
+
             signals.forEach(signal => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-slate-700/50 transition-colors';
@@ -283,7 +424,7 @@
                     <td class="px-6 py-4 text-slate-300">${signal.pattern_count}</td>
                     <td class="px-6 py-4 text-slate-300">$${signal.price.toFixed(5)}</td>
                     <td class="px-6 py-4 text-slate-300">${signal.validity_hours}h</td>
-                    <td class="px-6 py-4 text-slate-400 text-sm">${moment(signal.datetime_created).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm:ss')}</td>
+                    <td class="px-6 py-4 text-slate-400 text-sm">${new Date(signal.datetime_created).toLocaleString()}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -316,17 +457,19 @@
             const response = await fetch(`/api/symbols/${symbol}`);
             const history = await response.json();
 
-            document.getElementById('page-signals').querySelector('.bg-slate-800.rounded-lg').classList.add('hidden');
+            document.querySelector('#page-signals > .bg-slate-800').classList.add('hidden');
             document.getElementById('symbol-detail').classList.remove('hidden');
 
             document.getElementById('symbol-title').textContent = `${symbol} Signal History`;
             document.getElementById('symbol-total').textContent = history.length;
 
-            const avgConf = history.reduce((a, b) => a + b.pattern_confidence, 0) / history.length;
-            document.getElementById('symbol-avg-conf').textContent = `${(avgConf * 100).toFixed(1)}%`;
+            if (history.length > 0) {
+                const avgConf = history.reduce((a, b) => a + b.pattern_confidence, 0) / history.length;
+                document.getElementById('symbol-avg-conf').textContent = `${(avgConf * 100).toFixed(1)}%`;
 
-            const avgPatterns = Math.round(history.reduce((a, b) => a + b.pattern_count, 0) / history.length);
-            document.getElementById('symbol-avg-patterns').textContent = avgPatterns;
+                const avgPatterns = Math.round(history.reduce((a, b) => a + b.pattern_count, 0) / history.length);
+                document.getElementById('symbol-avg-patterns').textContent = avgPatterns;
+            }
 
             const tbody = document.getElementById('symbol-history-tbody');
             tbody.innerHTML = '';
@@ -357,7 +500,7 @@
 
         function hideSymbolDetail() {
             document.getElementById('symbol-detail').classList.add('hidden');
-            document.getElementById('page-signals').querySelector('.bg-slate-800.rounded-lg').classList.remove('hidden');
+            document.querySelector('#page-signals > .bg-slate-800').classList.remove('hidden');
             currentSymbol = null;
         }
 
@@ -369,7 +512,7 @@
 
         async function savePriorityCoins() {
             const input = document.getElementById('priority-coins').value;
-            const coins = input.split(',').map(c => c.trim()).filter(c => c);
+            const coins = input.split(',').map(c => c.trim().toUpperCase()).filter(c => c);
 
             await fetch('/api/priority-coins', {
                 method: 'POST',
@@ -393,6 +536,11 @@
 
             window.location.href = `/api/export?${params}`;
         }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (statusInterval) clearInterval(statusInterval);
+        });
     </script>
 </body>
 </html>

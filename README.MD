@@ -1,60 +1,86 @@
-# Crypto Pattern Dashboard - Installation Guide
+# Crypto Pattern Dashboard - Complete Integration Guide
 
-## Complete Flask Application with Integrated Frontend
+## Overview
 
-This is a complete, production-ready Flask application that combines your crypto pattern monitoring system with a modern web dashboard.
+This guide shows you how to integrate your crypto monitoring script into the Flask dashboard for a unified application with:
 
-## Directory Structure
+- ✅ Real-time monitoring with start/stop controls
+- ✅ Live status updates every 3 seconds
+- ✅ Background thread execution
+- ✅ Shared SQLite database
+- ✅ Priority coin management
+- ✅ Historical signal tracking
+- ✅ Excel export functionality
+
+## File Structure
 
 ```
 crypto_dashboard/
-├── app.py                      # Main Flask application
-├── monitor.py                  # Pattern monitoring logic (separated)
+├── app.py                      # Main Flask application (UPDATED)
+├── monitor.py                  # Monitoring module (NEW)
 ├── requirements.txt            # Python dependencies
 ├── templates/
 │   ├── login.html             # Login page
-│   └── index.html             # Main dashboard
+│   └── index.html             # Dashboard with monitoring controls (UPDATED)
 ├── patterns.json              # Your indicator patterns
-├── priority_coins.json        # Priority coins list (auto-created)
+├── priority_coins.json        # Priority coins (auto-created)
 ├── crypto_signals.db          # SQLite database (auto-created)
-└── README.md                  # This file
+└── README.md
 ```
 
 ## Installation Steps
 
-### 1. System Requirements
-- Python 3.8+
-- Linux server (Ubuntu/Debian recommended)
-- 2GB RAM minimum
-- Internet connection for API calls
-
-### 2. Install Python Dependencies
+### 1. Backup Your Current Setup
 
 ```bash
-# Create project directory
-mkdir crypto_dashboard
-cd crypto_dashboard
+# Backup your database
+cp crypto_signals.db crypto_signals.db.backup
 
-# Create virtual environment
+# Backup your patterns file
+cp patterns.json patterns.json.backup
+```
+
+### 2. Create Virtual Environment (if not exists)
+
+```bash
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
 
-# Install dependencies
+### 3. Install Dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 3. Create Required Files
+### 4. Update Files
 
-Save the Flask app as `app.py` and create the templates directory:
+Replace/create the following files:
 
-```bash
-mkdir templates
-# Save login.html and index.html in templates/
+1. **monitor.py** - New file with monitoring logic
+2. **app.py** - Updated Flask app with monitoring integration
+3. **templates/index.html** - Updated dashboard with controls
+4. **requirements.txt** - Same dependencies
+
+### 5. Configure Credentials
+
+Edit `app.py` and change the login credentials:
+
+```python
+# Line 31-32
+if data.get('username') == 'YOUR_USERNAME' and data.get('password') == 'YOUR_PASSWORD':
 ```
 
-### 4. Create patterns.json
+Also change the secret key:
 
-Create a `patterns.json` file with your indicator patterns:
+```python
+# Line 16
+app.secret_key = 'your-unique-secret-key-here-make-it-random'
+```
+
+### 6. Verify Patterns File
+
+Make sure your `patterns.json` exists and has the correct format:
 
 ```json
 [
@@ -63,42 +89,125 @@ Create a `patterns.json` file with your indicator patterns:
     "accuracy": 0.8461538461538461,
     "success": 11,
     "total": 13
-  },
-  {
-    "indicator": "[12h] Momentum_5 + [8h] MOM_5_10_bullish + [8h] Momentum_10",
-    "accuracy": 0.7647058823529411,
-    "success": 13,
-    "total": 17
   }
 ]
 ```
 
-### 5. Configuration
-
-Edit `app.py` and change the secret key:
-
-```python
-app.secret_key = 'your-unique-secret-key-here'  # IMPORTANT: Change this!
-```
-
-### 6. Run the Application
+### 7. Test the Application
 
 ```bash
 # Development mode
 python app.py
-
-# Production mode (recommended)
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
 ```
 
-### 7. Access the Dashboard
+Open browser: `http://localhost:5000`
 
-Open your browser and navigate to:
-- `http://your-server-ip:5000`
+## Using the Dashboard
+
+### Login Page
+
+1. Navigate to `http://your-server:5000`
+2. Enter credentials (default: admin/admin123 - CHANGE THIS!)
+3. Click "Sign In"
+
+### Signals Page
+
+**Features:**
+- View all detected signals
+- Filter by symbol, accuracy, pattern count
+- Click symbol to view history
+- Export to Excel with filters
+- Real-time status indicator in header
+
+### Control Panel
+
+**Monitor Control:**
+- **Start Button**: Starts background monitoring
+- **Stop Button**: Stops monitoring gracefully
+- **Real-time Stats**:
+  - Status (Running/Stopped)
+  - Symbols Processed (count)
+  - Alerts Triggered (count)
+  - Current Symbol (what's being analyzed now)
+  - Last Update (timestamp)
+
+**Priority Coins:**
+- Add coins to monitor first (comma-separated)
+- Example: `BTC, ETH, SOL, NEAR, APT`
+- Click "Save Settings"
+- Priority coins are checked before Nobitex fetch
+
+**System Info:**
+- View current thresholds
+- Pattern count
+- Configuration settings
+
+### Status Indicator
+
+In the header, you'll see a status badge:
+- **Green (pulsing)**: Monitoring is active
+- **Gray (static)**: Monitoring is offline
+
+Status updates automatically every 3 seconds.
+
+## How It Works
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│           Flask Application                  │
+│  ┌────────────────────────────────────────┐ │
+│  │  Main Thread (Flask Server)            │ │
+│  │  - Handles HTTP requests               │ │
+│  │  - Serves dashboard                    │ │
+│  │  - API endpoints                       │ │
+│  └────────────────────────────────────────┘ │
+│                                              │
+│  ┌────────────────────────────────────────┐ │
+│  │  Background Thread (Monitor)           │ │
+│  │  - Fetches symbols from Nobitex        │ │
+│  │  - Analyzes patterns                   │ │
+│  │  - Saves signals to database           │ │
+│  │  - Updates real-time stats             │ │
+│  └────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+                      ↓
+           ┌──────────────────┐
+           │  SQLite Database │
+           │  (shared access) │
+           └──────────────────┘
+```
+
+### Monitoring Flow
+
+1. **Start Monitoring** → Creates `CryptoPatternMonitor` instance
+2. **Background Thread** → Runs `monitor.run()` in daemon thread
+3. **Continuous Loop**:
+   - Load priority coins from file
+   - Fetch top 100 coins from Nobitex
+   - Combine lists (priority first)
+   - Analyze each symbol:
+     - Fetch 30m OHLCV data
+     - Calculate indicators across timeframes
+     - Check pattern matches
+     - If thresholds met → Save to database
+   - Update statistics
+   - Repeat after 10 seconds
+
+4. **Dashboard Polling** → Frontend polls `/api/monitor/status` every 3 seconds
+5. **Real-time Updates** → Stats displayed in control panel
+
+### Thread Safety
+
+- Database writes are serialized (SQLite handles this)
+- Monitor can be safely started/stopped
+- Stats are updated atomically
+- No race conditions
 
 ## Production Deployment
 
-### Using Systemd Service
+### Using Systemd (Recommended)
 
 Create `/etc/systemd/system/crypto-dashboard.service`:
 
@@ -111,12 +220,18 @@ After=network.target
 User=your-username
 WorkingDirectory=/path/to/crypto_dashboard
 Environment="PATH=/path/to/crypto_dashboard/venv/bin"
-ExecStart=/path/to/crypto_dashboard/venv/bin/gunicorn -w 4 -b 0.0.0.0:5000 app:app
+ExecStart=/path/to/crypto_dashboard/venv/bin/gunicorn -w 1 -b 0.0.0.0:5000 --timeout 300 app:app
 Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+**Important**: Use `-w 1` (single worker) because:
+- Background monitoring thread should run once
+- Multiple workers would create multiple monitoring threads
+- Avoid duplicate alerts
 
 Enable and start:
 
@@ -124,6 +239,12 @@ Enable and start:
 sudo systemctl enable crypto-dashboard
 sudo systemctl start crypto-dashboard
 sudo systemctl status crypto-dashboard
+```
+
+View logs:
+
+```bash
+sudo journalctl -u crypto-dashboard -f
 ```
 
 ### Using Nginx Reverse Proxy
@@ -146,11 +267,13 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 300s;
     }
 }
 ```
 
-Enable site:
+Enable:
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/crypto-dashboard /etc/nginx/sites-enabled/
@@ -158,158 +281,223 @@ sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-### SSL Certificate (Optional but Recommended)
+### SSL Certificate (Optional)
 
 ```bash
 sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
 ```
 
-## Features
+## Configuration
 
-### Dashboard Pages
+### Monitoring Thresholds
 
-1. **Signals List**
-   - Paginated view of all signals
-   - Filters: Symbol, Min Accuracy, Min Patterns
-   - Export to Excel with filters
-   - Click symbol to view history
+Edit `monitor.py` to change thresholds:
 
-2. **Symbol Detail**
-   - Complete signal history per coin
-   - Statistics and trends
-   - Validity period calculation
-
-3. **Control Panel**
-   - Set priority coins
-   - View system configuration
-   - System status
-
-### Signal Validity Calculation
-
-Signals are valid for **12-60 hours** based on:
-- **Confidence Level** (60% weight): Higher confidence = longer validity
-- **Pattern Count** (40% weight): More patterns = longer validity
-
-Formula:
-```
-validity = 12 + (48 * ((confidence_factor * 0.6) + (pattern_factor * 0.4)))
+```python
+# Line 31-33
+self.min_pattern_accuracy = 0.70   # 70% minimum accuracy
+self.min_pattern_count = 100       # 100+ patterns required
+self.min_confidence = 0.80         # 80%+ confidence required
 ```
 
-### Security Features
+### Symbol Fetching
 
-- Session-based authentication
-- Login required for all pages
-- Configurable credentials
-- CSRF protection via Flask sessions
+Edit `monitor.py` to change how many coins to fetch:
 
-## Monitoring Integration
+```python
+# In app.py, line 142
+monitor_thread = threading.Thread(
+    target=monitor.run,
+    args=(100,),  # Change 100 to desired number
+    daemon=True
+)
+```
 
-The monitoring logic from your original script is integrated. To run continuous monitoring:
+### Monitoring Interval
 
-1. The monitor runs in a separate thread
-2. Priority coins are checked first
-3. Then fetches from Nobitex API
-4. Saves signals directly to database
-5. Dashboard updates automatically
+Edit `monitor.py` to change loop timing:
 
-## Database Schema
+```python
+# Line 420
+time.sleep(1)  # Delay between symbols (seconds)
 
-SQLite database (`crypto_signals.db`) with table:
-
-```sql
-CREATE TABLE pattern_signals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL,
-    signal TEXT NOT NULL,
-    pattern_confidence REAL NOT NULL,
-    pattern_count INTEGER NOT NULL,
-    best_pattern TEXT NOT NULL,
-    best_pattern_accuracy REAL NOT NULL,
-    all_patterns TEXT,
-    price REAL NOT NULL,
-    stop_loss REAL,
-    datetime_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+# Line 423  
+time.sleep(10)  # Delay between full loops (seconds)
 ```
 
 ## Troubleshooting
 
-### Database Issues
-```bash
-# Reset database
-rm crypto_signals.db
-python app.py  # Will recreate
-```
+### Monitor Won't Start
 
-### Port Already in Use
-```bash
-# Find process using port 5000
-sudo lsof -i :5000
-# Kill process
-sudo kill -9 <PID>
-```
-
-### Permission Denied
-```bash
-# Fix file permissions
-chmod +x app.py
-chmod 755 crypto_dashboard/
-```
-
-## Customization
-
-### Change Login Credentials
-
-Edit the login route in `app.py`:
-
-```python
-if data.get('username') == 'YOUR_USER' and data.get('password') == 'YOUR_PASS':
-```
-
-### Change Thresholds
-
-Edit in `app.py` or `monitor.py`:
-
-```python
-self.min_pattern_accuracy = 0.70  # 70% minimum
-```
-
-### Change Port
-
-```python
-app.run(host='0.0.0.0', port=8080)  # Change to 8080
-```
-
-## Maintenance
-
-### Backup Database
-
-```bash
-# Daily backup
-cp crypto_signals.db crypto_signals.db.$(date +%Y%m%d)
-```
-
-### Clean Old Signals
-
-```sql
-DELETE FROM pattern_signals 
-WHERE datetime_created < datetime('now', '-30 days');
-```
-
-### View Logs
+**Check logs:**
 
 ```bash
 # If using systemd
 sudo journalctl -u crypto-dashboard -f
+
+# If running manually
+# Check console output
 ```
+
+**Common issues:**
+- Patterns file not found → Check `patterns.json` exists
+- Database locked → Stop all running instances
+- Port in use → Change port in `app.py` line 160
+
+### Database Issues
+
+**Reset database:**
+
+```bash
+# Backup first!
+cp crypto_signals.db crypto_signals.db.old
+
+# Delete and restart app (will recreate)
+rm crypto_signals.db
+python app.py
+```
+
+**Check database:**
+
+```bash
+sqlite3 crypto_signals.db
+.tables
+.schema pattern_signals
+SELECT COUNT(*) FROM pattern_signals;
+.quit
+```
+
+### Monitor Stuck
+
+If monitoring seems stuck:
+
+1. Stop via dashboard "Stop" button
+2. Check logs for errors
+3. Restart monitoring
+4. If needed, restart entire application
+
+### High CPU Usage
+
+If CPU usage is high:
+
+1. Increase delays in `monitor.py`:
+   - `time.sleep(1)` → `time.sleep(2)` between symbols
+   - `time.sleep(10)` → `time.sleep(30)` between loops
+
+2. Reduce number of coins:
+   - Change `args=(100,)` → `args=(50,)` in app.py
+
+## Monitoring Best Practices
+
+### 1. Start Small
+
+- Begin with 20-30 priority coins
+- Monitor for a few hours
+- Check database size and performance
+- Gradually increase if needed
+
+### 2. Priority Coins
+
+Add high-volume, stable coins first:
+```
+BTC, ETH, SOL, BNB, ADA, DOT, MATIC, AVAX, LINK, UNI
+```
+
+### 3. Database Maintenance
+
+**Weekly cleanup:**
+
+```sql
+-- Delete signals older than 30 days
+DELETE FROM pattern_signals 
+WHERE datetime_created < datetime('now', '-30 days');
+
+-- Vacuum database
+VACUUM;
+```
+
+### 4. Backup Strategy
+
+**Daily backups:**
+
+```bash
+#!/bin/bash
+# backup.sh
+DATE=$(date +%Y%m%d)
+cp crypto_signals.db "backups/crypto_signals_$DATE.db"
+
+# Keep only last 7 days
+find backups/ -name "crypto_signals_*.db" -mtime +7 -delete
+```
+
+Add to crontab:
+
+```bash
+crontab -e
+# Add line:
+0 2 * * * /path/to/backup.sh
+```
+
+## API Endpoints
+
+### Monitoring Control
+
+- `POST /api/monitor/start` - Start monitoring
+- `POST /api/monitor/stop` - Stop monitoring  
+- `GET /api/monitor/status` - Get real-time status
+
+### Signals
+
+- `GET /api/signals?page=1&minAccuracy=0.8&minPatterns=100&symbol=BTC` - Get signals
+- `GET /api/symbols/<symbol>` - Get symbol history
+- `GET /api/export` - Export to Excel
+
+### Configuration
+
+- `GET /api/priority-coins` - Get priority coins
+- `POST /api/priority-coins` - Set priority coins
+
+## Security Recommendations
+
+1. **Change default credentials** in `app.py`
+2. **Change secret key** to random string
+3. **Use HTTPS** in production (via nginx + certbot)
+4. **Firewall rules**:
+   ```bash
+   sudo ufw allow 80/tcp
+   sudo ufw allow 443/tcp
+   sudo ufw enable
+   ```
+
+5. **Regular updates**:
+   ```bash
+   pip install --upgrade -r requirements.txt
+   ```
+
+## Performance Optimization
+
+### For Large Scale (200+ coins)
+
+1. **Database Indexing** (already done):
+   ```sql
+   CREATE INDEX idx_symbol_datetime ON pattern_signals(symbol, datetime_created);
+   ```
+
+2. **Pagination** (already implemented in API)
+
+3. **Caching** - Add Redis for frequently accessed data
+
+4. **Multiple Workers** - Use Celery for distributed monitoring
 
 ## Support
 
 For issues:
+
 1. Check logs: `journalctl -u crypto-dashboard -f`
 2. Verify database: `sqlite3 crypto_signals.db .schema`
-3. Test API: `curl http://localhost:5000/api/signals`
+3. Test API: `curl http://localhost:5000/api/monitor/status`
+4. Check patterns: Number and format in `patterns.json`
 
 ## License
 
