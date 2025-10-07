@@ -9,539 +9,1018 @@
     <script src="https://unpkg.com/jalali-moment/dist/jalali-moment.browser.js"></script>
 </head>
 <body class="bg-slate-900 min-h-screen">
-    <!-- Header -->
-    <header class="bg-slate-800 border-b border-slate-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between items-center h-16">
-                <h1 class="text-2xl font-bold text-white">Crypto Pattern Dashboard</h1>
-                <div class="flex items-center gap-4">
-                    <!-- Monitor Status Badge -->
-                    <div id="monitor-status" class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-700">
-                        <div id="status-dot" class="w-2 h-2 rounded-full bg-slate-500"></div>
-                        <span id="status-text" class="text-sm text-slate-400">Offline</span>
-                    </div>
-                    <a href="/logout" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
-                        <i data-lucide="log-out" class="w-5 h-5"></i>
-                        Logout
-                    </a>
+<!-- Header -->
+<header class="bg-slate-800 border-b border-slate-700">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16">
+            <h1 class="text-2xl font-bold text-white">Crypto Pattern Dashboard</h1>
+            <div class="flex items-center gap-4">
+                <!-- Monitor Status Badge -->
+                <div id="monitor-status" class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-700">
+                    <div id="status-dot" class="w-2 h-2 rounded-full bg-slate-500"></div>
+                    <span id="status-text" class="text-sm text-slate-400">Offline</span>
                 </div>
+                <a href="/logout" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
+                    <i data-lucide="log-out" class="w-5 h-5"></i>
+                    Logout
+                </a>
             </div>
         </div>
-    </header>
+    </div>
+</header>
 
-    <!-- Navigation -->
-    <nav class="bg-slate-800 border-b border-slate-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex gap-4">
-                <button onclick="showPage('signals')" id="tab-signals"
+<!-- Navigation -->
+<nav class="bg-slate-800 border-b border-slate-700">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex gap-4">
+            <button onclick="showPage('signals')" id="tab-signals"
                     class="px-4 py-3 font-medium transition-colors border-b-2 text-purple-400 border-purple-400">
-                    Signals
-                </button>
-                <button onclick="showPage('control')" id="tab-control"
+                Signals
+            </button>
+            <button onclick="showPage('control')" id="tab-control"
                     class="px-4 py-3 font-medium transition-colors border-b-2 text-slate-400 border-transparent hover:text-white">
-                    Control Panel
+                Control Panel
+            </button>
+            <button onclick="showPage('live')" id="tab-live"
+                    class="px-4 py-3 font-medium transition-colors border-b-2 text-slate-400 border-transparent hover:text-white">
+                Live Analysis
+            </button>
+
+        </div>
+    </div>
+</nav>
+
+<!-- Main Content -->
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Signals Page -->
+    <div id="page-signals">
+        <!-- Filters -->
+        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+            <div class="flex items-center gap-2 mb-4">
+                <i data-lucide="filter" class="w-5 h-5 text-purple-400"></i>
+                <h2 class="text-lg font-semibold text-white">Filters</h2>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <input type="text" id="filter-symbol" placeholder="Symbol (e.g., BTC)"
+                       class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+
+                <input type="number" id="filter-accuracy" placeholder="Min Accuracy (0.70)" step="0.01" min="0" max="1"
+                       class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+
+                <input type="number" id="filter-patterns" placeholder="Min Patterns (100)"
+                       class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+
+                <button onclick="exportSignals()"
+                        class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    Export Excel
                 </button>
             </div>
         </div>
-    </nav>
 
-    <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Signals Page -->
-        <div id="page-signals">
-            <!-- Filters -->
-            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-                <div class="flex items-center gap-2 mb-4">
-                    <i data-lucide="filter" class="w-5 h-5 text-purple-400"></i>
-                    <h2 class="text-lg font-semibold text-white">Filters</h2>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <input type="text" id="filter-symbol" placeholder="Symbol (e.g., BTC)"
-                        class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-
-                    <input type="number" id="filter-accuracy" placeholder="Min Accuracy (0.70)" step="0.01" min="0" max="1"
-                        class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-
-                    <input type="number" id="filter-patterns" placeholder="Min Patterns (100)"
-                        class="px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-
-                    <button onclick="exportSignals()"
-                        class="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
-                        <i data-lucide="download" class="w-4 h-4"></i>
-                        Export Excel
-                    </button>
-                </div>
+        <!-- Signals Table -->
+        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead class="bg-slate-700">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Symbol</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Signal</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Confidence</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Patterns</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Price</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Valid For</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Date</th>
+                    </tr>
+                    </thead>
+                    <tbody id="signals-tbody" class="divide-y divide-slate-700">
+                    </tbody>
+                </table>
             </div>
 
-            <!-- Signals Table -->
-            <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <!-- Pagination -->
+            <div class="bg-slate-700 px-6 py-4 flex items-center justify-between">
+                <button onclick="prevPage()" id="prev-btn"
+                        class="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors">
+                    <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                    Previous
+                </button>
+
+                <span id="page-info" class="text-slate-300"></span>
+
+                <button onclick="nextPage()" id="next-btn"
+                        class="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors">
+                    Next
+                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Symbol Detail (hidden by default) -->
+        <div id="symbol-detail" class="hidden">
+            <button onclick="hideSymbolDetail()"
+                    class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors mb-6">
+                <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                Back to Signals
+            </button>
+
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h2 id="symbol-title" class="text-2xl font-bold text-white mb-4"></h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-slate-700 rounded-lg p-4">
+                        <p class="text-slate-400 text-sm">Total Signals</p>
+                        <p id="symbol-total" class="text-2xl font-bold text-white">0</p>
+                    </div>
+                    <div class="bg-slate-700 rounded-lg p-4">
+                        <p class="text-slate-400 text-sm">Avg Confidence</p>
+                        <p id="symbol-avg-conf" class="text-2xl font-bold text-white">0%</p>
+                    </div>
+                    <div class="bg-slate-700 rounded-lg p-4">
+                        <p class="text-slate-400 text-sm">Avg Patterns</p>
+                        <p id="symbol-avg-patterns" class="text-2xl font-bold text-white">0</p>
+                    </div>
+                </div>
+
                 <div class="overflow-x-auto">
                     <table class="w-full">
                         <thead class="bg-slate-700">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Symbol</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Signal</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Confidence</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Patterns</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Price</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Valid For</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase">Date</th>
-                            </tr>
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Signal</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Confidence</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Patterns</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Price</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Valid For</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Date</th>
+                        </tr>
                         </thead>
-                        <tbody id="signals-tbody" class="divide-y divide-slate-700">
+                        <tbody id="symbol-history-tbody" class="divide-y divide-slate-700">
                         </tbody>
                     </table>
                 </div>
-
-                <!-- Pagination -->
-                <div class="bg-slate-700 px-6 py-4 flex items-center justify-between">
-                    <button onclick="prevPage()" id="prev-btn"
-                        class="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors">
-                        <i data-lucide="chevron-left" class="w-4 h-4"></i>
-                        Previous
-                    </button>
-
-                    <span id="page-info" class="text-slate-300"></span>
-
-                    <button onclick="nextPage()" id="next-btn"
-                        class="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg transition-colors">
-                        Next
-                        <i data-lucide="chevron-right" class="w-4 h-4"></i>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Symbol Detail (hidden by default) -->
-            <div id="symbol-detail" class="hidden">
-                <button onclick="hideSymbolDetail()" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors mb-6">
-                    <i data-lucide="chevron-left" class="w-5 h-5"></i>
-                    Back to Signals
-                </button>
-
-                <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-                    <h2 id="symbol-title" class="text-2xl font-bold text-white mb-4"></h2>
-
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                        <div class="bg-slate-700 rounded-lg p-4">
-                            <p class="text-slate-400 text-sm">Total Signals</p>
-                            <p id="symbol-total" class="text-2xl font-bold text-white">0</p>
-                        </div>
-                        <div class="bg-slate-700 rounded-lg p-4">
-                            <p class="text-slate-400 text-sm">Avg Confidence</p>
-                            <p id="symbol-avg-conf" class="text-2xl font-bold text-white">0%</p>
-                        </div>
-                        <div class="bg-slate-700 rounded-lg p-4">
-                            <p class="text-slate-400 text-sm">Avg Patterns</p>
-                            <p id="symbol-avg-patterns" class="text-2xl font-bold text-white">0</p>
-                        </div>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead class="bg-slate-700">
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Signal</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Confidence</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Patterns</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Price</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Valid For</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase">Date</th>
-                                </tr>
-                            </thead>
-                            <tbody id="symbol-history-tbody" class="divide-y divide-slate-700">
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
             </div>
         </div>
+    </div>
 
-        <!-- Control Panel Page -->
-        <div id="page-control" class="hidden">
-            <!-- Monitor Control -->
-            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-                <div class="flex items-center justify-between mb-6">
-                    <div class="flex items-center gap-2">
-                        <i data-lucide="activity" class="w-6 h-6 text-purple-400"></i>
-                        <h2 class="text-2xl font-bold text-white">Monitoring Control</h2>
-                    </div>
-                    <div class="flex gap-2">
-                        <button id="start-btn" onclick="startMonitoring()"
+    <!-- Control Panel Page -->
+    <div id="page-control" class="hidden">
+        <!-- Monitor Control -->
+        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+            <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="activity" class="w-6 h-6 text-purple-400"></i>
+                    <h2 class="text-2xl font-bold text-white">Monitoring Control</h2>
+                </div>
+                <div class="flex gap-2">
+                    <button id="start-btn" onclick="startMonitoring()"
                             class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
-                            <i data-lucide="play" class="w-4 h-4"></i>
-                            Start
-                        </button>
-                        <button id="stop-btn" onclick="stopMonitoring()"
+                        <i data-lucide="play" class="w-4 h-4"></i>
+                        Start
+                    </button>
+                    <button id="stop-btn" onclick="stopMonitoring()"
                             class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
-                            <i data-lucide="pause" class="w-4 h-4"></i>
-                            Stop
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Real-time Stats -->
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                    <div class="bg-slate-700 rounded-lg p-4">
-                        <p class="text-slate-400 text-sm">Status</p>
-                        <p id="stat-status" class="text-xl font-bold text-white">Offline</p>
-                    </div>
-                    <div class="bg-slate-700 rounded-lg p-4">
-                        <p class="text-slate-400 text-sm">Symbols Processed</p>
-                        <p id="stat-processed" class="text-xl font-bold text-white">0</p>
-                    </div>
-                    <div class="bg-slate-700 rounded-lg p-4">
-                        <p class="text-slate-400 text-sm">Alerts Triggered</p>
-                        <p id="stat-alerts" class="text-xl font-bold text-white">0</p>
-                    </div>
-                    <div class="bg-slate-700 rounded-lg p-4">
-                        <p class="text-slate-400 text-sm">Current Symbol</p>
-                        <p id="stat-current" class="text-xl font-bold text-white">-</p>
-                    </div>
-                </div>
-
-                <div class="text-sm text-slate-400">
-                    <p><strong>Last Update:</strong> <span id="stat-last-update">Never</span></p>
-                </div>
-            </div>
-
-            <!-- Priority Coins -->
-            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-                <div class="flex items-center gap-2 mb-6">
-                    <i data-lucide="settings" class="w-6 h-6 text-purple-400"></i>
-                    <h2 class="text-2xl font-bold text-white">Priority Coins</h2>
-                </div>
-
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">
-                            Priority Coins (comma-separated)
-                        </label>
-                        <p class="text-sm text-slate-400 mb-3">
-                            These coins will be monitored first before fetching from Nobitex
-                        </p>
-                        <input type="text" id="priority-coins" placeholder="BTC, ETH, SOL"
-                            class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-                    </div>
-
-                    <button onclick="savePriorityCoins()"
-                        class="bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-6 rounded-lg transition-colors">
-                        Save Settings
+                        <i data-lucide="pause" class="w-4 h-4"></i>
+                        Stop
                     </button>
                 </div>
             </div>
 
-            <!-- System Info -->
-            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-                <h3 class="text-lg font-semibold text-white mb-4">System Configuration</h3>
-                <div class="space-y-2 text-sm">
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Min Pattern Accuracy:</span>
-                        <span class="text-white font-medium">70%</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Pattern Threshold:</span>
-                        <span class="text-white font-medium">100+ patterns</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Confidence Threshold:</span>
-                        <span class="text-white font-medium">80%+</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Signal Validity:</span>
-                        <span class="text-white font-medium">12-60 hours</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Patterns Loaded:</span>
-                        <span id="stat-patterns" class="text-white font-medium">0</span>
-                    </div>
+            <!-- Real-time Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div class="bg-slate-700 rounded-lg p-4">
+                    <p class="text-slate-400 text-sm">Status</p>
+                    <p id="stat-status" class="text-xl font-bold text-white">Offline</p>
+                </div>
+                <div class="bg-slate-700 rounded-lg p-4">
+                    <p class="text-slate-400 text-sm">Symbols Processed</p>
+                    <p id="stat-processed" class="text-xl font-bold text-white">0</p>
+                </div>
+                <div class="bg-slate-700 rounded-lg p-4">
+                    <p class="text-slate-400 text-sm">Alerts Triggered</p>
+                    <p id="stat-alerts" class="text-xl font-bold text-white">0</p>
+                </div>
+                <div class="bg-slate-700 rounded-lg p-4">
+                    <p class="text-slate-400 text-sm">Current Symbol</p>
+                    <p id="stat-current" class="text-xl font-bold text-white">-</p>
+                </div>
+            </div>
+
+            <div class="text-sm text-slate-400">
+                <p><strong>Last Update:</strong> <span id="stat-last-update">Never</span></p>
+            </div>
+        </div>
+
+        <!-- Priority Coins -->
+        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+            <div class="flex items-center gap-2 mb-6">
+                <i data-lucide="settings" class="w-6 h-6 text-purple-400"></i>
+                <h2 class="text-2xl font-bold text-white">Priority Coins</h2>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">
+                        Priority Coins (comma-separated)
+                    </label>
+                    <p class="text-sm text-slate-400 mb-3">
+                        These coins will be monitored first before fetching from Nobitex
+                    </p>
+                    <input type="text" id="priority-coins" placeholder="BTC, ETH, SOL"
+                           class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                </div>
+
+                <button onclick="savePriorityCoins()"
+                        class="bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-6 rounded-lg transition-colors">
+                    Save Settings
+                </button>
+            </div>
+        </div>
+
+        <!-- System Info -->
+        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <h3 class="text-lg font-semibold text-white mb-4">System Configuration</h3>
+            <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Min Pattern Accuracy:</span>
+                    <span class="text-white font-medium">70%</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Pattern Threshold:</span>
+                    <span class="text-white font-medium">100+ patterns</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Confidence Threshold:</span>
+                    <span class="text-white font-medium">80%+</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Signal Validity:</span>
+                    <span class="text-white font-medium">12-60 hours</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Patterns Loaded:</span>
+                    <span id="stat-patterns" class="text-white font-medium">0</span>
                 </div>
             </div>
         </div>
-    </main>
+    </div>
+    <!-- Add this to your templates/index.html -->
 
-    <script>
-        let currentPage = 1;
-        let totalPages = 1;
-        let currentSymbol = null;
-        let statusInterval = null;
+<!-- Add to navigation tabs (after Control Panel tab) -->
+<button onclick="showPage('live')" id="tab-live"
+    class="px-4 py-3 font-medium transition-colors border-b-2 text-slate-400 border-transparent hover:text-white">
+    Live Analysis
+</button>
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            lucide.createIcons();
-            loadSignals();
+<!-- Add this page section after page-control div -->
+<div id="page-live" class="hidden">
+    <!-- Timeframe Selection -->
+    <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+        <div class="flex items-center gap-2 mb-4">
+            <i data-lucide="clock" class="w-5 h-5 text-purple-400"></i>
+            <h2 class="text-lg font-semibold text-white">Timeframe Selection</h2>
+        </div>
+
+        <div class="space-y-4">
+            <div>
+                <p class="text-sm text-slate-300 mb-2">Select timeframes to analyze (applies to all coins):</p>
+                <div class="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-9 gap-2">
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="1m" checked>
+                        <span>1m</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="3m">
+                        <span>3m</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="5m" checked>
+                        <span>5m</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="15m" checked>
+                        <span>15m</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="30m">
+                        <span>30m</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="1h" checked>
+                        <span>1h</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="2h">
+                        <span>2h</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="4h">
+                        <span>4h</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="6h">
+                        <span>6h</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="8h">
+                        <span>8h</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="12h">
+                        <span>12h</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input type="checkbox" class="tf-checkbox" value="1d">
+                        <span>1d</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="selectAllTimeframes(true)" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                    Select All
+                </button>
+                <button onclick="selectAllTimeframes(false)" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                    Deselect All
+                </button>
+                <button onclick="selectShortTerm()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                    Short-term (1m-15m)
+                </button>
+                <button onclick="selectMidTerm()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                    Mid-term (30m-8h)
+                </button>
+                <button onclick="selectLongTerm()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                    Long-term (12h-1d)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Coin Analysis Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Coin 1 -->
+        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <div class="bg-gradient-to-r from-purple-600 to-pink-600 p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <input type="text" id="symbol-1" placeholder="BTC"
+                            class="px-3 py-2 bg-white/20 backdrop-blur border border-white/30 rounded text-white placeholder-white/70 font-bold uppercase text-lg focus:outline-none focus:ring-2 focus:ring-white/50 w-32">
+                        <button onclick="analyzeCoin(1)" class="flex items-center gap-2 bg-white/20 hover:bg-white/30 backdrop-blur text-white font-medium py-2 px-4 rounded-lg transition-all">
+                            <i data-lucide="zap" class="w-4 h-4"></i>
+                            Analyze
+                        </button>
+                    </div>
+                    <div id="status-1" class="text-white text-sm hidden">
+                        <i data-lucide="loader" class="w-4 h-4 animate-spin inline"></i>
+                    </div>
+                </div>
+            </div>
+            <div id="results-1" class="p-4 max-h-[600px] overflow-y-auto">
+                <p class="text-slate-400 text-center py-8">Enter a symbol and click Analyze</p>
+            </div>
+        </div>
+
+        <!-- Coin 2 -->
+        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <div class="bg-gradient-to-r from-blue-600 to-cyan-600 p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <input type="text" id="symbol-2" placeholder="ETH"
+                            class="px-3 py-2 bg-white/20 backdrop-blur border border-white/30 rounded text-white placeholder-white/70 font-bold uppercase text-lg focus:outline-none focus:ring-2 focus:ring-white/50 w-32">
+                        <button onclick="analyzeCoin(2)" class="flex items-center gap-2 bg-white/20 hover:bg-white/30 backdrop-blur text-white font-medium py-2 px-4 rounded-lg transition-all">
+                            <i data-lucide="zap" class="w-4 h-4"></i>
+                            Analyze
+                        </button>
+                    </div>
+                    <div id="status-2" class="text-white text-sm hidden">
+                        <i data-lucide="loader" class="w-4 h-4 animate-spin inline"></i>
+                    </div>
+                </div>
+            </div>
+            <div id="results-2" class="p-4 max-h-[600px] overflow-y-auto">
+                <p class="text-slate-400 text-center py-8">Enter a symbol and click Analyze</p>
+            </div>
+        </div>
+
+        <!-- Coin 3 -->
+        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <div class="bg-gradient-to-r from-green-600 to-emerald-600 p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <input type="text" id="symbol-3" placeholder="SOL"
+                            class="px-3 py-2 bg-white/20 backdrop-blur border border-white/30 rounded text-white placeholder-white/70 font-bold uppercase text-lg focus:outline-none focus:ring-2 focus:ring-white/50 w-32">
+                        <button onclick="analyzeCoin(3)" class="flex items-center gap-2 bg-white/20 hover:bg-white/30 backdrop-blur text-white font-medium py-2 px-4 rounded-lg transition-all">
+                            <i data-lucide="zap" class="w-4 h-4"></i>
+                            Analyze
+                        </button>
+                    </div>
+                    <div id="status-3" class="text-white text-sm hidden">
+                        <i data-lucide="loader" class="w-4 h-4 animate-spin inline"></i>
+                    </div>
+                </div>
+            </div>
+            <div id="results-3" class="p-4 max-h-[600px] overflow-y-auto">
+                <p class="text-slate-400 text-center py-8">Enter a symbol and click Analyze</p>
+            </div>
+        </div>
+
+        <!-- Coin 4 -->
+        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+            <div class="bg-gradient-to-r from-orange-600 to-red-600 p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <input type="text" id="symbol-4" placeholder="NEAR"
+                            class="px-3 py-2 bg-white/20 backdrop-blur border border-white/30 rounded text-white placeholder-white/70 font-bold uppercase text-lg focus:outline-none focus:ring-2 focus:ring-white/50 w-32">
+                        <button onclick="analyzeCoin(4)" class="flex items-center gap-2 bg-white/20 hover:bg-white/30 backdrop-blur text-white font-medium py-2 px-4 rounded-lg transition-all">
+                            <i data-lucide="zap" class="w-4 h-4"></i>
+                            Analyze
+                        </button>
+                    </div>
+                    <div id="status-4" class="text-white text-sm hidden">
+                        <i data-lucide="loader" class="w-4 h-4 animate-spin inline"></i>
+                    </div>
+                </div>
+            </div>
+            <div id="results-4" class="p-4 max-h-[600px] overflow-y-auto">
+                <p class="text-slate-400 text-center py-8">Enter a symbol and click Analyze</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Signal Legend -->
+    <div class="mt-6 bg-slate-800 rounded-lg p-6 border border-slate-700">
+        <div class="flex items-center gap-2 mb-4">
+            <i data-lucide="info" class="w-5 h-5 text-purple-400"></i>
+            <h3 class="text-lg font-semibold text-white">Signal Confidence Legend</h3>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-red-500 rounded"></div>
+                <span class="text-slate-300">85-100: Very Strong</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-orange-500 rounded"></div>
+                <span class="text-slate-300">75-84: Strong</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-yellow-500 rounded"></div>
+                <span class="text-slate-300">65-74: Moderate</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-slate-500 rounded"></div>
+                <span class="text-slate-300">0-64: Weak</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add this JavaScript to your existing script section -->
+<script>
+// Timeframe selection helpers
+function selectAllTimeframes(checked) {
+    document.querySelectorAll('.tf-checkbox').forEach(cb => cb.checked = checked);
+}
+
+function selectShortTerm() {
+    document.querySelectorAll('.tf-checkbox').forEach(cb => cb.checked = false);
+    ['1m', '3m', '5m', '15m'].forEach(tf => {
+        const cb = document.querySelector(`.tf-checkbox[value="${tf}"]`);
+        if (cb) cb.checked = true;
+    });
+}
+
+function selectMidTerm() {
+    document.querySelectorAll('.tf-checkbox').forEach(cb => cb.checked = false);
+    ['30m', '1h', '2h', '4h', '6h', '8h'].forEach(tf => {
+        const cb = document.querySelector(`.tf-checkbox[value="${tf}"]`);
+        if (cb) cb.checked = true;
+    });
+}
+
+function selectLongTerm() {
+    document.querySelectorAll('.tf-checkbox').forEach(cb => cb.checked = false);
+    ['12h', '1d', '3d', '1w'].forEach(tf => {
+        const cb = document.querySelector(`.tf-checkbox[value="${tf}"]`);
+        if (cb) cb.checked = true;
+    });
+}
+
+function getSelectedTimeframes() {
+    const checkboxes = document.querySelectorAll('.tf-checkbox:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+async function analyzeCoin(coinNum) {
+    const symbol = document.getElementById(`symbol-${coinNum}`).value.trim().toUpperCase();
+
+    if (!symbol) {
+        alert('Please enter a symbol');
+        return;
+    }
+
+    const timeframes = getSelectedTimeframes();
+
+    if (timeframes.length === 0) {
+        alert('Please select at least one timeframe');
+        return;
+    }
+
+    const statusDiv = document.getElementById(`status-${coinNum}`);
+    const resultsDiv = document.getElementById(`results-${coinNum}`);
+
+    // Show loading
+    statusDiv.classList.remove('hidden');
+    resultsDiv.innerHTML = '<div class="text-center py-8"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div><p class="text-slate-400 mt-2">Analyzing...</p></div>';
+
+    try {
+        const response = await fetch('/api/live-analysis/analyze', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ symbol, timeframes })
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Analysis failed');
+        }
+
+        // Render results
+        renderAnalysisResults(resultsDiv, data);
+
+    } catch (error) {
+        resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
+        lucide.createIcons();
+    } finally {
+        statusDiv.classList.add('hidden');
+    }
+}
+
+function renderAnalysisResults(container, data) {
+    const { symbol, timeframes } = data;
+
+    let html = `
+        <div class="space-y-4">
+            <div class="bg-slate-700/50 rounded-lg p-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-white font-bold text-xl">${symbol}</h3>
+                        <p class="text-slate-400 text-xs">${new Date(data.timestamp).toLocaleString()}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-slate-400 text-xs">Timeframes</p>
+                        <p class="text-white font-semibold">${Object.keys(timeframes).length}</p>
+                    </div>
+                </div>
+            </div>
+    `;
+
+    // Sort timeframes
+    const sortedTFs = Object.keys(timeframes).sort((a, b) => {
+        const order = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w'];
+        return order.indexOf(a) - order.indexOf(b);
+    });
+
+    sortedTFs.forEach(tf => {
+        const tfData = timeframes[tf];
+
+        if (tfData.error) {
+            html += `
+                <div class="bg-slate-700/30 rounded-lg p-3 border-l-4 border-red-500">
+                    <div class="flex items-center justify-between">
+                        <span class="text-white font-semibold">${tf}</span>
+                        <span class="text-red-400 text-sm">${tfData.error}</span>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        const buyCount = tfData.buy_signals || 0;
+        const sellCount = tfData.sell_signals || 0;
+        const totalSignals = tfData.signal_count || 0;
+
+        // Determine overall sentiment
+        let sentimentClass = 'bg-slate-600';
+        let sentimentIcon = 'minus';
+        let sentimentText = 'NEUTRAL';
+
+        if (buyCount > sellCount * 1.5) {
+            sentimentClass = 'bg-green-600';
+            sentimentIcon = 'trending-up';
+            sentimentText = 'BULLISH';
+        } else if (sellCount > buyCount * 1.5) {
+            sentimentClass = 'bg-red-600';
+            sentimentIcon = 'trending-down';
+            sentimentText = 'BEARISH';
+        }
+
+        html += `
+            <div class="bg-slate-700/30 rounded-lg border border-slate-600 hover:border-purple-500/50 transition-colors">
+                <div class="p-3 border-b border-slate-600">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="text-white font-bold">${tf}</span>
+                            <span class="${sentimentClass} text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+                                <i data-lucide="${sentimentIcon}" class="w-3 h-3"></i>
+                                ${sentimentText}
+                            </span>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-white font-semibold">$${tfData.price.toFixed(2)}</p>
+                            <p class="text-slate-400 text-xs">${totalSignals} signals</p>
+                        </div>
+                    </div>
+                    <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+                        <div class="bg-green-500/20 rounded px-2 py-1">
+                            <span class="text-green-400">BUY: ${buyCount}</span>
+                        </div>
+                        <div class="bg-red-500/20 rounded px-2 py-1">
+                            <span class="text-red-400">SELL: ${sellCount}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-3 space-y-1 max-h-64 overflow-y-auto">
+        `;
+
+        if (totalSignals === 0) {
+            html += '<p class="text-slate-500 text-sm text-center py-2">No signals detected</p>';
+        } else {
+            const signals = Object.entries(tfData.signals);
+
+            // Sort by signal type (BUY first, then SELL)
+            signals.sort((a, b) => {
+                const typeA = a[1].signal;
+                const typeB = b[1].signal;
+                if (typeA === 'BUY' && typeB !== 'BUY') return -1;
+                if (typeA !== 'BUY' && typeB === 'BUY') return 1;
+                return 0;
+            });
+
+            signals.forEach(([signalName, signalData]) => {
+                const conf = getSignalConfidence(signalName);
+                const confColor = getConfidenceColor(conf);
+                const signalType = signalData.signal;
+                const strength = signalData.strength || '';
+
+                let signalIcon = 'circle';
+                let signalClass = 'text-slate-400';
+
+                if (signalType === 'BUY') {
+                    signalIcon = 'arrow-up-circle';
+                    signalClass = 'text-green-400';
+                } else if (signalType === 'SELL') {
+                    signalIcon = 'arrow-down-circle';
+                    signalClass = 'text-red-400';
+                }
+
+                html += `
+                    <div class="flex items-center justify-between py-1 px-2 rounded hover:bg-slate-600/30 text-xs">
+                        <div class="flex items-center gap-2 flex-1">
+                            <i data-lucide="${signalIcon}" class="w-3 h-3 ${signalClass}"></i>
+                            <span class="text-slate-300">${formatSignalName(signalName)}</span>
+                            ${strength ? `<span class="text-slate-500 text-[10px]">(${strength})</span>` : ''}
+                        </div>
+                        <div class="w-12 h-2 ${confColor} rounded-full ml-2" title="Confidence: ${conf}%"></div>
+                    </div>
+                `;
+            });
+        }
+
+        html += `
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+
+    container.innerHTML = html;
+    lucide.createIcons();
+}
+
+function getSignalConfidence(signalName) {
+    // This would ideally come from the server, but for now use defaults
+    const confidenceMap = {
+        'engulfing_bullish': 75, 'engulfing_bearish': 75,
+        'ma_cross_golden': 82, 'ma_cross_death': 82,
+        'rsi_divergence_bullish': 85, 'rsi_divergence_bearish': 85,
+        'macd_divergence_bullish': 87, 'macd_divergence_bearish': 87,
+        'volume_spike_bullish': 77, 'volume_spike_bearish': 77,
+        'bollinger_squeeze': 80,
+        'break_of_structure_bullish': 84, 'break_of_structure_bearish': 84,
+        'support_break': 80, 'resistance_break': 80
+    };
+
+    return confidenceMap[signalName] || 70;
+}
+
+function getConfidenceColor(confidence) {
+    if (confidence >= 85) return 'bg-red-500';
+    if (confidence >= 75) return 'bg-orange-500';
+    if (confidence >= 65) return 'bg-yellow-500';
+    return 'bg-slate-500';
+}
+
+function formatSignalName(name) {
+    return name
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase());
+}
+
+// Add keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id.startsWith('symbol-')) {
+        const num = e.target.id.split('-')[1];
+        analyzeCoin(parseInt(num));
+    }
+});
+</script>
+</main>
+
+<script>
+    let currentPage = 1;
+    let totalPages = 1;
+    let currentSymbol = null;
+    let statusInterval = null;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+        lucide.createIcons();
+        loadSignals();
+        loadPriorityCoins();
+        updateMonitorStatus();
+
+        // Start status polling
+        statusInterval = setInterval(updateMonitorStatus, 3000);
+
+        // Add filter listeners
+        ['filter-symbol', 'filter-accuracy', 'filter-patterns'].forEach(id => {
+            document.getElementById(id).addEventListener('input', () => {
+                currentPage = 1;
+                loadSignals();
+            });
+        });
+    });
+
+    function showPage(page) {
+        document.querySelectorAll('[id^="page-"]').forEach(el => el.classList.add('hidden'));
+        document.getElementById(`page-${page}`).classList.remove('hidden');
+
+        document.querySelectorAll('[id^="tab-"]').forEach(el => {
+            el.classList.remove('text-purple-400', 'border-purple-400');
+            el.classList.add('text-slate-400', 'border-transparent');
+        });
+        document.getElementById(`tab-${page}`).classList.add('text-purple-400', 'border-purple-400');
+        document.getElementById(`tab-${page}`).classList.remove('text-slate-400', 'border-transparent');
+
+        if (page === 'control') {
             loadPriorityCoins();
             updateMonitorStatus();
-
-            // Start status polling
-            statusInterval = setInterval(updateMonitorStatus, 3000);
-
-            // Add filter listeners
-            ['filter-symbol', 'filter-accuracy', 'filter-patterns'].forEach(id => {
-                document.getElementById(id).addEventListener('input', () => {
-                    currentPage = 1;
-                    loadSignals();
-                });
-            });
-        });
-
-        function showPage(page) {
-            document.querySelectorAll('[id^="page-"]').forEach(el => el.classList.add('hidden'));
-            document.getElementById(`page-${page}`).classList.remove('hidden');
-
-            document.querySelectorAll('[id^="tab-"]').forEach(el => {
-                el.classList.remove('text-purple-400', 'border-purple-400');
-                el.classList.add('text-slate-400', 'border-transparent');
-            });
-            document.getElementById(`tab-${page}`).classList.add('text-purple-400', 'border-purple-400');
-            document.getElementById(`tab-${page}`).classList.remove('text-slate-400', 'border-transparent');
-
-            if (page === 'control') {
-                loadPriorityCoins();
-                updateMonitorStatus();
-            }
         }
+    }
 
-        async function updateMonitorStatus() {
-            try {
-                const response = await fetch('/api/monitor/status');
-                const status = await response.json();
+    async function updateMonitorStatus() {
+        try {
+            const response = await fetch('/api/monitor/status');
+            const status = await response.json();
 
-                const isRunning = status.running || false;
+            const isRunning = status.running || false;
 
-                // Update header badge
-                const statusDot = document.getElementById('status-dot');
-                const statusText = document.getElementById('status-text');
+            // Update header badge
+            const statusDot = document.getElementById('status-dot');
+            const statusText = document.getElementById('status-text');
 
-                if (isRunning) {
-                    statusDot.className = 'w-2 h-2 rounded-full bg-green-500 animate-pulse';
-                    statusText.textContent = 'Online';
-                    statusText.className = 'text-sm text-green-400';
-                } else {
-                    statusDot.className = 'w-2 h-2 rounded-full bg-slate-500';
-                    statusText.textContent = 'Offline';
-                    statusText.className = 'text-sm text-slate-400';
-                }
-
-                // Update control panel stats
-                if (document.getElementById('stat-status')) {
-                    document.getElementById('stat-status').textContent = isRunning ? 'Running' : 'Stopped';
-                    document.getElementById('stat-processed').textContent = status.symbols_processed || 0;
-                    document.getElementById('stat-alerts').textContent = status.alerts_triggered || 0;
-                    document.getElementById('stat-current').textContent = status.current_symbol || '-';
-                    document.getElementById('stat-patterns').textContent = status.patterns_loaded || 0;
-                    document.getElementById('stat-last-update').textContent =
-                        status.last_update ? new Date(status.last_update).toLocaleString() : 'Never';
-
-                    // Update button states
-                    document.getElementById('start-btn').disabled = isRunning;
-                    document.getElementById('stop-btn').disabled = !isRunning;
-                }
-            } catch (error) {
-                console.error('Failed to fetch monitor status:', error);
+            if (isRunning) {
+                statusDot.className = 'w-2 h-2 rounded-full bg-green-500 animate-pulse';
+                statusText.textContent = 'Online';
+                statusText.className = 'text-sm text-green-400';
+            } else {
+                statusDot.className = 'w-2 h-2 rounded-full bg-slate-500';
+                statusText.textContent = 'Offline';
+                statusText.className = 'text-sm text-slate-400';
             }
-        }
 
-        async function startMonitoring() {
-            try {
-                const response = await fetch('/api/monitor/start');
-                const data = await response.json();
+            // Update control panel stats
+            if (document.getElementById('stat-status')) {
+                document.getElementById('stat-status').textContent = isRunning ? 'Running' : 'Stopped';
+                document.getElementById('stat-processed').textContent = status.symbols_processed || 0;
+                document.getElementById('stat-alerts').textContent = status.alerts_triggered || 0;
+                document.getElementById('stat-current').textContent = status.current_symbol || '-';
+                document.getElementById('stat-patterns').textContent = status.patterns_loaded || 0;
+                document.getElementById('stat-last-update').textContent =
+                    status.last_update ? new Date(status.last_update).toLocaleString() : 'Never';
 
-                if (data.success) {
-                    alert('Monitoring started successfully!');
-                    updateMonitorStatus();
-                } else {
-                    alert('Failed to start monitoring: ' + data.message);
-                }
-            } catch (error) {
-                alert('Error starting monitoring: ' + error.message);
+                // Update button states
+                document.getElementById('start-btn').disabled = isRunning;
+                document.getElementById('stop-btn').disabled = !isRunning;
             }
+        } catch (error) {
+            console.error('Failed to fetch monitor status:', error);
         }
+    }
 
-        async function stopMonitoring() {
-            try {
-                const response = await fetch('/api/monitor/stop');
-                const data = await response.json();
-
-                if (data.success) {
-                    alert('Monitoring stopped');
-                    updateMonitorStatus();
-                } else {
-                    alert('Failed to stop monitoring: ' + data.message);
-                }
-            } catch (error) {
-                alert('Error stopping monitoring: ' + error.message);
-            }
-        }
-
-        async function loadSignals() {
-            const symbol = document.getElementById('filter-symbol').value;
-            const minAccuracy = document.getElementById('filter-accuracy').value;
-            const minPatterns = document.getElementById('filter-patterns').value;
-
-            const params = new URLSearchParams({
-                page: currentPage,
-                ...(symbol && {symbol}),
-                ...(minAccuracy && {minAccuracy}),
-                ...(minPatterns && {minPatterns})
-            });
-
-            const response = await fetch(`/api/signals?${params}`);
+    async function startMonitoring() {
+        try {
+            const response = await fetch('/api/monitor/start');
             const data = await response.json();
 
-            totalPages = data.pages;
-            renderSignals(data.signals);
-            updatePagination();
-        }
-
-        function renderSignals(signals) {
-            const tbody = document.getElementById('signals-tbody');
-            tbody.innerHTML = '';
-
-            if (signals.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-slate-400">No signals found</td></tr>';
-                lucide.createIcons();
-                return;
+            if (data.success) {
+                alert('Monitoring started successfully!');
+                updateMonitorStatus();
+            } else {
+                alert('Failed to start monitoring: ' + data.message);
             }
-
-            signals.forEach(signal => {
-                const tr = document.createElement('tr');
-                tr.className = 'hover:bg-slate-700/50 transition-colors';
-                tr.innerHTML = `
-                    <td class="px-6 py-4">
-                        <button onclick="showSymbolDetail('${signal.symbol}')" class="text-purple-400 hover:text-purple-300 font-medium">
-                            ${signal.symbol}
-                        </button>
-                    </td>
-                    <td class="px-6 py-4">
-                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-                            signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                        }">
-                            <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
-                            ${signal.signal}
-                        </span>
-                    </td>
-                    <td class="px-6 py-4 text-slate-300">${(signal.pattern_confidence * 100).toFixed(2)}%</td>
-                    <td class="px-6 py-4 text-slate-300">${signal.pattern_count}</td>
-                    <td class="px-6 py-4 text-slate-300">$${signal.price.toFixed(5)}</td>
-                    <td class="px-6 py-4 text-slate-300">${signal.validity_hours}h</td>
-                    <td class="px-6 py-4 text-slate-400 text-sm">${moment(signal.datetime_created).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm:ss')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-
-            lucide.createIcons();
+        } catch (error) {
+            alert('Error starting monitoring: ' + error.message);
         }
+    }
 
-        function updatePagination() {
-            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
-            document.getElementById('prev-btn').disabled = currentPage === 1;
-            document.getElementById('next-btn').disabled = currentPage === totalPages;
-        }
+    async function stopMonitoring() {
+        try {
+            const response = await fetch('/api/monitor/stop');
+            const data = await response.json();
 
-        function prevPage() {
-            if (currentPage > 1) {
-                currentPage--;
-                loadSignals();
+            if (data.success) {
+                alert('Monitoring stopped');
+                updateMonitorStatus();
+            } else {
+                alert('Failed to stop monitoring: ' + data.message);
             }
+        } catch (error) {
+            alert('Error stopping monitoring: ' + error.message);
         }
+    }
 
-        function nextPage() {
-            if (currentPage < totalPages) {
-                currentPage++;
-                loadSignals();
-            }
-        }
+    async function loadSignals() {
+        const symbol = document.getElementById('filter-symbol').value;
+        const minAccuracy = document.getElementById('filter-accuracy').value;
+        const minPatterns = document.getElementById('filter-patterns').value;
 
-        async function showSymbolDetail(symbol) {
-            currentSymbol = symbol;
-            const response = await fetch(`/api/symbols/${symbol}`);
-            const history = await response.json();
-
-            document.querySelector('#page-signals > .bg-slate-800').classList.add('hidden');
-            document.getElementById('symbol-detail').classList.remove('hidden');
-
-            document.getElementById('symbol-title').textContent = `${symbol} Signal History`;
-            document.getElementById('symbol-total').textContent = history.length;
-
-            if (history.length > 0) {
-                const avgConf = history.reduce((a, b) => a + b.pattern_confidence, 0) / history.length;
-                document.getElementById('symbol-avg-conf').textContent = `${(avgConf * 100).toFixed(1)}%`;
-
-                const avgPatterns = Math.round(history.reduce((a, b) => a + b.pattern_count, 0) / history.length);
-                document.getElementById('symbol-avg-patterns').textContent = avgPatterns;
-            }
-
-            const tbody = document.getElementById('symbol-history-tbody');
-            tbody.innerHTML = '';
-
-            history.forEach(signal => {
-                const tr = document.createElement('tr');
-                tr.className = 'hover:bg-slate-700/50';
-                tr.innerHTML = `
-                    <td class="px-4 py-3">
-                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-                            signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                        }">
-                            <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
-                            ${signal.signal}
-                        </span>
-                    </td>
-                    <td class="px-4 py-3 text-slate-300">${(signal.pattern_confidence * 100).toFixed(1)}%</td>
-                    <td class="px-4 py-3 text-slate-300">${signal.pattern_count}</td>
-                    <td class="px-4 py-3 text-slate-300">$${signal.price.toFixed(2)}</td>
-                    <td class="px-4 py-3 text-slate-300">${signal.validity_hours}h</td>
-                    <td class="px-4 py-3 text-slate-400 text-sm">${moment(signal.datetime_created).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm:ss')}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-
-            lucide.createIcons();
-        }
-
-        function hideSymbolDetail() {
-            document.getElementById('symbol-detail').classList.add('hidden');
-            document.querySelector('#page-signals > .bg-slate-800').classList.remove('hidden');
-            currentSymbol = null;
-        }
-
-        async function loadPriorityCoins() {
-            const response = await fetch('/api/priority-coins');
-            const coins = await response.json();
-            document.getElementById('priority-coins').value = coins.join(', ');
-        }
-
-        async function savePriorityCoins() {
-            const input = document.getElementById('priority-coins').value;
-            const coins = input.split(',').map(c => c.trim().toUpperCase()).filter(c => c);
-
-            await fetch('/api/priority-coins', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({coins})
-            });
-
-            alert('Priority coins saved!');
-        }
-
-        function exportSignals() {
-            const symbol = document.getElementById('filter-symbol').value;
-            const minAccuracy = document.getElementById('filter-accuracy').value;
-            const minPatterns = document.getElementById('filter-patterns').value;
-
-            const params = new URLSearchParams({
-                ...(symbol && {symbol}),
-                ...(minAccuracy && {minAccuracy}),
-                ...(minPatterns && {minPatterns})
-            });
-
-            window.location.href = `/api/export?${params}`;
-        }
-
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', () => {
-            if (statusInterval) clearInterval(statusInterval);
+        const params = new URLSearchParams({
+            page: currentPage,
+            ...(symbol && {symbol}),
+            ...(minAccuracy && {minAccuracy}),
+            ...(minPatterns && {minPatterns})
         });
-    </script>
+
+        const response = await fetch(`/api/signals?${params}`);
+        const data = await response.json();
+
+        totalPages = data.pages;
+        renderSignals(data.signals);
+        updatePagination();
+    }
+
+    function renderSignals(signals) {
+        const tbody = document.getElementById('signals-tbody');
+        tbody.innerHTML = '';
+
+        if (signals.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-8 text-center text-slate-400">No signals found</td></tr>';
+            lucide.createIcons();
+            return;
+        }
+
+        signals.forEach(signal => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-700/50 transition-colors';
+            tr.innerHTML = `
+                <td class="px-6 py-4">
+                    <button onclick="showSymbolDetail('${signal.symbol}')" class="text-purple-400 hover:text-purple-300 font-medium">
+                        ${signal.symbol}
+                    </button>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                        signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                    }">
+                        <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
+                        ${signal.signal}
+                    </span>
+                </td>
+                <td class="px-6 py-4 text-slate-300">${(signal.pattern_confidence * 100).toFixed(2)}%</td>
+                <td class="px-6 py-4 text-slate-300">${signal.pattern_count}</td>
+                <td class="px-6 py-4 text-slate-300">$${signal.price.toFixed(5)}</td>
+                <td class="px-6 py-4 text-slate-300">${signal.validity_hours}h</td>
+                <td class="px-6 py-4 text-slate-400 text-sm">${moment(signal.datetime_created).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm:ss')}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        lucide.createIcons();
+    }
+
+    function updatePagination() {
+        document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+        document.getElementById('prev-btn').disabled = currentPage === 1;
+        document.getElementById('next-btn').disabled = currentPage === totalPages;
+    }
+
+    function prevPage() {
+        if (currentPage > 1) {
+            currentPage--;
+            loadSignals();
+        }
+    }
+
+    function nextPage() {
+        if (currentPage < totalPages) {
+            currentPage++;
+            loadSignals();
+        }
+    }
+
+    async function showSymbolDetail(symbol) {
+        currentSymbol = symbol;
+        const response = await fetch(`/api/symbols/${symbol}`);
+        const history = await response.json();
+
+        document.querySelector('#page-signals > .bg-slate-800').classList.add('hidden');
+        document.getElementById('symbol-detail').classList.remove('hidden');
+
+        document.getElementById('symbol-title').textContent = `${symbol} Signal History`;
+        document.getElementById('symbol-total').textContent = history.length;
+
+        if (history.length > 0) {
+            const avgConf = history.reduce((a, b) => a + b.pattern_confidence, 0) / history.length;
+            document.getElementById('symbol-avg-conf').textContent = `${(avgConf * 100).toFixed(1)}%`;
+
+            const avgPatterns = Math.round(history.reduce((a, b) => a + b.pattern_count, 0) / history.length);
+            document.getElementById('symbol-avg-patterns').textContent = avgPatterns;
+        }
+
+        const tbody = document.getElementById('symbol-history-tbody');
+        tbody.innerHTML = '';
+
+        history.forEach(signal => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-700/50';
+            tr.innerHTML = `
+                <td class="px-4 py-3">
+                    <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                        signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                    }">
+                        <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
+                        ${signal.signal}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-slate-300">${(signal.pattern_confidence * 100).toFixed(1)}%</td>
+                <td class="px-4 py-3 text-slate-300">${signal.pattern_count}</td>
+                <td class="px-4 py-3 text-slate-300">$${signal.price.toFixed(2)}</td>
+                <td class="px-4 py-3 text-slate-300">${signal.validity_hours}h</td>
+                <td class="px-4 py-3 text-slate-400 text-sm">${moment(signal.datetime_created).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm:ss')}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        lucide.createIcons();
+    }
+
+    function hideSymbolDetail() {
+        document.getElementById('symbol-detail').classList.add('hidden');
+        document.querySelector('#page-signals > .bg-slate-800').classList.remove('hidden');
+        currentSymbol = null;
+    }
+
+    async function loadPriorityCoins() {
+        const response = await fetch('/api/priority-coins');
+        const coins = await response.json();
+        document.getElementById('priority-coins').value = coins.join(', ');
+    }
+
+    async function savePriorityCoins() {
+        const input = document.getElementById('priority-coins').value;
+        const coins = input.split(',').map(c => c.trim().toUpperCase()).filter(c => c);
+
+        await fetch('/api/priority-coins', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({coins})
+        });
+
+        alert('Priority coins saved!');
+    }
+
+    function exportSignals() {
+        const symbol = document.getElementById('filter-symbol').value;
+        const minAccuracy = document.getElementById('filter-accuracy').value;
+        const minPatterns = document.getElementById('filter-patterns').value;
+
+        const params = new URLSearchParams({
+            ...(symbol && {symbol}),
+            ...(minAccuracy && {minAccuracy}),
+            ...(minPatterns && {minPatterns})
+        });
+
+        window.location.href = `/api/export?${params}`;
+    }
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+        if (statusInterval) clearInterval(statusInterval);
+    });
+</script>
 </body>
 </html>

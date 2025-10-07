@@ -1,0 +1,439 @@
+{
+  "signal_encyclopedia": {
+    "version": "1.0",
+    "total_signals": 87,
+    "categories": [
+      "Candlestick Patterns",
+      "Moving Averages",
+      "Momentum Indicators",
+      "Volume Analysis",
+      "Volatility Indicators",
+      "Trend Indicators",
+      "Price Action & Structure"
+    ],
+    "signals": [
+      {
+        "id": 1,
+        "name": "engulfing_bullish",
+        "display_name": "Bullish Engulfing",
+        "category": "Candlestick Patterns",
+        "confidence": 75,
+        "tier": 3,
+        "timeframes": ["short", "mid", "long"],
+        "best_timeframes": ["5m", "15m", "1h", "4h", "1d"],
+        "signal_type": "BUY",
+        "pattern_type": "reversal",
+        "description": "Large bullish candle completely engulfs previous bearish candle",
+        "implies": "Bullish reversal - buyers overwhelming sellers, previous downtrend losing momentum",
+        "entry_trigger": "On close of engulfing candle or pullback",
+        "stop_loss": "Below engulfing candle low",
+        "target": "Previous resistance or swing high",
+        "hold_time": "hours to days",
+        "risk_level": "moderate",
+        "confirmations_needed": 1,
+        "best_when": "At support levels or after downtrend",
+        "avoid_when": "In ranging markets or at resistance"
+      },
+      {
+        "id": 2,
+        "name": "engulfing_bearish",
+        "display_name": "Bearish Engulfing",
+        "category": "Candlestick Patterns",
+        "confidence": 75,
+        "tier": 3,
+        "timeframes": ["short", "mid", "long"],
+        "best_timeframes": ["5m", "15m", "1h", "4h", "1d"],
+        "signal_type": "SELL",
+        "pattern_type": "reversal",
+        "description": "Large bearish candle completely engulfs previous bullish candle",
+        "implies": "Bearish reversal - sellers overwhelming buyers, previous uptrend losing momentum",
+        "entry_trigger": "On close of engulfing candle or bounce",
+        "stop_loss": "Above engulfing candle high",
+        "target": "Previous support or swing low",
+        "hold_time": "hours to days",
+        "risk_level": "moderate",
+        "confirmations_needed": 1,
+        "best_when": "At resistance levels or after uptrend",
+        "avoid_when": "In strong trending markets"
+      },
+      {
+        "id": 27,
+        "name": "rsi_divergence_bullish",
+        "display_name": "RSI Bullish Divergence",
+        "category": "Momentum Indicators",
+        "confidence": 85,
+        "tier": 1,
+        "timeframes": ["mid", "long"],
+        "best_timeframes": ["1h", "4h", "12h", "1d"],
+        "signal_type": "BUY",
+        "pattern_type": "reversal",
+        "description": "Price makes lower low but RSI makes higher low",
+        "implies": "Very strong reversal signal - selling pressure weakening, momentum shift beginning",
+        "entry_trigger": "On price confirmation (higher high) or breakout",
+        "stop_loss": "Below divergence low",
+        "target": "Previous resistance or major swing high",
+        "hold_time": "days to weeks",
+        "risk_level": "very_low",
+        "confirmations_needed": 0,
+        "best_when": "After extended downtrend, at major support",
+        "avoid_when": "Never - this is one of the best signals",
+        "combo_signals": ["macd_divergence_bullish", "volume_divergence_bullish", "break_of_structure_bullish"]
+      },
+      {
+        "id": 28,
+        "name": "rsi_divergence_bearish",
+        "display_name": "RSI Bearish Divergence",
+        "category": "Momentum Indicators",
+        "confidence": 85,
+        "tier": 1,
+        "timeframes": ["mid", "long"],
+        "best_timeframes": ["1h", "4h", "12h", "1d"],
+        "signal_type": "SELL",
+        "pattern_type": "reversal",
+        "description": "Price makes higher high but RSI makes lower high",
+        "implies": "Very strong reversal signal - buying pressure weakening, momentum shift beginning",
+        "entry_trigger": "On price confirmation (lower low) or breakdown",
+        "stop_loss": "Above divergence high",
+        "target": "Previous support or major swing low",
+        "hold_time": "days to weeks",
+        "risk_level": "very_low",
+        "confirmations_needed": 0,
+        "best_when": "After extended uptrend, at major resistance",
+        "avoid_when": "Never - this is one of the best signals",
+        "combo_signals": ["macd_divergence_bearish", "volume_divergence_bearish", "break_of_structure_bearish"]
+      },
+      {
+        "id": 33,
+        "name": "macd_divergence_bullish",
+        "display_name": "MACD Bullish Divergence",
+        "category": "Momentum Indicators",
+        "confidence": 87,
+        "tier": 1,
+        "timeframes": ["mid", "long"],
+        "best_timeframes": ["1h", "4h", "12h", "1d"],
+        "signal_type": "BUY",
+        "pattern_type": "reversal",
+        "description": "Price makes lower low but MACD makes higher low",
+        "implies": "HIGHEST CONFIDENCE REVERSAL - selling exhaustion, hidden buying strength",
+        "entry_trigger": "Wait for MACD bullish cross, then enter on price confirmation",
+        "stop_loss": "Below divergence low",
+        "target": "Significant - previous high minimum, often much more",
+        "hold_time": "days to weeks",
+        "risk_level": "very_low",
+        "confirmations_needed": 0,
+        "best_when": "After extended downtrend, oversold conditions",
+        "avoid_when": "Never - highest confidence signal",
+        "combo_signals": ["rsi_divergence_bullish", "volume_divergence_bullish", "ichimoku_bullish"]
+      },
+      {
+        "id": 34,
+        "name": "macd_divergence_bearish",
+        "display_name": "MACD Bearish Divergence",
+        "category": "Momentum Indicators",
+        "confidence": 87,
+        "tier": 1,
+        "timeframes": ["mid", "long"],
+        "best_timeframes": ["1h", "4h", "12h", "1d"],
+        "signal_type": "SELL",
+        "pattern_type": "reversal",
+        "description": "Price makes higher high but MACD makes lower high",
+        "implies": "HIGHEST CONFIDENCE REVERSAL - buying exhaustion, hidden selling strength",
+        "entry_trigger": "Wait for MACD bearish cross, then enter on price confirmation",
+        "stop_loss": "Above divergence high",
+        "target": "Significant - previous low minimum, often much more",
+        "hold_time": "days to weeks",
+        "risk_level": "very_low",
+        "confirmations_needed": 0,
+        "best_when": "After extended uptrend, overbought conditions",
+        "avoid_when": "Never - highest confidence signal",
+        "combo_signals": ["rsi_divergence_bearish", "volume_divergence_bearish", "ichimoku_bearish"]
+      },
+      {
+        "id": 68,
+        "name": "supertrend_bullish",
+        "display_name": "SuperTrend Bullish",
+        "category": "Trend Indicators",
+        "confidence": 81,
+        "tier": 2,
+        "timeframes": ["mid", "long"],
+        "best_timeframes": ["1h", "4h", "12h", "1d"],
+        "signal_type": "BUY",
+        "pattern_type": "trend",
+        "description": "SuperTrend flips to green/buy (price above indicator)",
+        "implies": "Confirmed uptrend, clear trend direction with built-in trailing stop",
+        "entry_trigger": "On flip to green or first pullback to SuperTrend line",
+        "stop_loss": "SuperTrend line (trails up automatically)",
+        "target": "Open - hold until flip to red",
+        "hold_time": "days to weeks",
+        "risk_level": "very_low",
+        "confirmations_needed": 0,
+        "best_when": "After consolidation or at beginning of new trend",
+        "avoid_when": "In choppy markets",
+        "combo_signals": ["adx_strong_trend", "ma_ribbon_bullish", "ichimoku_bullish"]
+      },
+      {
+        "id": 76,
+        "name": "break_of_structure_bullish",
+        "display_name": "Bullish Break of Structure",
+        "category": "Price Action & Structure",
+        "confidence": 84,
+        "tier": 2,
+        "timeframes": ["short", "mid", "long"],
+        "best_timeframes": ["5m", "15m", "1h", "4h", "1d"],
+        "signal_type": "BUY",
+        "pattern_type": "reversal",
+        "description": "Price breaks above previous lower high in downtrend",
+        "implies": "Downtrend ending, bulls taking control, trend reversal confirmed",
+        "entry_trigger": "On break or retest of broken level",
+        "stop_loss": "Below broken level",
+        "target": "Previous swing high or major resistance",
+        "hold_time": "hours to days",
+        "risk_level": "very_low",
+        "confirmations_needed": 0,
+        "best_when": "With volume confirmation",
+        "avoid_when": "False breakouts common in low volume",
+        "combo_signals": ["volume_spike_bullish", "rsi_divergence_bullish", "macd_cross_bullish"]
+      },
+      {
+        "id": 57,
+        "name": "bollinger_squeeze",
+        "display_name": "Bollinger Band Squeeze",
+        "category": "Volatility Indicators",
+        "confidence": 80,
+        "tier": 2,
+        "timeframes": ["short", "mid", "long"],
+        "best_timeframes": ["5m", "15m", "1h", "4h", "1d"],
+        "signal_type": "BREAKOUT_PENDING",
+        "pattern_type": "consolidation",
+        "description": "Bollinger Bands at historical low width - extreme consolidation",
+        "implies": "Major breakout imminent, volatility compression, explosive move coming",
+        "entry_trigger": "Wait for breakout with volume, then enter in breakout direction",
+        "stop_loss": "Other side of consolidation range",
+        "target": "Minimum 2x squeeze width",
+        "hold_time": "minutes to hours after breakout",
+        "risk_level": "low",
+        "confirmations_needed": 1,
+        "best_when": "After extended consolidation period",
+        "avoid_when": "During the squeeze - wait for directional break",
+        "combo_signals": ["volume_spike_bullish", "atr_expansion", "resistance_break"]
+      }
+    ],
+    "strategies": [
+      {
+        "name": "Divergence Hunter",
+        "description": "Catch major reversals using divergence signals",
+        "signals": [
+          "macd_divergence_bullish",
+          "macd_divergence_bearish",
+          "rsi_divergence_bullish",
+          "rsi_divergence_bearish",
+          "volume_divergence_bullish",
+          "volume_divergence_bearish"
+        ],
+        "timeframes": ["4h", "1d"],
+        "win_rate": "75-80%",
+        "risk_reward": "1:4",
+        "position_size": "3-5%",
+        "hold_time": "days to weeks"
+      },
+      {
+        "name": "Trend Rider",
+        "description": "Capture extended trends using trend-following signals",
+        "signals": [
+          "supertrend_bullish",
+          "supertrend_bearish",
+          "adx_strong_trend",
+          "ma_ribbon_bullish",
+          "ma_ribbon_bearish",
+          "ichimoku_bullish",
+          "ichimoku_bearish"
+        ],
+        "timeframes": ["1h", "4h", "1d"],
+        "win_rate": "70-75%",
+        "risk_reward": "1:5+",
+        "position_size": "2-3%",
+        "hold_time": "days to weeks"
+      },
+      {
+        "name": "Breakout Master",
+        "description": "Explosive moves from consolidation",
+        "signals": [
+          "bollinger_squeeze",
+          "volume_spike_bullish",
+          "volume_spike_bearish",
+          "resistance_break",
+          "support_break",
+          "atr_expansion"
+        ],
+        "timeframes": ["15m", "1h", "4h"],
+        "win_rate": "65-70%",
+        "risk_reward": "1:3",
+        "position_size": "2-4%",
+        "hold_time": "hours to days"
+      },
+      {
+        "name": "Scalper's Edge",
+        "description": "Quick profits from short-term moves",
+        "signals": [
+          "vwap_cross_above",
+          "vwap_cross_below",
+          "stoch_cross_bullish",
+          "stoch_cross_bearish",
+          "support_bounce",
+          "resistance_rejection"
+        ],
+        "timeframes": ["1m", "5m", "15m"],
+        "win_rate": "60-65%",
+        "risk_reward": "1:2",
+        "position_size": "0.5-1%",
+        "hold_time": "minutes to hours"
+      }
+    ],
+    "confidence_tiers": {
+      "tier_1": {
+        "range": "85-87%",
+        "signals": ["macd_divergence_bullish", "macd_divergence_bearish", "rsi_divergence_bullish", "rsi_divergence_bearish"],
+        "position_size": "3-5%",
+        "confirmations_needed": 0,
+        "description": "Highest confidence - can trade alone"
+      },
+      "tier_2": {
+        "range": "80-84%",
+        "signals": [
+          "break_of_structure_bullish",
+          "break_of_structure_bearish",
+          "ichimoku_bullish",
+          "ichimoku_bearish",
+          "ma_cross_golden",
+          "ma_cross_death",
+          "supertrend_bullish",
+          "supertrend_bearish",
+          "volume_divergence_bullish",
+          "volume_divergence_bearish",
+          "support_break",
+          "resistance_break",
+          "bollinger_squeeze",
+          "three_white_soldiers",
+          "three_black_crows"
+        ],
+        "position_size": "2-3%",
+        "confirmations_needed": 1,
+        "description": "Very strong - core signals"
+      },
+      "tier_3": {
+        "range": "75-79%",
+        "position_size": "1-2%",
+        "confirmations_needed": 2,
+        "description": "Strong - need confirmation from tier 1 or 2"
+      },
+      "tier_4": {
+        "range": "70-74%",
+        "position_size": "0.5-1%",
+        "confirmations_needed": 3,
+        "description": "Moderate - supporting signals only"
+      },
+      "tier_5": {
+        "range": "65-69%",
+        "position_size": "0.25-0.5%",
+        "confirmations_needed": 4,
+        "description": "Weak - never trade alone"
+      }
+    },
+    "timeframe_categories": {
+      "short": {
+        "timeframes": ["1m", "3m", "5m", "15m"],
+        "trading_style": "Scalping",
+        "hold_time": "minutes to hours",
+        "best_signals": [
+          "stoch_cross_bullish",
+          "stoch_cross_bearish",
+          "volume_spike_bullish",
+          "volume_spike_bearish",
+          "vwap_cross_above",
+          "vwap_cross_below",
+          "support_bounce",
+          "resistance_rejection"
+        ]
+      },
+      "mid": {
+        "timeframes": ["30m", "1h", "2h", "4h", "6h", "8h"],
+        "trading_style": "Day/Swing Trading",
+        "hold_time": "hours to days",
+        "best_signals": [
+          "rsi_divergence_bullish",
+          "rsi_divergence_bearish",
+          "macd_divergence_bullish",
+          "macd_divergence_bearish",
+          "break_of_structure_bullish",
+          "break_of_structure_bearish",
+          "supertrend_bullish",
+          "supertrend_bearish",
+          "bollinger_squeeze"
+        ]
+      },
+      "long": {
+        "timeframes": ["12h", "1d", "3d", "1w"],
+        "trading_style": "Position Trading",
+        "hold_time": "days to weeks",
+        "best_signals": [
+          "ichimoku_bullish",
+          "ichimoku_bearish",
+          "ma_cross_golden",
+          "ma_cross_death",
+          "macd_divergence_bullish",
+          "macd_divergence_bearish",
+          "morning_star",
+          "evening_star"
+        ]
+      }
+    },
+    "risk_management": {
+      "stop_loss_guidelines": {
+        "tier_1_signals": "2-3% from entry",
+        "tier_2_signals": "2-4% from entry",
+        "tier_3_signals": "2-5% from entry",
+        "tier_4_signals": "1-3% from entry",
+        "tier_5_signals": "1-2% from entry"
+      },
+      "position_sizing": {
+        "tier_1_signals": "3-5% of portfolio",
+        "tier_2_signals": "2-3% of portfolio",
+        "tier_3_signals": "1-2% of portfolio",
+        "tier_4_signals": "0.5-1% of portfolio",
+        "tier_5_signals": "0.25-0.5% of portfolio"
+      },
+      "take_profit_guidelines": {
+        "tier_1_signals": "10-20% or trend exhaustion",
+        "tier_2_signals": "8-15% or next resistance",
+        "tier_3_signals": "5-10% or key level",
+        "tier_4_signals": "3-7% or quick scalp",
+        "tier_5_signals": "2-5% quick flip"
+      }
+    },
+    "trading_rules": {
+      "never_trade_on": [
+        "Single weak signal alone (below 70%)",
+        "Counter to higher timeframe trend without Tier 1/2 signals",
+        "Low volume periods",
+        "During major news events",
+        "In choppy consolidation without squeeze setup",
+        "Against strong ADX trend without divergence"
+      ],
+      "always_confirm_with": [
+        "Volume",
+        "Higher timeframe trend",
+        "Multiple signals (confluence)",
+        "Market structure",
+        "Risk/reward ratio minimum 1:2"
+      ],
+      "best_practices": [
+        "Wait for multiple signals to align",
+        "Use higher timeframes to confirm trend",
+        "Check volume on all breakouts",
+        "Set stop losses based on signal strength",
+        "Log all trades and review accuracy",
+        "Start with paper trading"
+      ]
+    }
+  }
+}
