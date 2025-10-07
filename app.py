@@ -36,7 +36,7 @@ live_analyzer = None
 live_db = None
 trading_manager = None
 fact_checker = None
-sock = None
+sock = Sock(app)
 
 
 # ==================== AUTH ====================
@@ -354,6 +354,119 @@ def stop_monitor():
 
 # ==================== LIVE ANALYSIS ROUTES ====================
 
+
+def get_signal_description(signal_name: str) -> str:
+  """Get human-readable description of signal"""
+  descriptions = {
+    # Candlestick patterns
+    'engulfing_bullish': 'Bullish engulfing pattern - strong reversal signal',
+    'engulfing_bearish': 'Bearish engulfing pattern - strong reversal signal',
+    'hammer': 'Hammer pattern - bullish reversal at support',
+    'shooting_star': 'Shooting star - bearish reversal at resistance',
+    'doji_reversal': 'Doji candle - indecision and potential reversal',
+    'morning_star': 'Morning star pattern - strong bullish reversal',
+    'evening_star': 'Evening star pattern - strong bearish reversal',
+    'three_white_soldiers': 'Three white soldiers - strong bullish continuation',
+    'three_black_crows': 'Three black crows - strong bearish continuation',
+
+    # Moving averages
+    'ma_cross_golden': 'Golden cross - 50 MA crosses above 200 MA (bullish)',
+    'ma_cross_death': 'Death cross - 50 MA crosses below 200 MA (bearish)',
+    'price_above_ma20': 'Price crosses above 20 MA (bullish)',
+    'price_below_ma20': 'Price crosses below 20 MA (bearish)',
+    'ma_ribbon_bullish': 'MA ribbon aligned bullish (5>10>20 EMAs)',
+    'ma_ribbon_bearish': 'MA ribbon aligned bearish (5<10<20 EMAs)',
+
+    # Momentum
+    'rsi_oversold': 'RSI below 30 - oversold condition',
+    'rsi_overbought': 'RSI above 70 - overbought condition',
+    'rsi_divergence_bullish': 'Bullish RSI divergence - very strong signal',
+    'rsi_divergence_bearish': 'Bearish RSI divergence - very strong signal',
+    'macd_cross_bullish': 'MACD bullish crossover',
+    'macd_cross_bearish': 'MACD bearish crossover',
+    'macd_divergence_bullish': 'Bullish MACD divergence',
+    'macd_divergence_bearish': 'Bearish MACD divergence',
+    'stoch_oversold': 'Stochastic oversold (<20)',
+    'stoch_overbought': 'Stochastic overbought (>80)',
+
+    # Volume
+    'volume_spike_bullish': 'Volume spike on bullish candle',
+    'volume_spike_bearish': 'Volume spike on bearish candle',
+    'volume_divergence_bullish': 'Bullish volume divergence',
+    'volume_divergence_bearish': 'Bearish volume divergence',
+    'obv_bullish': 'On-Balance Volume trending up',
+    'obv_bearish': 'On-Balance Volume trending down',
+    'vwap_cross_above': 'Price crosses above VWAP',
+    'vwap_cross_below': 'Price crosses below VWAP',
+
+    # Volatility
+    'bollinger_squeeze': 'Bollinger Band squeeze - breakout pending',
+    'bollinger_breakout_up': 'Price breaks above upper Bollinger Band',
+    'bollinger_breakout_down': 'Price breaks below lower Bollinger Band',
+    'bollinger_bounce_up': 'Price bounces off lower Bollinger Band',
+    'bollinger_bounce_down': 'Price bounces off upper Bollinger Band',
+    'atr_expansion': 'ATR expanding - increased volatility',
+
+    # Trend
+    'adx_strong_trend': 'ADX >25 - strong trend in place',
+    'adx_weak_trend': 'ADX <20 - weak or no trend',
+    'supertrend_bullish': 'SuperTrend indicator bullish',
+    'supertrend_bearish': 'SuperTrend indicator bearish',
+    'parabolic_sar_flip_bullish': 'Parabolic SAR flips bullish',
+    'parabolic_sar_flip_bearish': 'Parabolic SAR flips bearish',
+
+    # Price action
+    'higher_high': 'Price making higher high',
+    'lower_low': 'Price making lower low',
+    'break_of_structure_bullish': 'Bullish break of structure',
+    'break_of_structure_bearish': 'Bearish break of structure',
+    'support_bounce': 'Price bouncing off support level',
+    'resistance_rejection': 'Price rejected at resistance level',
+    'support_break': 'Price breaks below support',
+    'resistance_break': 'Price breaks above resistance',
+  }
+
+  return descriptions.get(signal_name, 'Technical analysis signal')
+
+
+def categorize_signal(signal_name: str) -> str:
+  """Categorize signal by type"""
+  signal_lower = signal_name.lower()
+
+  # Candlestick patterns
+  if any(x in signal_lower for x in
+         ['engulfing', 'hammer', 'star', 'doji', 'marubozu', 'soldiers', 'crows', 'piercing', 'tweezer']):
+    return 'Candlestick Pattern'
+
+  # Moving averages
+  elif any(x in signal_lower for x in ['ma_', 'ema_', 'ribbon', 'moving_average']):
+    return 'Moving Average'
+
+  # Momentum indicators
+  elif any(x in signal_lower for x in ['rsi', 'macd', 'stoch', 'cci', 'williams', 'momentum']):
+    return 'Momentum'
+
+  # Volume indicators
+  elif any(x in signal_lower for x in ['volume', 'obv', 'vwap', 'accumulation']):
+    return 'Volume'
+
+  # Volatility indicators
+  elif any(x in signal_lower for x in ['bollinger', 'atr', 'keltner', 'volatility']):
+    return 'Volatility'
+
+  # Trend indicators
+  elif any(x in signal_lower for x in ['adx', 'supertrend', 'sar', 'ichimoku', 'parabolic']):
+    return 'Trend'
+
+  # Price action
+  elif any(x in signal_lower for x in
+           ['support', 'resistance', 'structure', 'pivot', 'fibonacci', 'break', 'bounce', 'higher', 'lower']):
+    return 'Price Action'
+
+  else:
+    return 'Other'
+
+
 @app.route('/api/live-analysis/analyze', methods=['POST'])
 @login_required
 def analyze_symbol_live():
@@ -515,151 +628,155 @@ def cleanup_old_signals():
 @login_required
 def trading_positions():
   """Get all positions or create new position"""
-    global trading_manager
+  global trading_manager
 
-    # Safety check
-    if trading_manager is None:
-        return jsonify({
-            'success': False,
-            'error': 'Trading manager not initialized. Please restart the application.'
-        }), 500
+  # Safety check
+  if trading_manager is None:
+    return jsonify({
+      'success': False,
+      'error': 'Trading manager not initialized. Please restart the application.'
+    }), 500
+
 
   if request.method == 'GET':
     status = request.args.get('status')
     symbol = request.args.get('symbol')
 
-        try:
-    positions = trading_manager.get_all_positions(status, symbol)
-    summary = trading_manager.get_position_summary()
+    try:
+      positions = trading_manager.get_all_positions(status, symbol)
+      summary = trading_manager.get_position_summary()
 
-    return jsonify({
-      'success': True,
-      'positions': positions,
-      'summary': summary
-    })
-        except Exception as e:
-            logging.error(f"Error getting positions: {e}")
-            return jsonify({'success': False, 'error': str(e)}), 500
+      return jsonify({
+        'success': True,
+        'positions': positions,
+        'summary': summary
+      })
+    except Exception as e:
+      logging.error(f"Error getting positions: {e}")
+      return jsonify({'success': False, 'error': str(e)}), 500
 
   elif request.method == 'POST':
     data = request.get_json()
 
-    try:
-      position_id = trading_manager.create_position(
-        symbol=data['symbol'],
-        entry_price=float(data['entry_price']),
-        amount=float(data['amount']),
-        status=data.get('status', 'waiting_for_right_time_to_enter'),
-                leverage_multiplier=float(data['leverage_multiplier']) if data.get('leverage_multiplier') else None,
-                liquidation_at=float(data['liquidation_at']) if data.get('liquidation_at') else None,
-                break_even=float(data['break_even']) if data.get('break_even') else None,
-                stop_loss=float(data['stop_loss']) if data.get('stop_loss') else None,
-                stop_profit=float(data['stop_profit']) if data.get('stop_profit') else None,
-        entry_reason=data.get('entry_reason'),
-        notes=data.get('notes')
-      )
+  try:
+    position_id = trading_manager.create_position(
+      symbol=data['symbol'],
+      entry_price=float(data['entry_price']),
+      amount=float(data['amount']),
+      status=data.get('status', 'waiting_for_right_time_to_enter'),
+      leverage_multiplier=float(data['leverage_multiplier']) if data.get('leverage_multiplier') else None,
+      liquidation_at=float(data['liquidation_at']) if data.get('liquidation_at') else None,
+      break_even=float(data['break_even']) if data.get('break_even') else None,
+      stop_loss=float(data['stop_loss']) if data.get('stop_loss') else None,
+      stop_profit=float(data['stop_profit']) if data.get('stop_profit') else None,
+      entry_reason=data.get('entry_reason'),
+      notes=data.get('notes')
+    )
 
-      return jsonify({
-        'success': True,
-        'position_id': position_id,
-        'message': 'Position created successfully'
-      })
+    return jsonify({
+      'success': True,
+      'position_id': position_id,
+      'message': 'Position created successfully'
+    })
 
-    except Exception as e:
-            logging.error(f"Error creating position: {e}")
-      return jsonify({'success': False, 'error': str(e)}), 500
+  except Exception as e:
+    logging.error(f"Error creating position: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/trading/positions/<int:position_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
 def trading_position_detail(position_id):
   """Get, update, or delete specific position"""
-    global trading_manager
+  global trading_manager
 
-    if trading_manager is None:
-        return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+  if trading_manager is None:
+    return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+
 
   if request.method == 'GET':
-        try:
-    position = trading_manager.get_position(position_id)
+    try:
+      position = trading_manager.get_position(position_id)
 
-    if not position:
-      return jsonify({'success': False, 'error': 'Position not found'}), 404
+      if not position:
+        return jsonify({'success': False, 'error': 'Position not found'}), 404
 
-    # Get signals for this position
-    signals = trading_manager.get_position_signals(position_id)
+      # Get signals for this position
+      signals = trading_manager.get_position_signals(position_id)
 
-    return jsonify({
-      'success': True,
-      'position': position,
-      'signals': signals
-    })
-        except Exception as e:
-            logging.error(f"Error getting position: {e}")
-            return jsonify({'success': False, 'error': str(e)}), 500
+      return jsonify({
+        'success': True,
+        'position': position,
+        'signals': signals
+      })
+    except Exception as e:
+      logging.error(f"Error getting position: {e}")
+      return jsonify({'success': False, 'error': str(e)}), 500
 
   elif request.method == 'PUT':
     data = request.get_json()
 
-        try:
-    success = trading_manager.update_position(position_id, **data)
+    try:
+      success = trading_manager.update_position(position_id, **data)
 
-    if success:
-      return jsonify({'success': True, 'message': 'Position updated'})
-    else:
-      return jsonify({'success': False, 'error': 'Update failed'}), 404
-        except Exception as e:
-            logging.error(f"Error updating position: {e}")
-            return jsonify({'success': False, 'error': str(e)}), 500
+      if success:
+        return jsonify({'success': True, 'message': 'Position updated'})
+      else:
+        return jsonify({'success': False, 'error': 'Update failed'}), 404
+    except Exception as e:
+      logging.error(f"Error updating position: {e}")
+      return jsonify({'success': False, 'error': str(e)}), 500
 
   elif request.method == 'DELETE':
-        try:
-    success = trading_manager.delete_position(position_id)
+    try:
+      success = trading_manager.delete_position(position_id)
 
-    if success:
-      return jsonify({'success': True, 'message': 'Position deleted'})
-    else:
-      return jsonify({'success': False, 'error': 'Delete failed'}), 404
-        except Exception as e:
-            logging.error(f"Error deleting position: {e}")
-            return jsonify({'success': False, 'error': str(e)}), 500
+      if success:
+        return jsonify({'success': True, 'message': 'Position deleted'})
+      else:
+        return jsonify({'success': False, 'error': 'Delete failed'}), 404
+    except Exception as e:
+      logging.error(f"Error deleting position: {e}")
+      return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/trading/positions/<int:position_id>/close', methods=['POST'])
 @login_required
 def close_trading_position(position_id):
   """Close a position"""
-    global trading_manager
+  global trading_manager
 
-    if trading_manager is None:
-        return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+  if trading_manager is None:
+    return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+
 
   data = request.get_json()
 
-    try:
-  success = trading_manager.close_position(
-    position_id,
-    float(data['sold_price']),
-    data.get('exit_reason')
-  )
+  try:
+    success = trading_manager.close_position(
+      position_id,
+      float(data['sold_price']),
+      data.get('exit_reason')
+    )
 
-  if success:
-    return jsonify({'success': True, 'message': 'Position closed'})
-  else:
-    return jsonify({'success': False, 'error': 'Failed to close position'}), 404
-    except Exception as e:
-        logging.error(f"Error closing position: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+    if success:
+      return jsonify({'success': True, 'message': 'Position closed'})
+    else:
+      return jsonify({'success': False, 'error': 'Failed to close position'}), 404
+  except Exception as e:
+    logging.error(f"Error closing position: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/trading/calculate-stops', methods=['POST'])
 @login_required
 def calculate_stops():
   """Calculate suggested stop loss and stop profit"""
-    global trading_manager
+  global trading_manager
 
-    if trading_manager is None:
-        return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+  if trading_manager is None:
+    return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
+
 
   data = request.get_json()
 
@@ -677,7 +794,7 @@ def calculate_stops():
     })
 
   except Exception as e:
-        logging.error(f"Error calculating stops: {e}")
+    logging.error(f"Error calculating stops: {e}")
     return jsonify({'success': False, 'error': str(e)}), 400
 
 
@@ -686,11 +803,12 @@ def calculate_stops():
 @sock.route('/ws/position/<int:position_id>')
 def position_websocket(ws, position_id):
   """WebSocket for real-time position monitoring"""
-    global trading_manager, fact_checker
+  global trading_manager, fact_checker
 
-    if trading_manager is None:
-        ws.send(json.dumps({'error': 'Trading manager not initialized'}))
-        return
+  if trading_manager is None:
+    ws.send(json.dumps({'error': 'Trading manager not initialized'}))
+    return
+
 
   # Get position details
   position = trading_manager.get_position(position_id)
@@ -751,6 +869,11 @@ def position_websocket(ws, position_id):
 @login_required
 def fact_check_position(position_id):
   """Fact-check all signals for a position"""
+  global trading_manager, fact_checker
+
+  if trading_manager is None or fact_checker is None:
+      return jsonify({'success': False, 'error': 'Modules not initialized'}), 500
+
   position = trading_manager.get_position(position_id)
 
   if not position:
@@ -771,72 +894,78 @@ def fact_check_position(position_id):
     })
 
   except Exception as e:
-        logging.error(f"Error fact-checking: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
+    logging.error(f"Error fact-checking: {e}")
+  return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/fact-check/signal-accuracy/<signal_name>')
 @login_required
 def get_signal_accuracy(signal_name):
   """Get accuracy stats for a specific signal"""
-    global fact_checker
+  global fact_checker
 
-    if fact_checker is None:
-        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+  if fact_checker is None:
+    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
 
   timeframe = request.args.get('timeframe')
 
-    try:
-  accuracy = fact_checker.calculate_signal_accuracy(signal_name, timeframe)
+  try:
+    accuracy = fact_checker.calculate_signal_accuracy(signal_name, timeframe)
 
-  if accuracy:
-    return jsonify({'success': True, 'accuracy': accuracy})
-  else:
-    return jsonify({
-      'success': False,
-      'error': 'Insufficient data',
-      'message': 'Need at least 10 samples'
-    }), 404
+    if accuracy:
+      return jsonify({'success': True, 'accuracy': accuracy})
+    else:
+      return jsonify({
+        'success': False,
+        'error': 'Insufficient data',
+        'message': 'Need at least 10 samples'
+      }), 404
+  except Exception as e:
+    logging.error(f"Error getting accuracy: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/fact-check/adjust-confidence', methods=['POST'])
 @login_required
 def adjust_signal_confidence():
   """Adjust confidence for a specific signal"""
-    global fact_checker
+  global fact_checker
 
-    if fact_checker is None:
-        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+  if fact_checker is None:
+    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
 
   data = request.get_json()
 
-    try:
-  result = fact_checker.adjust_signal_confidence(
-    data['signal_name'],
-    data['timeframe'],
-    data.get('min_samples', 10)
-  )
+  try:
+    result = fact_checker.adjust_signal_confidence(
+      data['signal_name'],
+      data['timeframe'],
+      data.get('min_samples', 10)
+    )
 
-  if result:
-    return jsonify({'success': True, 'adjustment': result})
-  else:
-    return jsonify({
-      'success': False,
-      'error': 'Insufficient samples'
-    }), 400
-    except Exception as e:
-        logging.error(f"Error adjusting confidence: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+    if result:
+      return jsonify({'success': True, 'adjustment': result})
+    else:
+      return jsonify({
+        'success': False,
+        'error': 'Insufficient samples'
+      }), 400
+  except Exception as e:
+    logging.error(f"Error adjusting confidence: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/fact-check/bulk-adjust', methods=['POST'])
 @login_required
 def bulk_adjust_signals():
   """Adjust all signals with sufficient data"""
-    global fact_checker
+  global fact_checker
 
-    if fact_checker is None:
-        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+  if fact_checker is None:
+    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
 
   data = request.get_json()
   min_samples = data.get('min_samples', 10)
@@ -850,55 +979,58 @@ def bulk_adjust_signals():
     })
 
   except Exception as e:
-        logging.error(f"Error bulk adjusting: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
+    logging.error(f"Error bulk adjusting: {e}")
+  return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/fact-check/adjustments')
 @login_required
 def get_all_adjustments():
   """Get all signal confidence adjustments"""
-    global fact_checker
+  global fact_checker
 
-    if fact_checker is None:
-        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+  if fact_checker is None:
+    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
 
-    try:
-  adjustments = fact_checker.get_all_adjustments()
+  try:
 
-  return jsonify({
-    'success': True,
-    'adjustments': adjustments,
-    'count': len(adjustments)
-  })
-    except Exception as e:
-        logging.error(f"Error getting adjustments: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+
+    adjustments = fact_checker.get_all_adjustments()
+
+    return jsonify({
+      'success': True,
+      'adjustments': adjustments,
+      'count': len(adjustments)
+    })
+  except Exception as e:
+    logging.error(f"Error getting adjustments: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/fact-check/cleanup', methods=['POST'])
 @login_required
 def cleanup_fact_checks():
   """Clean up old fact-check records"""
-    global fact_checker
+  global fact_checker
 
-    if fact_checker is None:
-        return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+  if fact_checker is None:
+    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+
 
   data = request.get_json()
   days = data.get('days', 90)
 
-    try:
-  deleted = fact_checker.cleanup_old_fact_checks(days)
+  try:
+    deleted = fact_checker.cleanup_old_fact_checks(days)
 
-  return jsonify({
-    'success': True,
-    'deleted': deleted,
-    'message': f'Cleaned up records older than {days} days'
-  })
-    except Exception as e:
-        logging.error(f"Error cleaning up: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+    return jsonify({
+      'success': True,
+      'deleted': deleted,
+      'message': f'Cleaned up records older than {days} days'
+    })
+  except Exception as e:
+    logging.error(f"Error cleaning up: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -950,21 +1082,20 @@ if __name__ == '__main__':
   # Initialize database
   init_database()
 
-    # Initialize live analysis
+  # Initialize live analysis
   live_analyzer = ScalpSignalAnalyzer()
   live_db = LiveAnalysisDB()
   logging.info("✅ Live analysis system initialized")
 
-    # NEW: Initialize trading modules
-    try:
-        trading_manager = TradingPositionManager(db_path=app.config['DB_PATH'])
-        fact_checker = SignalFactChecker(db_path=app.config['DB_PATH'])
-        sock = Sock(app)
-        logging.info("✅ Trading management system initialized")
-    except Exception as e:
-        logging.error(f"❌ Failed to initialize trading modules: {e}")
-        logging.error("Trading features will not be available!")
-        # Don't exit - let app run without trading features
+  # NEW: Initialize trading modules
+  try:
+    trading_manager = TradingPositionManager(db_path=app.config['DB_PATH'])
+    fact_checker = SignalFactChecker(db_path=app.config['DB_PATH'])
+    logging.info("✅ Trading management system initialized")
+  except Exception as e:
+    logging.error(f"❌ Failed to initialize trading modules: {e}")
+    logging.error("Trading features will not be available!")
+    # Don't exit - let app run without trading features
 
-  # Run Flask app
-  app.run(host='0.0.0.0', port=5001, debug=True)  # Set debug=False for production
+# Run Flask app
+app.run(host='0.0.0.0', port=5001, debug=True)  # Set debug=False for production
