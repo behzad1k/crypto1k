@@ -1,5 +1,5 @@
 """
-Integrated Crypto Pattern Monitoring Module
+Integrated Crypto Pattern Monitoring Module with Scalp Signal Analysis
 Designed to run as background thread in Flask app
 """
 
@@ -46,6 +46,261 @@ def fetch_nobitex_top_symbols(limit: int = 100) -> List[str]:
     return ['BTC', 'ETH', 'SOL', 'NEAR', 'APT', 'SUI', 'DOGE', 'ADA', 'DOT', 'LINK']
 
 
+class ScalpSignalValidator:
+  """Validates signals using short-term scalp analysis"""
+
+  STRONG_SIGNAL_PATTERNS = [
+    'engulfing_bullish', 'engulfing_bearish', 'morning_star', 'evening_star',
+    'three_white_soldiers', 'three_black_crows', 'ma_cross_golden', 'ma_cross_death',
+    'macd_cross_bullish', 'macd_cross_bearish', 'macd_divergence_bullish',
+    'macd_divergence_bearish', 'rsi_divergence_bullish', 'rsi_divergence_bearish',
+    'volume_spike_bullish', 'volume_spike_bearish', 'bollinger_squeeze',
+    'bollinger_breakout_up', 'bollinger_breakout_down', 'break_of_structure_bullish',
+    'break_of_structure_bearish', 'resistance_break', 'support_break',
+    'supertrend_bullish', 'supertrend_bearish', 'ichimoku_bullish', 'ichimoku_bearish'
+  ]
+
+  SHORT_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m']
+
+  def __init__(self):
+    self.timeframe_minutes = {
+      '1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
+      '1h': 60, '2h': 120, '4h': 240
+    }
+
+  def fetch_data(self, symbol: str, timeframe: str, limit: int = 200) -> Optional[pd.DataFrame]:
+    """Fetch OHLCV data with KuCoin primary, Binance fallback"""
+    data = self._fetch_kucoin_data(symbol, timeframe, limit)
+    if data is None or len(data) < 50:
+      data = self._fetch_binance_data(symbol, timeframe, limit)
+    return data
+
+  def _fetch_kucoin_data(self, symbol: str, timeframe: str, limit: int) -> Optional[pd.DataFrame]:
+    """Fetch from KuCoin"""
+    try:
+      symbol_pair = f"{symbol}-USDT"
+      end_time = int(datetime.now().timestamp())
+      minutes = self.timeframe_minutes.get(timeframe, 30)
+      start_time = end_time - (minutes * 60 * limit)
+
+      tf_map = {
+        '1m': '1min', '3m': '3min', '5m': '5min', '15m': '15min',
+        '30m': '30min', '1h': '1hour', '2h': '2hour', '4h': '4hour'
+      }
+
+      if timeframe not in tf_map:
+        return None
+
+      url = "https://api.kucoin.com/api/v1/market/candles"
+      params = {'symbol': symbol_pair, 'type': tf_map[timeframe], 'startAt': start_time, 'endAt': end_time}
+
+      response = requests.get(url, params=params, timeout=10)
+      response.raise_for_status()
+      data = response.json()
+
+      if data.get('code') != '200000' or not data.get('data'):
+        return None
+
+      df = pd.DataFrame(data['data'], columns=['timestamp', 'open', 'close', 'high', 'low', 'volume', 'turnover'])
+      df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+      df['timestamp'] = pd.to_datetime(pd.to_numeric(df['timestamp'], errors='coerce'), unit='s')
+
+      for col in ['open', 'high', 'low', 'close', 'volume']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+      return df.sort_values('timestamp').reset_index(drop=True)
+    except Exception as e:
+      return None
+
+  def _fetch_binance_data(self, symbol: str, timeframe: str, limit: int) -> Optional[pd.DataFrame]:
+    """Fallback to Binance"""
+    try:
+      symbol_pair = f"{symbol}USDT"
+      url = "https://api.binance.com/api/v3/klines"
+      params = {'symbol': symbol_pair, 'interval': timeframe, 'limit': limit}
+
+      response = requests.get(url, params=params, timeout=10)
+      response.raise_for_status()
+      data = response.json()
+
+      if not data:
+        return None
+
+      df = pd.DataFrame(data, columns=[
+        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+        'close_time', 'quote_volume', 'trades', 'buy_volume', 'buy_quote_volume', 'ignore'
+      ])
+
+      df['timestamp'] = pd.to_datetime(pd.to_numeric(df['timestamp'], errors='coerce'), unit='ms')
+
+      for col in ['open', 'high', 'low', 'close', 'volume']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+      return df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].reset_index(drop=True)
+    except Exception as e:
+      return None
+
+  def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate technical indicators for signal detection"""
+    data = df.copy()
+
+    if len(data) < 50:
+      return data
+
+    try:
+      # Moving Averages
+      for period in [5, 10, 20, 50]:
+        if len(data) >= period:
+          data[f'SMA_{period}'] = data['close'].rolling(window=period).mean()
+          data[f'EMA_{period}'] = data['close'].ewm(span=period, adjust=False).mean()
+
+      # MACD
+      ema_12 = data['close'].ewm(span=12, adjust=False).mean()
+      ema_26 = data['close'].ewm(span=26, adjust=False).mean()
+      data['MACD'] = ema_12 - ema_26
+      data['MACD_signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+      data['MACD_histogram'] = data['MACD'] - data['MACD_signal']
+
+      # RSI
+      delta = data['close'].diff()
+      gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+      loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+      rs = gain / loss
+      data['RSI'] = 100 - (100 / (1 + rs))
+
+      # Bollinger Bands
+      data['BB_middle'] = data['close'].rolling(window=20).mean()
+      data['BB_std'] = data['close'].rolling(window=20).std()
+      data['BB_upper'] = data['BB_middle'] + (data['BB_std'] * 2)
+      data['BB_lower'] = data['BB_middle'] - (data['BB_std'] * 2)
+      data['BB_width'] = (data['BB_upper'] - data['BB_lower']) / data['BB_middle']
+
+      # Volume
+      data['volume_sma'] = data['volume'].rolling(window=20).mean()
+
+    except Exception as e:
+      logging.error(f"Error calculating indicators: {e}")
+
+    return data
+
+  def detect_strong_signals(self, df: pd.DataFrame, signal_type: str) -> List[Dict]:
+    """Detect strong signals matching the given type (BUY/SELL)"""
+    if len(df) < 3:
+      return []
+
+    strong_signals = []
+    curr = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    # Candlestick patterns
+    body_curr = abs(curr['close'] - curr['open'])
+    body_prev = abs(prev['close'] - prev['open'])
+
+    # Engulfing
+    if signal_type == 'BUY':
+      if curr['close'] > curr['open'] and prev['close'] < prev['open']:
+        if curr['close'] > prev['open'] and curr['open'] < prev['close']:
+          strong_signals.append({'pattern': 'engulfing_bullish', 'strength': 'VERY_STRONG'})
+
+    if signal_type == 'SELL':
+      if curr['close'] < curr['open'] and prev['close'] > prev['open']:
+        if curr['close'] < prev['open'] and curr['open'] > prev['close']:
+          strong_signals.append({'pattern': 'engulfing_bearish', 'strength': 'VERY_STRONG'})
+
+    # MACD crossover
+    if not pd.isna(curr['MACD']) and not pd.isna(curr['MACD_signal']):
+      if signal_type == 'BUY' and curr['MACD'] > curr['MACD_signal'] and prev['MACD'] <= prev['MACD_signal']:
+        strong_signals.append({'pattern': 'macd_cross_bullish', 'strength': 'STRONG'})
+
+      if signal_type == 'SELL' and curr['MACD'] < curr['MACD_signal'] and prev['MACD'] >= prev['MACD_signal']:
+        strong_signals.append({'pattern': 'macd_cross_bearish', 'strength': 'STRONG'})
+
+    # RSI divergence (simplified)
+    if not pd.isna(curr['RSI']) and len(df) >= 10:
+      recent_prices = df['close'].iloc[-10:]
+      recent_rsi = df['RSI'].iloc[-10:]
+
+      price_higher = recent_prices.iloc[-1] > recent_prices.iloc[0]
+      rsi_lower = recent_rsi.iloc[-1] < recent_rsi.iloc[0]
+
+      if signal_type == 'SELL' and price_higher and rsi_lower:
+        strong_signals.append({'pattern': 'rsi_divergence_bearish', 'strength': 'VERY_STRONG'})
+
+      if signal_type == 'BUY' and not price_higher and not rsi_lower:
+        strong_signals.append({'pattern': 'rsi_divergence_bullish', 'strength': 'VERY_STRONG'})
+
+    # Volume spike
+    if not pd.isna(curr['volume_sma']) and curr['volume'] > curr['volume_sma'] * 2:
+      if signal_type == 'BUY' and curr['close'] > curr['open']:
+        strong_signals.append({'pattern': 'volume_spike_bullish', 'strength': 'STRONG'})
+
+      if signal_type == 'SELL' and curr['close'] < curr['open']:
+        strong_signals.append({'pattern': 'volume_spike_bearish', 'strength': 'STRONG'})
+
+    # Bollinger breakout
+    if not pd.isna(curr['BB_upper']) and not pd.isna(curr['BB_lower']):
+      if signal_type == 'BUY' and curr['close'] > curr['BB_upper'] and prev['close'] <= prev['BB_upper']:
+        strong_signals.append({'pattern': 'bollinger_breakout_up', 'strength': 'STRONG'})
+
+      if signal_type == 'SELL' and curr['close'] < curr['BB_lower'] and prev['close'] >= prev['BB_lower']:
+        strong_signals.append({'pattern': 'bollinger_breakout_down', 'strength': 'STRONG'})
+
+    # Support/Resistance breaks
+    if len(df) >= 10:
+      recent = df.iloc[-10:]
+      resistance = recent['high'].max()
+      support = recent['low'].min()
+
+      if signal_type == 'BUY' and curr['close'] > resistance * 1.01:
+        strong_signals.append({'pattern': 'resistance_break', 'strength': 'STRONG'})
+
+      if signal_type == 'SELL' and curr['close'] < support * 0.99:
+        strong_signals.append({'pattern': 'support_break', 'strength': 'STRONG'})
+
+    return strong_signals
+
+  def validate_signal(self, symbol: str, signal_type: str) -> Dict:
+    """
+    Validate signal by checking for strong patterns in short timeframes
+    Returns validation result with detected strong signals
+    """
+    validation_result = {
+      'validated': False,
+      'strong_signals_found': [],
+      'timeframes_checked': [],
+      'total_strong_signals': 0
+    }
+
+    for tf in self.SHORT_TIMEFRAMES:
+      try:
+        df = self.fetch_data(symbol, tf, 200)
+
+        if df is None or len(df) < 50:
+          continue
+
+        df = self.calculate_indicators(df)
+        strong_signals = self.detect_strong_signals(df, signal_type)
+
+        validation_result['timeframes_checked'].append(tf)
+
+        if strong_signals:
+          validation_result['strong_signals_found'].extend([
+            {'timeframe': tf, **sig} for sig in strong_signals
+          ])
+          validation_result['total_strong_signals'] += len(strong_signals)
+
+        # Early exit if we found at least one strong signal
+        if validation_result['total_strong_signals'] > 0:
+          validation_result['validated'] = True
+          break
+
+      except Exception as e:
+        logging.warning(f"Validation error for {symbol} on {tf}: {e}")
+        continue
+
+    return validation_result
+
+
 class CryptoPatternMonitor:
   """Main monitoring class - thread-safe for Flask integration"""
 
@@ -59,9 +314,12 @@ class CryptoPatternMonitor:
     self.symbol_queue = deque()
 
     # Configuration
-    self.min_pattern_accuracy = 0.70
+    self.min_pattern_accuracy = 0.75  # Changed to 75%
     self.min_pattern_count = 100
-    self.min_confidence = 0.80
+    self.min_confidence = 0.75  # Changed to 75%
+
+    # Initialize scalp signal validator
+    self.scalp_validator = ScalpSignalValidator()
 
     # Load patterns
     self.indicator_patterns = self.load_indicator_patterns()
@@ -76,6 +334,8 @@ class CryptoPatternMonitor:
     self.stats = {
       'symbols_processed': 0,
       'alerts_triggered': 0,
+      'signals_validated': 0,
+      'signals_rejected': 0,
       'last_update': None,
       'current_symbol': None
     }
@@ -92,7 +352,7 @@ class CryptoPatternMonitor:
         for pattern in filtered:
           pattern['parsed'] = self.parse_pattern(pattern['indicator'])
 
-        logging.info(f"Loaded {len(filtered)} high-accuracy patterns")
+        logging.info(f"Loaded {len(filtered)} high-accuracy patterns (≥{self.min_pattern_accuracy:.0%})")
         return sorted(filtered, key=lambda x: x['accuracy'], reverse=True)
     except Exception as e:
       logging.error(f"Failed to load patterns: {e}")
@@ -164,7 +424,6 @@ class CryptoPatternMonitor:
       'close_time', 'quote_volume', 'trades', 'buy_volume', 'buy_quote_volume', 'ignore'
     ])
 
-    # Convert timestamp to numeric first, then to datetime
     df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
 
@@ -468,8 +727,9 @@ class CryptoPatternMonitor:
 
   def save_signal_to_db(self, symbol: str, signal: str, confidence: float,
                         pattern_count: int, best_pattern: str, best_accuracy: float,
-                        all_patterns: List[Dict], price: float, stop_loss: float):
-    """Save signal to database"""
+                        all_patterns: List[Dict], price: float, stop_loss: float,
+                        scalp_validation: Dict):
+    """Save signal to database with scalp validation data"""
     try:
       conn = sqlite3.connect(self.db_path)
       cursor = conn.cursor()
@@ -478,13 +738,14 @@ class CryptoPatternMonitor:
                 INSERT INTO pattern_signals (
                     symbol, signal, pattern_confidence, pattern_count,
                     best_pattern, best_pattern_accuracy, all_patterns,
-                    price, stop_loss
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    price, stop_loss, scalp_validation
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
         symbol, signal, confidence, pattern_count,
         best_pattern, best_accuracy,
         json.dumps(all_patterns, indent=2),
-        price, stop_loss
+        price, stop_loss,
+        json.dumps(scalp_validation, indent=2)
       ))
 
       conn.commit()
@@ -496,7 +757,7 @@ class CryptoPatternMonitor:
       logging.error(f"Failed to save signal: {e}")
 
   def monitor_symbol(self, symbol: str):
-    """Monitor single symbol for pattern matches"""
+    """Monitor single symbol for pattern matches with scalp validation"""
     try:
       self.stats['current_symbol'] = symbol
       logging.info(f"Analyzing {symbol}...")
@@ -509,17 +770,30 @@ class CryptoPatternMonitor:
       matching_patterns = self.find_matching_patterns(analysis_result)
       pattern_count = len(matching_patterns)
 
-      if pattern_count == 0:
+      # Check pattern count threshold (minimum 100)
+      if pattern_count < self.min_pattern_count:
+        logging.info(f"{symbol}: {pattern_count} patterns - below minimum threshold of {self.min_pattern_count}")
         return
 
       confidence = self.calculate_pattern_confidence(matching_patterns)
 
-      # Check thresholds
-      if pattern_count <= self.min_pattern_count or confidence <= self.min_confidence:
-        logging.info(f"{symbol}: {pattern_count} patterns, {confidence:.1%} confidence - thresholds not met")
+      # Check confidence threshold (minimum 75%)
+      if confidence < self.min_confidence:
+        logging.info(f"{symbol}: {confidence:.1%} confidence - below minimum threshold of {self.min_confidence:.0%}")
         return
 
-      logging.info(f"🎯 {symbol}: {pattern_count} patterns, {confidence:.1%} confidence - ALERT!")
+      logging.info(f"🎯 {symbol}: {pattern_count} patterns, {confidence:.1%} confidence - Validating with scalp signals...")
+
+      # NEW: Validate with scalp signal analyzer
+      scalp_validation = self.scalp_validator.validate_signal(symbol, analysis_result['signal'])
+
+      if not scalp_validation['validated']:
+        logging.info(f"❌ {symbol}: No strong short-term signals found - REJECTED")
+        self.stats['signals_rejected'] += 1
+        return
+
+      logging.info(f"✅ {symbol}: VALIDATED with {scalp_validation['total_strong_signals']} strong signal(s)!")
+      self.stats['signals_validated'] += 1
 
       best_pattern = max(matching_patterns, key=lambda x: x['accuracy'])
 
@@ -534,11 +808,11 @@ class CryptoPatternMonitor:
       current_price = float(current_data['close'].iloc[-1])
       stop_loss = self.calculate_stop_loss(analysis_result['signal'], confidence, current_price)
 
-      # Save to database
+      # Save to database with scalp validation info
       self.save_signal_to_db(
         symbol, analysis_result['signal'], confidence,
         pattern_count, best_pattern['pattern'], best_pattern['accuracy'],
-        matching_patterns, current_price, stop_loss
+        matching_patterns, current_price, stop_loss, scalp_validation
       )
 
     except Exception as e:
@@ -561,9 +835,9 @@ class CryptoPatternMonitor:
   def run(self, top_coins: int = 100):
     """Main monitoring loop"""
     self.running = True
-    logging.info("🚀 Starting crypto pattern monitoring")
+    logging.info("🚀 Starting crypto pattern monitoring with scalp validation")
     logging.info(f"Loaded {len(self.indicator_patterns)} patterns")
-    logging.info(f"Thresholds: {self.min_pattern_count}+ patterns, {self.min_confidence:.0%}+ confidence")
+    logging.info(f"Thresholds: {self.min_pattern_count}+ patterns, {self.min_confidence:.0%}+ confidence, strong short-term signals required")
 
     while self.running:
       try:
@@ -592,6 +866,7 @@ class CryptoPatternMonitor:
           time.sleep(1)  # Rate limiting
 
         logging.info(f"✅ Loop completed. Processed {self.stats['symbols_processed']} symbols")
+        logging.info(f"📈 Validated: {self.stats['signals_validated']} | Rejected: {self.stats['signals_rejected']}")
         time.sleep(10)  # Pause between loops
 
       except Exception as e:
@@ -609,5 +884,9 @@ class CryptoPatternMonitor:
       **self.stats,
       'running': self.running,
       'patterns_loaded': len(self.indicator_patterns),
-      'current_symbols_count': len(self.current_symbols)
+      'current_symbols_count': len(self.current_symbols),
+      'validation_rate': (
+        f"{(self.stats['signals_validated'] / (self.stats['signals_validated'] + self.stats['signals_rejected']) * 100):.1f}%"
+        if (self.stats['signals_validated'] + self.stats['signals_rejected']) > 0 else "N/A"
+      )
     }
