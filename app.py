@@ -36,7 +36,44 @@ live_analyzer = None
 live_db = None
 trading_manager = None
 fact_checker = None
-sock = Sock(app)
+sock = None
+
+
+# ==================== INITIALIZATION FUNCTION ====================
+def initialize_app():
+  """Initialize all modules - called on import for gunicorn compatibility"""
+  global live_analyzer, live_db, trading_manager, fact_checker, sock
+
+  # Only initialize once
+  if live_analyzer is not None:
+    return
+
+  logging.info("🚀 Initializing application...")
+
+  # Initialize database
+  init_database()
+
+  # Initialize live analysis
+  try:
+    live_analyzer = ScalpSignalAnalyzer()
+    live_db = LiveAnalysisDB()
+    logging.info("✅ Live analysis system initialized")
+  except Exception as e:
+    logging.error(f"❌ Failed to initialize live analysis: {e}")
+
+  # Initialize trading modules
+  try:
+    trading_manager = TradingPositionManager(db_path=app.config['DB_PATH'])
+    fact_checker = SignalFactChecker(db_path=app.config['DB_PATH'])
+    sock = Sock(app)
+    logging.info("✅ Trading management system initialized")
+  except Exception as e:
+    logging.error(f"❌ Failed to initialize trading modules: {e}")
+    logging.error("Trading features will not be available!")
+
+
+# Initialize immediately on import (works with both gunicorn and python app.py)
+initialize_app()
 
 
 # ==================== AUTH ====================
@@ -55,7 +92,6 @@ def login_required(f):
 def login():
   if request.method == 'POST':
     data = request.get_json()
-    # CHANGE THESE CREDENTIALS!
     if data.get('username') == 'iheartsogol' and data.get('password') == 'sogolpleasecomeback:(((((':
       session['logged_in'] = True
       return jsonify({'success': True})
@@ -637,7 +673,6 @@ def trading_positions():
       'error': 'Trading manager not initialized. Please restart the application.'
     }), 500
 
-
   if request.method == 'GET':
     status = request.args.get('status')
     symbol = request.args.get('symbol')
@@ -692,7 +727,6 @@ def trading_position_detail(position_id):
 
   if trading_manager is None:
     return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
-
 
   if request.method == 'GET':
     try:
@@ -749,7 +783,6 @@ def close_trading_position(position_id):
   if trading_manager is None:
     return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
 
-
   data = request.get_json()
 
   try:
@@ -776,7 +809,6 @@ def calculate_stops():
 
   if trading_manager is None:
     return jsonify({'success': False, 'error': 'Trading manager not initialized'}), 500
-
 
   data = request.get_json()
 
@@ -808,7 +840,6 @@ def position_websocket(ws, position_id):
   if trading_manager is None:
     ws.send(json.dumps({'error': 'Trading manager not initialized'}))
     return
-
 
   # Get position details
   position = trading_manager.get_position(position_id)
@@ -872,7 +903,7 @@ def fact_check_position(position_id):
   global trading_manager, fact_checker
 
   if trading_manager is None or fact_checker is None:
-      return jsonify({'success': False, 'error': 'Modules not initialized'}), 500
+    return jsonify({'success': False, 'error': 'Modules not initialized'}), 500
 
   position = trading_manager.get_position(position_id)
 
@@ -907,7 +938,6 @@ def get_signal_accuracy(signal_name):
   if fact_checker is None:
     return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
 
-
   timeframe = request.args.get('timeframe')
 
   try:
@@ -934,7 +964,6 @@ def adjust_signal_confidence():
 
   if fact_checker is None:
     return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
-
 
   data = request.get_json()
 
@@ -966,7 +995,6 @@ def bulk_adjust_signals():
   if fact_checker is None:
     return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
 
-
   data = request.get_json()
   min_samples = data.get('min_samples', 10)
 
@@ -994,7 +1022,6 @@ def get_all_adjustments():
 
   try:
 
-
     adjustments = fact_checker.get_all_adjustments()
 
     return jsonify({
@@ -1015,7 +1042,6 @@ def cleanup_fact_checks():
 
   if fact_checker is None:
     return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
-
 
   data = request.get_json()
   days = data.get('days', 90)
@@ -1079,23 +1105,6 @@ def init_database():
 # ==================== STARTUP ====================
 
 if __name__ == '__main__':
-  # Initialize database
-  init_database()
-
-  # Initialize live analysis
-  live_analyzer = ScalpSignalAnalyzer()
-  live_db = LiveAnalysisDB()
-  logging.info("✅ Live analysis system initialized")
-
-  # NEW: Initialize trading modules
-  try:
-    trading_manager = TradingPositionManager(db_path=app.config['DB_PATH'])
-    fact_checker = SignalFactChecker(db_path=app.config['DB_PATH'])
-    logging.info("✅ Trading management system initialized")
-  except Exception as e:
-    logging.error(f"❌ Failed to initialize trading modules: {e}")
-    logging.error("Trading features will not be available!")
-    # Don't exit - let app run without trading features
-
-  # Run Flask app
-  app.run(host='0.0.0.0', port=5000, debug=True)  # Set debug=False for production
+  # This only runs when using "python app.py" directly
+  # Gunicorn will skip this and use the initialization above
+  app.run(host='0.0.0.0', port=5001, debug=True)
