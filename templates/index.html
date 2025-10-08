@@ -994,6 +994,96 @@
         </div>
     </div>
 
+    <!-- Update Position Modal -->
+    <div id="update-position-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full">
+            <div class="border-b border-slate-700 p-6 flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-white">Update Position</h2>
+                <button onclick="closeUpdatePositionModal()" class="text-slate-400 hover:text-white">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+
+            <div class="p-6">
+                <form id="update-position-form" class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Entry Price</label>
+                            <input type="number" id="update-entry-price" step="0.00001"
+                                   class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Amount</label>
+                            <input type="number" id="update-amount" step="0.001"
+                                   class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Status</label>
+                            <select id="update-status" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white">
+                                <option value="waiting_for_right_time_to_enter">Waiting</option>
+                                <option value="open">Open</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Leverage</label>
+                            <input type="number" id="update-leverage" step="0.1" min="1" max="100"
+                                   class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Liquidation At</label>
+                            <input type="number" id="update-liquidation" step="0.00001"
+                                   class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Break Even</label>
+                            <input type="number" id="update-break-even" step="0.00001"
+                                   class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Stop Loss</label>
+                            <input type="number" id="update-stop-loss" step="0.00001"
+                                   class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-1">Stop Profit</label>
+                        <input type="number" id="update-stop-profit" step="0.00001"
+                               class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-1">Entry Reason</label>
+                        <textarea id="update-entry-reason" rows="2"
+                                  class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-1">Notes</label>
+                        <textarea id="update-notes" rows="2"
+                                  class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded text-white"></textarea>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded">
+                            Update Position
+                        </button>
+                        <button type="button" onclick="closeUpdatePositionModal()"
+                                class="flex-1 bg-slate-600 hover:bg-slate-500 text-white py-2 px-4 rounded">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Fact-Check Modal -->
     <div id="fact-check-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div class="bg-slate-800 rounded-lg border border-slate-700 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
@@ -1147,7 +1237,7 @@ async function showPositionDetail(positionId) {
 
         if (data.success) {
             const pos = data.position;
-
+            currentPositionData = pos;
             document.getElementById('position-detail-title').textContent = `${pos.symbol} - Position #${pos.id}`;
 
             const statusColors = {
@@ -1302,6 +1392,82 @@ function closePositionDetail() {
     }
     currentPositionId = null;
 }
+
+let currentPositionData = null;
+
+// Update Position Modal
+function showUpdatePositionModal() {
+    if (!currentPositionData) {
+        alert('No position data loaded');
+        return;
+    }
+
+    const pos = currentPositionData;
+
+    // Populate form fields
+    document.getElementById('update-entry-price').value = pos.entry_price || '';
+    document.getElementById('update-amount').value = pos.amount || '';
+    document.getElementById('update-status').value = pos.status || 'open';
+    document.getElementById('update-leverage').value = pos.leverage_multiplier || '';
+    document.getElementById('update-liquidation').value = pos.liquidation_at || '';
+    document.getElementById('update-break-even').value = pos.break_even || '';
+    document.getElementById('update-stop-loss').value = pos.stop_loss || '';
+    document.getElementById('update-stop-profit').value = pos.stop_profit || '';
+    document.getElementById('update-entry-reason').value = pos.entry_reason || '';
+    document.getElementById('update-notes').value = pos.notes || '';
+
+    document.getElementById('update-position-modal').classList.remove('hidden');
+    lucide.createIcons();
+}
+
+function closeUpdatePositionModal() {
+    document.getElementById('update-position-modal').classList.add('hidden');
+}
+
+// Form submit handler
+document.getElementById('update-position-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (!currentPositionId) {
+        alert('No position selected');
+        return;
+    }
+
+    const data = {
+        entry_price: parseFloat(document.getElementById('update-entry-price').value),
+        amount: parseFloat(document.getElementById('update-amount').value),
+        status: document.getElementById('update-status').value,
+        leverage_multiplier: document.getElementById('update-leverage').value ? parseFloat(document.getElementById('update-leverage').value) : null,
+        liquidation_at: document.getElementById('update-liquidation').value ? parseFloat(document.getElementById('update-liquidation').value) : null,
+        break_even: document.getElementById('update-break-even').value ? parseFloat(document.getElementById('update-break-even').value) : null,
+        stop_loss: document.getElementById('update-stop-loss').value ? parseFloat(document.getElementById('update-stop-loss').value) : null,
+        stop_profit: document.getElementById('update-stop-profit').value ? parseFloat(document.getElementById('update-stop-profit').value) : null,
+        entry_reason: document.getElementById('update-entry-reason').value || null,
+        notes: document.getElementById('update-notes').value || null
+    };
+
+    try {
+        const response = await fetch(`/api/trading/positions/${currentPositionId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert('Position updated successfully!');
+            closeUpdatePositionModal();
+            // Reload position detail
+            showPositionDetail(currentPositionId);
+            loadPositions();
+        } else {
+            alert('Failed to update position: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error updating position: ' + error.message);
+    }
+});
 
 // WebSocket connection
 function connectPositionWebSocket() {
