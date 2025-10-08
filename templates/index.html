@@ -639,7 +639,7 @@
                                     </span>
                                 </div>
                                 <div class="text-right">
-                                    <p class="text-white font-semibold">$${tfData.price.toFixed(2)}</p>
+                                    <p class="text-white font-semibold">$${tfData.price.toFixed(5)}</p>
                                     <p class="text-slate-400 text-xs">${totalSignals} signals</p>
                                 </div>
                             </div>
@@ -694,7 +694,7 @@
                                     <span class="text-slate-300">${formatSignalName(signalName)}</span>
                                     ${strength ? `<span class="text-slate-500 text-[10px]">(${strength})</span>` : ''}
                                 </div>
-                                <div class="w-12 h-2 ${confColor} rounded-full ml-2" title="Confidence: ${conf}%"></div>
+                                <div class="w-6 h-6 ${confColor} flex items-center justify-center text-sm rounded-full ml-2"> ${conf}</div>
                             </div>
                         `;
                     });
@@ -716,14 +716,36 @@
             // This would ideally come from the server, but for now use defaults
             const confidenceMap = {
                 'engulfing_bullish': 75, 'engulfing_bearish': 75,
-                'ma_cross_golden': 82, 'ma_cross_death': 82,
-                'rsi_divergence_bullish': 85, 'rsi_divergence_bearish': 85,
-                'macd_divergence_bullish': 87, 'macd_divergence_bearish': 87,
-                'volume_spike_bullish': 77, 'volume_spike_bearish': 77,
-                'bollinger_squeeze': 80,
-                'break_of_structure_bullish': 84, 'break_of_structure_bearish': 84,
-                'support_break': 80, 'resistance_break': 80
-            };
+                 'hammer': 72, 'shooting_star': 72, 'doji_reversal': 65,
+                 'morning_star': 78, 'evening_star': 78, 'three_white_soldiers': 80,
+                 'three_black_crows': 80, 'piercing_pattern': 70, 'dark_cloud_cover': 70,
+                  'tweezer_top': 68, 'tweezer_bottom': 68, 'marubozu_bullish': 73,
+                  'marubozu_bearish': 73, 'ma_cross_golden': 82, 'ma_cross_death': 82,
+                  'price_above_ma20': 70, 'price_below_ma20': 70, 'ma_ribbon_bullish': 76,
+                  'ma_ribbon_bearish': 76, 'ema_cross_fast': 74, 'triple_ema_bullish': 78,
+                  'triple_ema_bearish': 78, 'rsi_oversold': 68, 'rsi_overbought': 68,
+                  'rsi_divergence_bullish': 85, 'rsi_divergence_bearish': 85,
+                   'rsi_centerline_cross_up': 72, 'rsi_centerline_cross_down': 72,
+                   'macd_cross_bullish': 79, 'macd_cross_bearish': 79, 'macd_divergence_bullish': 87,
+                    'macd_divergence_bearish': 87, 'macd_histogram_reversal_bullish': 75,
+                     'macd_histogram_reversal_bearish': 75, 'stoch_oversold': 66, 'stoch_overbought': 66,
+                     'stoch_cross_bullish': 71, 'stoch_cross_bearish': 71, 'momentum_surge_bullish': 70,
+                     'momentum_surge_bearish': 70, 'cci_oversold': 67, 'cci_overbought': 67, 'williams_r_oversold': 65,
+                     'williams_r_overbought': 65, 'volume_spike_bullish': 77, 'volume_spike_bearish': 77,
+                     'volume_divergence_bullish': 81, 'volume_divergence_bearish': 81, 'obv_bullish': 74,
+                      'obv_bearish': 74, 'vwap_cross_above': 76, 'vwap_cross_below': 76,
+                      'accumulation_distribution_bullish': 73, 'accumulation_distribution_bearish': 73,
+                       'bollinger_squeeze': 80, 'bollinger_breakout_up': 78, 'bollinger_breakout_down': 78,
+                        'bollinger_bounce_up': 69, 'bollinger_bounce_down': 69, 'atr_expansion': 71,
+                        'keltner_breakout_up': 75, 'keltner_breakout_down': 75, 'adx_strong_trend': 79,
+                         'adx_weak_trend': 70, 'adx_reversal': 76, 'supertrend_bullish': 81,
+                         'supertrend_bearish': 81, 'parabolic_sar_flip_bullish': 74,
+                          'parabolic_sar_flip_bearish': 74, 'ichimoku_bullish': 83, 'ichimoku_bearish': 83,
+                           'higher_high': 77, 'lower_low': 77, 'break_of_structure_bullish': 84,
+                            'break_of_structure_bearish': 84, 'support_bounce': 72, 'resistance_rejection': 72,
+                             'support_break': 80, 'resistance_break': 80, 'pivot_point_bullish': 69,
+                              'pivot_point_bearish': 69, 'fibonacci_bounce_382': 73, 'fibonacci_bounce_618': 76,
+                 'round_number_support': 68, 'round_number_resistance': 68}
 
             return confidenceMap[signalName] || 70;
         }
@@ -1350,14 +1372,14 @@ function renderLiveSignals(data) {
                 <div class="space-y-1">
         `;
 
-        for (const [signalName, signalData] of Object.entries(tfData.signals)) {
+        for (const [signalName, signalData] of Object.entries(tfData.signals).sort((a, b) => b[1]?.adjusted_confidence - a[1]?.adjusted_confidence)) {
             const adjConf = signalData.adjusted_confidence || 70;
             const confColor = getConfidenceColor(adjConf);
 
             html += `
                 <div class="flex items-center justify-between text-xs py-1">
                     <span class="${signalData.signal === 'BUY' ? 'text-green-400' : 'text-red-400'}">${signalName}</span>
-                    <div class="w-16 h-2 ${confColor} rounded"></div>
+                    <div class="w-8 h-8 ${confColor} rounded-full text-sm flex justify-center items-center">${adjConf}</div>
                 </div>
             `;
         }
@@ -1791,6 +1813,7 @@ if (document.getElementById('page-trading')) {
                         <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
                         ${signal.signal}
                     </span>
+                    </a>
                 </td>
                 <td class="px-6 py-4 text-slate-300">${(signal.pattern_confidence * 100).toFixed(2)}%</td>
                 <td class="px-6 py-4 text-slate-300">${signal.pattern_count}</td>
@@ -1828,6 +1851,15 @@ if (document.getElementById('page-trading')) {
         currentSymbol = symbol;
         const response = await fetch(`/api/symbols/${symbol}`);
         const history = await response.json();
+
+
+        signalAnalysisInputs = document.querySelectorAll("input[id^=symbol]");
+
+        for(input of signalAnalysisInput){
+            if(!input.value){
+                input.value = symbol;
+            }
+        }
 
         document.querySelector('#page-signals > .bg-slate-800').classList.add('hidden');
         document.getElementById('symbol-detail').classList.remove('hidden');

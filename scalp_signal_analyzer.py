@@ -25,7 +25,6 @@ class ScalpSignalAnalyzer:
     'mid': ['30m', '1h', '2h', '4h', '6h', '8h'],
     'long': ['12h', '1d', '3d', '1w']
   }
-
   # Signal confidence ratings (0-100)
   SIGNAL_CONFIDENCE = {
     # Candlestick Patterns
@@ -130,6 +129,12 @@ class ScalpSignalAnalyzer:
     'round_number_resistance': {'confidence': 68, 'timeframes': ['short', 'mid', 'long']},
   }
 
+  objs = {}
+
+  for obj, value in SIGNAL_CONFIDENCE.items():
+    objs[obj] = value['confidence']
+
+  print(objs)
   def __init__(self):
     self.timeframe_minutes = {
       '1m': 1, '3m': 3, '5m': 5, '15m': 15,
@@ -699,7 +704,7 @@ if __name__ == "__main__":
   analyzer = ScalpSignalAnalyzer()
 
   # Analyze BTC across short-term timeframes
-  result = analyzer.analyze_symbol_all_timeframes('BTC', ['1m', '5m', '15m', '1h'])
+  result = analyzer.analyze_symbol_all_timeframes('BTC', ['1m', '5m', '15m', '30m', '1h'])
 
   print(f"\n{'=' * 80}")
   print(f"Analysis Results for BTC")
