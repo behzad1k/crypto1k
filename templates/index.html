@@ -1855,9 +1855,10 @@ if (document.getElementById('page-trading')) {
 
         signalAnalysisInputs = document.querySelectorAll("input[id^=symbol]");
 
-        for(input of signalAnalysisInput){
-            if(!input.value){
+        for(input of signalAnalysisInputs){
+            if(input.value){
                 input.value = symbol;
+                break;
             }
         }
 
