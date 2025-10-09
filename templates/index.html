@@ -2027,19 +2027,19 @@ if (document.getElementById('page-trading')) {
             tr.className = 'hover:bg-slate-700/50 transition-colors';
             tr.innerHTML = `
                 <td class="px-6 py-4">
-                    <button onclick="showSymbolDetail('${signal.symbol}')" class="text-purple-400 hover:text-purple-300 font-medium">
+                <a target="_blank" href="/symbol/${signal.symbol}"
+                    <button class="text-purple-400 hover:text-purple-300 font-medium">
                         ${signal.symbol}
                     </button>
+                    </a>
                 </td>
                 <td class="px-6 py-4">
-                <a target="_blank" href="https://tabdeal.org/panel/trade/${signal.symbol}_USDT?trade_type=isolatedMargin">
                     <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
                         signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
                     }">
                         <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
                         ${signal.signal}
                     </span>
-                    </a>
                 </td>
                 <td class="px-6 py-4 text-slate-300">${(signal.pattern_confidence * 100).toFixed(2)}%</td>
                 <td class="px-6 py-4 text-slate-300">${signal.pattern_count}</td>

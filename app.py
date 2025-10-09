@@ -149,10 +149,6 @@ def index():
 def symbol_info(symbol):
   return render_template('symbol.html', symbol=symbol.upper())
 
-@login_required
-def index():
-  return render_template('index.html')
-
 
 @app.route('/api/signals')
 @login_required

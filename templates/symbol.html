@@ -34,93 +34,6 @@
 <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <!-- Add this page section after page-control div -->
     <div id="page-live">
-        <!-- Timeframe Selection -->
-        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-            <div class="flex items-center gap-2 mb-4">
-                <i data-lucide="clock" class="w-5 h-5 text-purple-400"></i>
-                <h2 class="text-lg font-semibold text-white">Timeframe Selection</h2>
-            </div>
-
-            <div class="space-y-4">
-                <div>
-                    <p class="text-sm text-slate-300 mb-2">Select timeframes to analyze (applies to all coins):</p>
-                    <div class="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-9 gap-2">
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="1m" checked>
-                            <span>1m</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="3m">
-                            <span>3m</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="5m" checked>
-                            <span>5m</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="15m" checked>
-                            <span>15m</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="30m">
-                            <span>30m</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="1h" checked>
-                            <span>1h</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="2h">
-                            <span>2h</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="4h">
-                            <span>4h</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="6h">
-                            <span>6h</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="8h">
-                            <span>8h</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="12h">
-                            <span>12h</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                            <input type="checkbox" class="tf-checkbox" value="1d">
-                            <span>1d</span>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="flex gap-2">
-                    <button onclick="selectAllTimeframes(true)"
-                            class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
-                        Select All
-                    </button>
-                    <button onclick="selectAllTimeframes(false)"
-                            class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
-                        Deselect All
-                    </button>
-                    <button onclick="selectShortTerm()"
-                            class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
-                        Short-term (1m-15m)
-                    </button>
-                    <button onclick="selectMidTerm()"
-                            class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
-                        Mid-term (30m-8h)
-                    </button>
-                    <button onclick="selectLongTerm()"
-                            class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
-                        Long-term (12h-1d)
-                    </button>
-                </div>
-            </div>
-        </div>
-
         <!-- Coin Analysis Grid -->
         <div class="grid grid-cols-1 gap-6">
             <!-- Coin 1 -->
@@ -140,9 +53,101 @@
                                 <i data-lucide="play" class="w-4 h-4"></i>
                                 Start Live Feed
                             </button>
+                            <a target="_blank"
+                               href="https://tabdeal.org/panel/trade/{{symbol}}_USDT?trade_type=isolatedMargin"
+                               class="flex items-center gap-2 bg-white/20 hover:bg-white/30 backdrop-blur text-white font-medium py-2 px-4 rounded-lg transition-all">
+                                <i data-lucide="chart-no-axes-combined" class="w-4 h-4"></i>
+                                Start Live Feed
+                            </a>
                         </div>
                         <div id="analyzing-status" class="text-white text-sm hidden">
                             <i data-lucide="loader" class="w-4 h-4 animate-spin inline"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+                    <div class="flex items-center gap-2 mb-4">
+                        <i data-lucide="clock" class="w-5 h-5 text-purple-400"></i>
+                        <h2 class="text-lg font-semibold text-white">Timeframe Selection</h2>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <p class="text-sm text-slate-300 mb-2">Select timeframes to analyze (applies to all
+                                coins):</p>
+                            <div class="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-9 gap-2">
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="1m" checked>
+                                    <span>1m</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="3m">
+                                    <span>3m</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="5m" checked>
+                                    <span>5m</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="15m" checked>
+                                    <span>15m</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="30m">
+                                    <span>30m</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="1h" checked>
+                                    <span>1h</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="2h">
+                                    <span>2h</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="4h">
+                                    <span>4h</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="6h">
+                                    <span>6h</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="8h">
+                                    <span>8h</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="12h">
+                                    <span>12h</span>
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input type="checkbox" class="tf-checkbox" value="1d">
+                                    <span>1d</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button onclick="selectAllTimeframes(true)"
+                                    class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                                Select All
+                            </button>
+                            <button onclick="selectAllTimeframes(false)"
+                                    class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                                Deselect All
+                            </button>
+                            <button onclick="selectShortTerm()"
+                                    class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                                Short-term (1m-15m)
+                            </button>
+                            <button onclick="selectMidTerm()"
+                                    class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                                Mid-term (30m-8h)
+                            </button>
+                            <button onclick="selectLongTerm()"
+                                    class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">
+                                Long-term (12h-1d)
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -150,11 +155,10 @@
                     <p class="text-slate-400 text-center py-8">Enter a symbol and click Analyze</p>
                 </div>
             </div>
-
         </div>
 
         <!-- Signal Legend -->
-        <div class="mt-6 bg-slate-800 rounded-lg p-6 border border-slate-700">
+        <div class="mt-6 mb-6 bg-slate-800 rounded-lg p-6 border border-slate-700">
             <div class="flex items-center gap-2 mb-4">
                 <i data-lucide="info" class="w-5 h-5 text-purple-400"></i>
                 <h3 class="text-lg font-semibold text-white">Signal Confidence Legend</h3>
