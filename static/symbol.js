@@ -253,13 +253,13 @@
                     signals.forEach(([signalName, signalData]) => {
 
                         const signalInfo = getSignalDetail(signalName);
-                        console.log(signalInfo, tf)
                         const conf = signalInfo[tf]?.original_confidence || getSignalConfidence(signalName);
                         const adjusted_confidence = signalInfo[tf]?.confidence || 0
                         const accuracy = Math.round(signalInfo[tf]?.accuracy_rate * 100)/100 || 0
                         const confColor = getConfidenceColor(conf);
                         const adjustedConfColor = getConfidenceColor(adjusted_confidence);
                         const accuracyColor = getConfidenceColor(accuracy);
+                        const sample_size = signalInfo[tf]?.sample_size || 0
                         const signalType = signalData.signal;
                         const strength = signalData.strength || '';
 
@@ -284,6 +284,7 @@
                                 <div class="w-6 h-6 ${confColor} flex items-center justify-center text-sm rounded-full ml-2 opacity-50"> ${conf}</div>
                                 <div class="w-6 h-6 ${adjustedConfColor} flex items-center justify-center text-sm rounded-full ml-2"> ${adjusted_confidence}</div>
                                 <div class="w-10 h-6 ${accuracyColor} flex items-center justify-center text-sm rounded ml-2"> ${accuracy}</div>
+                                <div class="w-10 h-6 flex items-center justify-center text-sm rounded ml-2 text-white">${sample_size}</div>
                             </div>
                         `;
                     });

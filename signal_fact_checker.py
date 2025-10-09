@@ -320,7 +320,8 @@ class SignalFactChecker:
       results[signal['signal_name']][signal['timeframe']] = {
         'confidence': signal['adjusted_confidence'],
         'original_confidence': signal['original_confidence'],
-        'accuracy_rate': signal['accuracy_rate']
+        'accuracy_rate': signal['accuracy_rate'],
+        'sample_size': signal['sample_size'],
       }
 
     return results
