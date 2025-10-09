@@ -4,12 +4,14 @@
     let statusInterval = null;
     const symbol = window.location.pathname.split('/')[2].toUpperCase()
     let allSignalData = {}
+    let fullSignals = {}
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
         lucide.createIcons();
         showSymbolDetail(symbol)
         analyzeCoin()
         allSignalData = await getAllSignals()
+        fullSignals = await getFullSignals();
     });
 
 
@@ -244,17 +246,20 @@
                     const signals = Object.entries(tfData.signals);
 
                     // Sort by signal type (BUY first, then SELL)
-                    signals.sort((a, b) => {
-                        const typeA = a[1].signal;
-                        const typeB = b[1].signal;
-                        if (typeA === 'BUY' && typeB !== 'BUY') return -1;
-                        if (typeA !== 'BUY' && typeB === 'BUY') return 1;
-                        return 0;
-                    });
+                    signals.sort((a, b) =>
+                        (b[1].adjusted_confidence || getSignalConfidence(b[0])) - (a[1].adjusted_confidence || getSignalConfidence(a[0]))
+                    );
 
                     signals.forEach(([signalName, signalData]) => {
-                        const conf = getSignalConfidence(signalName);
+
+                        const signalInfo = getSignalDetail(signalName);
+                        console.log(signalInfo, tf)
+                        const conf = signalInfo[tf]?.original_confidence || getSignalConfidence(signalName);
+                        const adjusted_confidence = signalInfo[tf]?.confidence || 0
+                        const accuracy = Math.round(signalInfo[tf]?.accuracy_rate * 100)/100 || 0
                         const confColor = getConfidenceColor(conf);
+                        const adjustedConfColor = getConfidenceColor(adjusted_confidence);
+                        const accuracyColor = getConfidenceColor(accuracy);
                         const signalType = signalData.signal;
                         const strength = signalData.strength || '';
 
@@ -276,7 +281,9 @@
                                     <span class="text-slate-300">${formatSignalName(signalName)}</span>
                                     ${strength ? `<span class="text-slate-500 text-[10px]">(${strength})</span>` : ''}
                                 </div>
-                                <div class="w-6 h-6 ${confColor} flex items-center justify-center text-sm rounded-full ml-2"> ${conf}</div>
+                                <div class="w-6 h-6 ${confColor} flex items-center justify-center text-sm rounded-full ml-2 opacity-50"> ${conf}</div>
+                                <div class="w-6 h-6 ${adjustedConfColor} flex items-center justify-center text-sm rounded-full ml-2"> ${adjusted_confidence}</div>
+                                <div class="w-10 h-6 ${accuracyColor} flex items-center justify-center text-sm rounded ml-2"> ${accuracy}</div>
                             </div>
                         `;
                     });
@@ -294,7 +301,7 @@
             lucide.createIcons();
         }
 
-        async function getAllSignals(signalName) {
+        async function getAllSignals() {
             try {
                 const response = await fetch('/api/live-analysis/all-signals', {
                     method: 'GET',
@@ -316,8 +323,30 @@
             } catch (error) {
                 resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
                 lucide.createIcons();
-            } finally {
             }
+        }
+
+        async function getFullSignals() {
+            try {
+                const response = await fetch('/api/live-analysis/full-signals', {
+                    method: 'GET',
+                    headers: {'Content-Type': 'application/json'},
+                });
+
+                const data = await response.json();
+
+                return data.signals
+                if (!data.success) {
+                    throw new Error(data.error || 'Signal Fetch Failed');
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
+                lucide.createIcons();
+            }
+        }
+
+        function getSignalDetail(signalName){
+            return fullSignals[signalName]
         }
 
         function getSignalConfidence(signalName) {

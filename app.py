@@ -612,6 +612,22 @@ def get_live_signals(symbol):
     logging.error(f"Failed to get signals: {e}")
     return jsonify({'error': str(e)}), 500
 
+@app.route('/api/live-analysis/full-signals')
+@login_required
+def get_full_signals():
+  """Get latest signals for a symbol"""
+  global fact_checker
+  try:
+    signals = fact_checker.get_all_adjusted_confidence()
+    return jsonify({
+      'success': True,
+      'signals': signals,
+    })
+
+  except Exception as e:
+    logging.error(f"Failed to get signals: {e}")
+    return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/live-analysis/summary/<symbol>')
 @login_required
@@ -947,7 +963,7 @@ def symbol_websocket(ws, symbol):
   analyzer = ScalpSignalAnalyzer()
 
   # Timeframes to monitor (can be customized)
-  timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '8h', '12h', '1d']
+  timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h']
 
   try:
     while True:

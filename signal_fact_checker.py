@@ -309,6 +309,22 @@ class SignalFactChecker:
       'confidence_change': adjusted_conf - original_conf
     }
 
+  def get_all_adjusted_confidence(self) -> Dict[str, Dict]:
+    """Get adjusted confidence for a signal, or original if no adjustment exists"""
+    results: Dict[str, Dict] = {}
+
+    signal_confs = self.get_all_adjustments()
+    for signal in signal_confs:
+      if signal['signal_name'] not in results:
+        results[signal['signal_name']] = {}
+      results[signal['signal_name']][signal['timeframe']] = {
+        'confidence': signal['adjusted_confidence'],
+        'original_confidence': signal['original_confidence'],
+        'accuracy_rate': signal['accuracy_rate']
+      }
+
+    return results
+
   def get_adjusted_confidence(self, signal_name: str, timeframe: str) -> int:
     """Get adjusted confidence for a signal, or original if no adjustment exists"""
     conn = sqlite3.connect(self.db_path)
