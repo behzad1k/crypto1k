@@ -152,6 +152,7 @@ def get_signals():
   per_page = 10
   min_accuracy = request.args.get('minAccuracy', type=float)
   min_patterns = request.args.get('minPatterns', type=int)
+  signal_type = request.args.get('signalType')
   symbol = request.args.get('symbol', '').upper()
 
   conn = sqlite3.connect(app.config['DB_PATH'])
@@ -161,6 +162,10 @@ def get_signals():
   # Build query
   query = "SELECT * FROM pattern_signals WHERE 1=1"
   params = []
+
+  if signal_type:
+    query += " AND signal == ?"
+    params.append(signal_type.upper())
 
   if min_accuracy:
     query += " AND pattern_confidence >= ?"
@@ -884,7 +889,7 @@ def position_websocket(ws, position_id):
   analyzer = ScalpSignalAnalyzer()
 
   # Timeframes to monitor (can be customized)
-  timeframes = ['1m', '5m', '15m', '1h']
+  timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '8h', '12h', '1d']
 
   try:
     while True:
