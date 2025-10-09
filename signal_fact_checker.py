@@ -151,6 +151,23 @@ class SignalFactChecker:
     conn.commit()
     conn.close()
 
+  def bulk_fact_check_positions(self):
+    conn = sqlite3.connect(self.db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM trading_positions')
+
+    all_positions = cursor.fetchall()
+    conn.close()
+
+    results = []
+    for row in all_positions:
+      position = dict(row)
+      if 'id' in position and 'symbol' in position:
+        results.append(self.fact_check_position_signals(position.get('id'), position.get('symbol')))
+
+    return results
+
   def fact_check_position_signals(self, position_id: int, symbol: str,
                                   candles_ahead: int = 5) -> Dict:
     """Fact-check all signals for a position"""

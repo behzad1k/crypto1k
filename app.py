@@ -144,6 +144,15 @@ def logout():
 def index():
   return render_template('index.html')
 
+@app.route('/symbol/<symbol>')
+@login_required
+def symbol_info(symbol):
+  return render_template('symbol.html', symbol=symbol.upper())
+
+@login_required
+def index():
+  return render_template('index.html')
+
 
 @app.route('/api/signals')
 @login_required
@@ -930,8 +939,76 @@ def position_websocket(ws, position_id):
     logging.error(f"WebSocket error: {e}")
     ws.send(json.dumps({'error': str(e)}))
 
+@sock.route('/ws/live-analysis/<symbol>')
+def symbol_websocket(ws, symbol):
+  """WebSocket for real-time position monitoring"""
+  global trading_manager, fact_checker
+
+  if trading_manager is None:
+    ws.send(json.dumps({'error': 'Trading manager not initialized'}))
+    return
+
+  analyzer = ScalpSignalAnalyzer()
+
+  # Timeframes to monitor (can be customized)
+  timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '8h', '12h', '1d']
+
+  try:
+    while True:
+      # Fetch and analyze data
+      result = analyzer.analyze_symbol_all_timeframes(symbol, timeframes)
+
+      # Get adjusted confidences
+      for tf, data in result['timeframes'].items():
+        if 'error' in data:
+          continue
+
+        for signal_name, signal_data in data['signals'].items():
+          adjusted_conf = fact_checker.get_adjusted_confidence(signal_name, tf)
+          signal_data['adjusted_confidence'] = adjusted_conf
+
+      # Send update to client
+      ws.send(json.dumps({
+        'timestamp': datetime.now().isoformat(),
+        'symbol': symbol,
+        'analysis': result
+      }))
+
+      # time.sleep(10)
+
+  except Exception as e:
+    logging.error(f"WebSocket error: {e}")
+    ws.send(json.dumps({'error': str(e)}))
+
 
 # ==================== FACT-CHECKING ROUTES ====================
+
+@app.route('/api/fact-check/bulk-positions', methods=['POST'])
+@login_required
+def bulk_fact_check_positions():
+  """Fact-check all signals for a position"""
+  global trading_manager, fact_checker
+
+  if trading_manager is None or fact_checker is None:
+    return jsonify({'success': False, 'error': 'Modules not initialized'}), 500
+
+  data = request.get_json()
+  min_samples = data.get('min_samples', 10)
+
+  try:
+    candles_ahead = int(request.args.get('candles_ahead', 5))
+    logging.info(f"Candles ahead: {candles_ahead}")
+    results = fact_checker.bulk_fact_check_positions()
+    logging.info(f"Fact check results: {results}")
+    return jsonify({
+      'success': True,
+      'results': results
+    })
+
+  except Exception as e:
+    logging.error(f"Error fact-checking: {e}")
+  return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/fact-check/position/<int:position_id>', methods=['POST'])
 @login_required
