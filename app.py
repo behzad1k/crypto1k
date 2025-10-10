@@ -983,7 +983,7 @@ def symbol_websocket(ws, symbol):
         'analysis': result
       }))
 
-      # time.sleep(10)
+      time.sleep(30)
 
   except Exception as e:
     logging.error(f"WebSocket error: {e}")
