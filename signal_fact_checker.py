@@ -329,10 +329,10 @@ class SignalFactChecker:
     for signal, data in results.items():
       count = len(data.keys())
       results[signal]['all'] =  {
-        'confidence': reduce(lambda x, y: x + y, [conf['confidence'] for conf in data.values()]) / count,
-        'original_confidence': reduce(lambda x, y: x + y, [conf['original_confidence'] for conf in data.values()]) / count,
+        'confidence': int(reduce(lambda x, y: x + y, [conf['confidence'] for conf in data.values()]) / count),
+        'original_confidence': int(reduce(lambda x, y: x + y, [conf['original_confidence'] for conf in data.values()]) / count),
         'accuracy_rate': reduce(lambda x, y: x + y, [conf['accuracy_rate'] for conf in data.values()]) / count,
-        'sample_size': reduce(lambda x, y: x + y, [conf['sample_size'] for conf in data.values()]) / count,
+        'sample_size': int(reduce(lambda x, y: x + y, [conf['sample_size'] for conf in data.values()]) / count),
       }
     return results
 

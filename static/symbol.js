@@ -251,8 +251,13 @@
                     );
 
                     signals.forEach(([signalName, signalData]) => {
-
-                        const signalInfo = getSignalDetail(signalName);
+                        let signalInfo = getSignalDetail(signalName);
+                        let signalIsOriginal = true;
+                        if (!signalInfo[tf]){
+                            signalIsOriginal = false
+                            signalInfo = signalInfo['all']
+                        }
+                        signalInfo = signalInfo[tf];
                         const conf = signalInfo?.original_confidence || getSignalConfidence(signalName);
                         const adjusted_confidence = signalInfo?.confidence || 0
                         const accuracy = Math.round((signalInfo?.accuracy_rate || 0) * 100)/100
@@ -285,6 +290,7 @@
                                 <div class="w-6 h-6 ${adjustedConfColor} flex items-center justify-center text-sm rounded-full ml-2"> ${adjusted_confidence}</div>
                                 <div class="w-10 h-6 ${accuracyColor} flex items-center justify-center text-sm rounded ml-2"> ${accuracy}</div>
                                 <div class="w-10 h-6 flex items-center justify-center text-sm rounded ml-2 text-white">${sample_size}</div>
+                                <div class="w-1 h-1 flex items-center justify-center text-sm rounded ml-2 text-white">${!signalIsOriginal ? '~' : ''}</div>
                             </div>
                         `;
                     });
@@ -346,13 +352,8 @@
             }
         }
 
-        function getSignalDetail(signalName, tf){
-            const signal = fullSignals[signalName]
-            if(signal && signal[tf]){
-                return signal[tf]
-            } else {
-                return signal['all']
-            }
+        function getSignalDetail(signalName){
+            return fullSignals[signalName]
         }
 
         function getSignalConfidence(signalName) {
