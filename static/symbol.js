@@ -59,9 +59,9 @@
                         ${signal.signal}
                     </span>
                 </td>
-                <td class="px-4 py-3 text-slate-300">${(signal.pattern_confidence * 100).toFixed(5)}%</td>
+                <td class="px-4 py-3 text-slate-300">${(signal.pattern_confidence * 100).toFixed(1)}%</td>
                 <td class="px-4 py-3 text-slate-300">${signal.pattern_count}</td>
-                <td class="px-4 py-3 text-slate-300">$${signal.price.toFixed(2)}</td>
+                <td class="px-4 py-3 text-slate-300">$${signal.price.toFixed(5)}</td>
                 <td class="px-4 py-3 text-slate-300">${signal.validity_hours}h</td>
                 <td class="px-4 py-3 text-slate-400 text-sm">${moment(signal.datetime_created).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm:ss')}</td>
             `;
