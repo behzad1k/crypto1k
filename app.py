@@ -974,6 +974,7 @@ def symbol_websocket(ws, symbol):
       for tf, data in result['timeframes'].items():
         if 'error' in data:
           continue
+      live_db.save_analysis_result(result)
 
       # Send update to client
       ws.send(json.dumps({
