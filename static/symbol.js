@@ -246,8 +246,9 @@
                     const signals = Object.entries(tfData.signals);
 
                     // Sort by signal type (BUY first, then SELL)
-                    signals.sort((a, b) =>
-                        (b[1].adjusted_confidence || getSignalConfidence(b[0])) - (a[1].adjusted_confidence || getSignalConfidence(a[0]))
+                    signals.sort((a, b) => {
+                            return getSignalDetail(b[0])[tf]?.accuracy_rate - getSignalDetail(a[0])[tf]?.accuracy_rate
+                        }
                     );
 
                     signals.forEach(([signalName, signalData]) => {
