@@ -785,14 +785,14 @@ class CryptoPatternMonitor:
       logging.info(f"🎯 {symbol}: {pattern_count} patterns, {confidence:.1%} confidence - Validating with scalp signals...")
 
       # NEW: Validate with scalp signal analyzer
-      scalp_validation = self.scalp_validator.validate_signal(symbol, analysis_result['signal'])
+      # scalp_validation = self.scalp_validator.validate_signal(symbol, analysis_result['signal'])
 
-      if not scalp_validation['validated']:
-        logging.info(f"❌ {symbol}: No strong short-term signals found - REJECTED")
-        self.stats['signals_rejected'] += 1
-        return
+      # if not scalp_validation['validated']:
+      #   logging.info(f"❌ {symbol}: No strong short-term signals found - REJECTED")
+      #   self.stats['signals_rejected'] += 1
+      #   return
 
-      logging.info(f"✅ {symbol}: VALIDATED with {scalp_validation['total_strong_signals']} strong signal(s)!")
+      # logging.info(f"✅ {symbol}: VALIDATED with {scalp_validation['total_strong_signals']} strong signal(s)!")
       self.stats['signals_validated'] += 1
 
       best_pattern = max(matching_patterns, key=lambda x: x['accuracy'])
