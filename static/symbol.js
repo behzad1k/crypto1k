@@ -247,9 +247,10 @@
 
                     // Sort by signal type (BUY first, then SELL)
                     signals.sort((a, b) => {
-                            return getSignalDetail(b[0])[tf]?.accuracy_rate - getSignalDetail(a[0])[tf]?.accuracy_rate
-                        }
-                    );
+                        const aDetail = getSignalDetail(a[0])
+                        const bDetail = getSignalDetail(b[0])
+                        return (bDetail[tf] || bDetail['all'])?.accuracy_rate - (aDetail[tf] || aDetail['all'])?.accuracy_rate
+                    });
 
                     signals.forEach(([signalName, signalData]) => {
                         let signalInfo = getSignalDetail(signalName);
