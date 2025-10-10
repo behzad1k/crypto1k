@@ -4,6 +4,8 @@ Validates historical signals and adjusts confidence ratings based on actual perf
 """
 
 import sqlite3
+from functools import reduce
+
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
@@ -324,6 +326,14 @@ class SignalFactChecker:
         'sample_size': signal['sample_size'],
       }
 
+    for signal, data in results.items():
+      count = len(data.keys())
+      results[signal]['all'] =  {
+        'confidence': reduce(lambda x, y: x + y, [conf['confidence'] for conf in data.values()]) / count,
+        'original_confidence': reduce(lambda x, y: x + y, [conf['original_confidence'] for conf in data.values()]) / count,
+        'accuracy_rate': reduce(lambda x, y: x + y, [conf['accuracy_rate'] for conf in data.values()]) / count,
+        'sample_size': reduce(lambda x, y: x + y, [conf['sample_size'] for conf in data.values()]) / count,
+      }
     return results
 
   def get_adjusted_confidence(self, signal_name: str, timeframe: str) -> int:

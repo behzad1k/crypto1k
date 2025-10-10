@@ -953,7 +953,7 @@ def position_websocket(ws, position_id):
 
 @sock.route('/ws/live-analysis/<symbol>')
 def symbol_websocket(ws, symbol):
-  """WebSocket for real-time position monitoring"""
+  """WebSocket for real-time symbol monitoring"""
   global trading_manager, fact_checker
 
   if trading_manager is None:
@@ -963,7 +963,7 @@ def symbol_websocket(ws, symbol):
   analyzer = ScalpSignalAnalyzer()
 
   # Timeframes to monitor (can be customized)
-  timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h']
+  timeframes = ['1m', '5m', '15m', '30m', '1h', '2h']
 
   try:
     while True:
@@ -974,10 +974,6 @@ def symbol_websocket(ws, symbol):
       for tf, data in result['timeframes'].items():
         if 'error' in data:
           continue
-
-        for signal_name, signal_data in data['signals'].items():
-          adjusted_conf = fact_checker.get_adjusted_confidence(signal_name, tf)
-          signal_data['adjusted_confidence'] = adjusted_conf
 
       # Send update to client
       ws.send(json.dumps({

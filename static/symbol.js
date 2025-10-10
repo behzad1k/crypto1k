@@ -252,10 +252,11 @@
 
                     signals.forEach(([signalName, signalData]) => {
 
-                        const signalInfo = getSignalDetail(signalName);
+                        const signalDetail = getSignalDetail(signalName);
+                        const signalInfo = signalDetail[tf]
                         const conf = signalInfo[tf]?.original_confidence || getSignalConfidence(signalName);
                         const adjusted_confidence = signalInfo[tf]?.confidence || 0
-                        const accuracy = Math.round(signalInfo[tf]?.accuracy_rate * 100)/100 || 0
+                        const accuracy = Math.round((signalInfo[tf]?.accuracy_rate || 0) * 100)/100
                         const confColor = getConfidenceColor(conf);
                         const adjustedConfColor = getConfidenceColor(adjusted_confidence);
                         const accuracyColor = getConfidenceColor(accuracy);
@@ -346,8 +347,10 @@
             }
         }
 
-        function getSignalDetail(signalName){
-            return fullSignals[signalName]
+        function getSignalDetail(signalName, tf){
+            const signal = fullSignals[signalName]
+
+            return
         }
 
         function getSignalConfidence(signalName) {
