@@ -256,8 +256,9 @@
                         if (!signalInfo[tf]){
                             signalIsOriginal = false
                             signalInfo = signalInfo['all']
+                        } else {
+                            signalInfo = signalInfo[tf];
                         }
-                        signalInfo = signalInfo[tf];
                         const conf = signalInfo?.original_confidence || getSignalConfidence(signalName);
                         const adjusted_confidence = signalInfo?.confidence || 0
                         const accuracy = Math.round((signalInfo?.accuracy_rate || 0) * 100)/100
