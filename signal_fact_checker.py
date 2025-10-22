@@ -190,6 +190,8 @@ class SignalFactChecker:
     }
 
     for signal in signals:
+      logging.info(f"✅ Fact-checking {signal['signal_name']} on {signal['symbol']} in {signal['timeframe']} at {datetime.fromisoformat(signal['timestamp'])}")
+
       result = self.fact_check_signal(
         signal['signal_name'],
         signal['signal_type'],
