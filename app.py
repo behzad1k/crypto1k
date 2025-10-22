@@ -994,7 +994,7 @@ def symbol_websocket(ws, symbol):
 
 @app.route('/api/fact-check/bulk-positions', methods=['POST'])
 @login_required
-def bulk_fact_check_positions():
+def bulk_fact_check_live_signals():
   """Fact-check all signals for a position"""
   global trading_manager, fact_checker
 
@@ -1007,7 +1007,7 @@ def bulk_fact_check_positions():
   try:
     candles_ahead = int(request.args.get('candles_ahead', 5))
     logging.info(f"Candles ahead: {candles_ahead}")
-    results = fact_checker.bulk_fact_check_positions()
+    results = fact_checker.bulk_fact_check_live_signals()
     logging.info(f"Fact check results: {results}")
     return jsonify({
       'success': True,
