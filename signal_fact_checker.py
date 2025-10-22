@@ -153,20 +153,68 @@ class SignalFactChecker:
     conn.commit()
     conn.close()
 
-  def bulk_fact_check_positions(self):
+  def bulk_fact_check_live_signals(self, symbol: str = None, candles_ahead: int = 5) -> Dict:
+    """Fact-check live signals, skipping already checked ones"""
     conn = sqlite3.connect(self.db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM trading_positions')
 
-    all_positions = cursor.fetchall()
+    # Get signals that haven't been fact-checked yet
+    query = '''
+        SELECT ls.* 
+        FROM live_signals ls
+        LEFT JOIN signal_fact_checks sfc 
+            ON ls.signal_name = sfc.signal_name 
+            AND ls.timeframe = sfc.timeframe 
+            AND ls.timestamp = sfc.detected_at
+        WHERE sfc.id IS NULL
+    '''
+    params = []
+
+    if symbol:
+      query += ' AND ls.symbol = ?'
+      params.append(symbol)
+
+    query += ' ORDER BY ls.timestamp DESC'
+
+    cursor.execute(query, params)
+    signals = cursor.fetchall()
     conn.close()
 
-    results = []
-    for row in all_positions:
-      position = dict(row)
-      if 'id' in position and 'symbol' in position:
-        results.append(self.fact_check_position_signals(position.get('id'), position.get('symbol')))
+    results = {
+      'total_checked': 0,
+      'correct_predictions': 0,
+      'incorrect_predictions': 0,
+      'accuracy': 0,
+      'details': []
+    }
+
+    for signal in signals:
+      result = self.fact_check_signal(
+        signal['signal_name'],
+        signal['signal_type'],
+        signal['timeframe'],
+        datetime.fromisoformat(signal['timestamp']),
+        signal['price'],
+        signal['symbol'],
+        candles_ahead
+      )
+
+      if result:
+        self.save_fact_check(result)
+        results['details'].append(result)
+        results['total_checked'] += 1
+
+        if result['predicted_correctly']:
+          results['correct_predictions'] += 1
+        else:
+          results['incorrect_predictions'] += 1
+
+    if results['total_checked'] > 0:
+      results['accuracy'] = (results['correct_predictions'] / results['total_checked']) * 100
+
+    logging.info(f"✅ Fact-checked {results['total_checked']} live signals")
+    logging.info(f"   Accuracy: {results['accuracy']:.1f}%")
 
     return results
 
@@ -328,9 +376,10 @@ class SignalFactChecker:
 
     for signal, data in results.items():
       count = len(data.keys())
-      results[signal]['all'] =  {
+      results[signal]['all'] = {
         'confidence': int(reduce(lambda x, y: x + y, [conf['confidence'] for conf in data.values()]) / count),
-        'original_confidence': int(reduce(lambda x, y: x + y, [conf['original_confidence'] for conf in data.values()]) / count),
+        'original_confidence': int(
+          reduce(lambda x, y: x + y, [conf['original_confidence'] for conf in data.values()]) / count),
         'accuracy_rate': reduce(lambda x, y: x + y, [conf['accuracy_rate'] for conf in data.values()]) / count,
         'sample_size': int(reduce(lambda x, y: x + y, [conf['sample_size'] for conf in data.values()]) / count),
       }
