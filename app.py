@@ -19,6 +19,7 @@ from scalp_signal_analyzer import ScalpSignalAnalyzer
 from live_analysis_handler import LiveAnalysisDB
 from trading_position_manager import TradingPositionManager
 from signal_fact_checker import SignalFactChecker
+
 from flask_sock import Sock  # pip install flask-sock
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1005,13 +1006,14 @@ def bulk_fact_check_live_signals():
   min_samples = data.get('min_samples', 10)
 
   try:
-    candles_ahead = int(request.args.get('candles_ahead', 5))
-    logging.info(f"Candles ahead: {candles_ahead}")
-    results = fact_checker.bulk_fact_check_live_signals()
-    logging.info(f"Fact check results: {results}")
+    results = fact_checker.bulk_fact_check_all_signals()
+
+    print(f"Time per check: {elapsed / results['total_checked']:.2f}s")
+    print(f"Accuracy: {results['accuracy']:.2f}%")
+    print(f"Profit Factor: {results['profit_factor']:.2f}")
     return jsonify({
       'success': True,
-      'results': results
+      'results': results['accuracy']
     })
 
   except Exception as e:
