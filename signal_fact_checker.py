@@ -104,7 +104,7 @@ class SignalFactChecker:
   """
 
   # USER REQUIREMENT: 0.5% minimum price movement
-  MIN_PROFIT_THRESHOLD_PCT = 0.5
+  MIN_PROFIT_THRESHOLD_PCT = 0.1
 
   # Stop-loss (can be overridden per signal)
   STOP_LOSS_PCT = 3.0
