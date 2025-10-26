@@ -17,6 +17,7 @@ from monitor import CryptoPatternMonitor
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 from live_analysis_handler import LiveAnalysisDB
 from signal_combination_analyzer import SignalCombinationAnalyzer
+from signal_validation_optimizer import SignalValidationOptimizer
 from trading_position_manager import TradingPositionManager
 from signal_fact_checker import SignalFactChecker
 
@@ -37,6 +38,7 @@ live_analyzer = None
 live_db = None
 trading_manager = None
 fact_checker = None
+signal_validation= None
 combo_analyzer = None
 
 sock = None
@@ -78,7 +80,7 @@ def init_database():
 
 def initialize_app():
   """Initialize all modules - called on import for gunicorn compatibility"""
-  global live_analyzer, live_db, trading_manager, fact_checker, sock, combo_analyzer
+  global live_analyzer, live_db, trading_manager, fact_checker, sock, combo_analyzer, signal_validation
 
   # Only initialize once
   if live_analyzer is not None:
@@ -105,7 +107,14 @@ def initialize_app():
     logging.error(f"❌ Failed to initialize trading modules: {e}")
     logging.error("Trading features will not be available!")
 
-  # Initialize signal combo modules
+  # Initialize signal validation modules
+  try:
+      signal_validation = SignalValidationOptimizer(db_path=app.config['DB_PATH'])
+      logging.info("✅ Signal validation analyzer initialized")
+  except Exception as e:
+      logging.error(f"❌ Failed to initialize validation analyzer: {e}")
+
+# Initialize signal combo modules
   try:
       combo_analyzer = SignalCombinationAnalyzer(db_path=app.config['DB_PATH'])
       logging.info("✅ Signal combination analyzer initialized")
@@ -1024,6 +1033,42 @@ def bulk_fact_check_live_signals():
 
   except Exception as e:
     logging.error(f"Error fact-checking: {e}")
+  return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== SIGNAL VALIDATION ROUTES ====================
+
+@app.route('/api/signal-validation/bulk-validate', methods=['POST'])
+@login_required
+def bulk_validate_all_signals():
+  """Fact-check all signals for a position"""
+  global signal_validation
+
+  if signal_validation is None:
+    return jsonify({'success': False, 'error': 'Modules not initialized'}), 500
+
+  data = request.get_json()
+  max_workers = data.get('max_workers', 10)
+  limit_per_signal = data.get('limit_per_signal', None)
+
+  try:
+    start_time = time.time()
+
+    results = signal_validation.optimize_all_signals(limit_per_signal=limit_per_signal, max_workers=max_workers)
+
+    elapsed = time.time() - start_time
+    print("\n" + "=" * 80)
+    print("VALIDATION WINDOW OPTIMIZATION COMPLETE")
+    print("=" * 80)
+    print(f"Time taken: {elapsed / 60:.1f} minutes")
+    print(f"Total combinations: {results['total_combinations']}")
+    print(f"Successfully optimized: {results['successful']}")
+    print(f"No data available: {results['no_data']}")
+    print(f"\nValidation windows have been saved to the signals table")
+    print("=" * 80 + "\n")
+
+  except Exception as e:
+    logging.error(f"Error signal-validation: {e}")
   return jsonify({'success': False, 'error': str(e)}), 500
 
 

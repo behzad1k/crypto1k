@@ -1,5 +1,7 @@
 """
-Signal Fact Checker - OPTIMIZED VERSION
+Signal Fact Checker - REFACTORED VERSION
+- Uses validation windows from signals table
+- Updates signal accuracies after fact-checking
 - 0.5% minimum profit threshold (as requested)
 - Fast batch processing with rate limit management
 - Connection pooling and caching
@@ -96,7 +98,9 @@ class PriceDataCache:
 
 class SignalFactChecker:
   """
-  Optimized fact-checker with:
+  Refactored fact-checker with:
+  - Validation windows from signals table
+  - Signal accuracy updates
   - 0.5% minimum profit threshold
   - Fast batch processing
   - Rate limit management
@@ -109,8 +113,8 @@ class SignalFactChecker:
   # Stop-loss (can be overridden per signal)
   STOP_LOSS_PCT = 3.0
 
-  # Dynamic validation windows
-  VALIDATION_WINDOWS = {
+  # Fallback validation windows (if not in signals table)
+  FALLBACK_VALIDATION_WINDOWS = {
     '1m': 10, '3m': 10, '5m': 12, '15m': 8,
     '30m': 8, '1h': 8, '2h': 6, '4h': 6,
     '6h': 8, '8h': 6, '12h': 8, '1d': 5,
@@ -148,8 +152,61 @@ class SignalFactChecker:
     self.session.mount('http://', adapter)
     self.session.mount('https://', adapter)
 
-  def get_validation_window(self, timeframe: str) -> int:
-    return self.VALIDATION_WINDOWS.get(timeframe, 5)
+    # Cache for validation windows
+    self.validation_window_cache = {}
+    self._load_validation_windows()
+
+  def _load_validation_windows(self):
+    """Load all validation windows from signals table into cache"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    try:
+      cursor.execute('''
+        SELECT signal_name, timeframe, validation_window
+        FROM signals
+      ''')
+
+      for signal_name, timeframe, validation_window in cursor.fetchall():
+        key = f"{signal_name}:{timeframe}"
+        self.validation_window_cache[key] = validation_window
+
+      logging.info(f"✅ Loaded {len(self.validation_window_cache)} validation windows from signals table")
+    except sqlite3.OperationalError:
+      logging.warning("⚠️  Signals table not found - using fallback validation windows")
+    finally:
+      conn.close()
+
+  def get_validation_window(self, signal_name: str, timeframe: str) -> int:
+    """Get validation window for signal-timeframe from signals table"""
+    key = f"{signal_name}:{timeframe}"
+
+    # Check cache first
+    if key in self.validation_window_cache:
+      return self.validation_window_cache[key]
+
+    # Try to fetch from database
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    try:
+      cursor.execute('''
+        SELECT validation_window FROM signals
+        WHERE signal_name = ? AND timeframe = ?
+      ''', (signal_name, timeframe))
+
+      result = cursor.fetchone()
+      if result:
+        window = result[0]
+        self.validation_window_cache[key] = window
+        return window
+    except sqlite3.OperationalError:
+      pass
+    finally:
+      conn.close()
+
+    # Fallback to default
+    return self.FALLBACK_VALIDATION_WINDOWS.get(timeframe, 5)
 
   def _get_cache_key(self, symbol: str, timestamp: datetime, timeframe: str, candles: int) -> str:
     ts_str = timestamp.strftime('%Y%m%d%H%M')
@@ -358,8 +415,9 @@ class SignalFactChecker:
                         candles_ahead: int = None,
                         stop_loss_pct: float = None) -> Optional[Dict]:
 
+    # Use validation window from signals table if not provided
     if candles_ahead is None:
-      candles_ahead = self.get_validation_window(timeframe)
+      candles_ahead = self.get_validation_window(signal_name, timeframe)
 
     candles = self.fetch_price_journey(symbol, detected_at, timeframe, candles_ahead)
 
@@ -529,6 +587,9 @@ class SignalFactChecker:
     logging.info(
       f"   Stopped: {results['stopped_out']} ({results['stopped_out'] / max(results['total_checked'], 1) * 100:.1f}%)")
 
+    # Update signal accuracies
+    self._update_signal_accuracies_from_results(results['details'])
+
     return results
 
   def bulk_fact_check_live_signals(self, symbol: str = None,
@@ -618,6 +679,9 @@ class SignalFactChecker:
         results['profit_factor'] = winning_sum / losing_sum
       else:
         results['profit_factor'] = winning_sum if winning_sum > 0 else 0
+
+    # Update signal accuracies
+    self._update_signal_accuracies_from_results(results['details'])
 
     return results
 
@@ -748,6 +812,9 @@ class SignalFactChecker:
     logging.info(f"   Profit Factor: {results['profit_factor']:.2f}")
     logging.info(f"   Positions analyzed: {len(results['by_position'])}")
 
+    # Update signal accuracies
+    self._update_signal_accuracies_from_results(results['details'])
+
     return results
 
   def bulk_fact_check_position_signals(self, symbol: str = None,
@@ -864,6 +931,9 @@ class SignalFactChecker:
       else:
         results['profit_factor'] = winning_sum if winning_sum > 0 else 0
 
+    # Update signal accuracies
+    self._update_signal_accuracies_from_results(results['details'])
+
     return results
 
   def bulk_fact_check_all_signals(self, symbol: str = None,
@@ -957,6 +1027,59 @@ class SignalFactChecker:
 
     conn.commit()
     conn.close()
+
+  def _update_signal_accuracies_from_results(self, fact_check_results: List[Dict]):
+    """
+    Update signal accuracies in signals table based on fact-check results
+    Groups by signal-timeframe and calculates accuracy
+    """
+    if not fact_check_results:
+      return
+
+    # Group results by signal-timeframe
+    signal_stats = defaultdict(lambda: {'total': 0, 'correct': 0})
+
+    for result in fact_check_results:
+      key = f"{result['signal_name']}:{result['timeframe']}"
+      signal_stats[key]['total'] += 1
+      if result['predicted_correctly']:
+        signal_stats[key]['correct'] += 1
+
+    # Update database
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    for key, stats in signal_stats.items():
+      signal_name, timeframe = key.split(':', 1)
+
+      # Get current stats from database
+      cursor.execute('''
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN predicted_correctly = 1 THEN 1 ELSE 0 END) as correct
+        FROM signal_fact_checks
+        WHERE signal_name = ? AND timeframe = ?
+      ''', (signal_name, timeframe))
+
+      db_result = cursor.fetchone()
+      if db_result and db_result[0] > 0:
+        total = db_result[0]
+        correct = db_result[1] or 0
+        accuracy = (correct / total) * 100
+
+        # Update signals table
+        cursor.execute('''
+          UPDATE signals
+          SET signal_accuracy = ?,
+              sample_size = ?,
+              updated_at = ?
+          WHERE signal_name = ? AND timeframe = ?
+        ''', (accuracy, total, datetime.now(), signal_name, timeframe))
+
+    conn.commit()
+    conn.close()
+
+    logging.info(f"✅ Updated accuracies for {len(signal_stats)} signal-timeframe combinations")
 
   def calculate_signal_accuracy(self, signal_name: str, timeframe: str = None,
                                 min_samples: int = 10) -> Optional[Dict]:
@@ -1189,6 +1312,7 @@ class SignalFactChecker:
   def __del__(self):
     if hasattr(self, 'session'):
       self.session.close()
+
   def get_all_adjustments(self) -> List[Dict]:
     """Get all signal confidence adjustments"""
     conn = sqlite3.connect(self.db_path)
@@ -1206,7 +1330,7 @@ class SignalFactChecker:
     return adjustments
 
   def get_all_adjusted_confidence(self) -> Dict[str, Dict]:
-    """Get adjusted confidence for a signal, or original if no adjustment exists"""
+    """Get adjusted confidence for all signals"""
     results: Dict[str, Dict] = {}
 
     signal_confs = self.get_all_adjustments()
@@ -1231,70 +1355,25 @@ class SignalFactChecker:
       }
     return results
 
+
 if __name__ == "__main__":
   checker = SignalFactChecker()
 
   print("\n" + "=" * 80)
-  print("OPTIMIZED FACT-CHECKER - FEATURE DEMO")
+  print("REFACTORED FACT-CHECKER - USING SIGNALS TABLE")
   print("=" * 80)
   print(f"\nSettings:")
   print(f"  Min Profit: {checker.MIN_PROFIT_THRESHOLD_PCT}%")
   print(f"  Stop-Loss: {checker.STOP_LOSS_PCT}%")
   print(f"  Workers: {checker.MAX_WORKERS}")
-  print(f"  Rates: KuCoin={checker.KUCOIN_RATE_LIMIT}/min, Binance={checker.BINANCE_RATE_LIMIT}/min")
-  print(f"\n✅ New Features:")
-  print(f"  • Automatic Binance fallback when KuCoin at 85% limit")
-  print(f"  • Bulk fact-checking for position_signals")
-  print(f"  • Combined fact-checking for all signal types")
+  print(f"  Validation windows: From signals table")
+  print(f"  Signal accuracies: Auto-updated after fact-checking")
 
   print(f"\n{'=' * 80}")
-  print("TEST 1: Live Signals (100)")
+  print("TEST: Combined fact-checking (all signal types)")
   print(f"{'=' * 80}\n")
 
-  start = time.time()
-  live_results = checker.bulk_fact_check_live_signals(limit=100, use_parallel=True)
-  elapsed = time.time() - start
+  combined = checker.bulk_fact_check_all_signals(limit_per_type=100, use_parallel=True)
 
-  print(f"\n{'=' * 80}")
-  print("LIVE SIGNALS RESULTS")
-  print(f"{'=' * 80}")
-  print(f"Time: {elapsed:.1f}s ({live_results['total_checked'] / elapsed:.1f}/s)")
-  print(f"Accuracy: {live_results['accuracy']:.2f}%")
-  print(f"Profit Factor: {live_results['profit_factor']:.2f}")
-  print(f"Stopped: {live_results['stopped_out']}/{live_results['total_checked']}")
-
-  print(f"\n{'=' * 80}")
-  print("TEST 2: Position Signals (100)")
-  print(f"{'=' * 80}\n")
-
-  start = time.time()
-  position_results = checker.bulk_fact_check_position_signals(limit=100, use_parallel=True)
-  elapsed = time.time() - start
-
-  print(f"\n{'=' * 80}")
-  print("POSITION SIGNALS RESULTS")
-  print(f"{'=' * 80}")
-  print(f"Time: {elapsed:.1f}s ({position_results['total_checked'] / elapsed:.1f}/s)")
-  print(f"Accuracy: {position_results['accuracy']:.2f}%")
-  print(f"Profit Factor: {position_results['profit_factor']:.2f}")
-  print(f"Stopped: {position_results['stopped_out']}/{position_results['total_checked']}")
-  print(f"Positions Analyzed: {len(position_results['by_position'])}")
-
-  # Show per-position breakdown
-  if position_results['by_position']:
-    print(f"\nTop 5 Positions by Accuracy:")
-    sorted_positions = sorted(
-      position_results['by_position'].items(),
-      key=lambda x: x[1]['accuracy'],
-      reverse=True
-    )[:5]
-    for pos_id, stats in sorted_positions:
-      print(f"  Position #{pos_id}: {stats['correct']}/{stats['checked']} = {stats['accuracy']:.1f}%")
-
-  print(f"\n{'=' * 80}")
-  print("TEST 3: Combined (All Signal Types)")
-  print(f"{'=' * 80}\n")
-
-  combined = checker.bulk_fact_check_all_signals(limit_per_type=50, use_parallel=True)
-
-  print("\n✅ All tests complete!")
+  print("\n✅ Test complete!")
+  print(f"Signal accuracies have been updated in the signals table")
