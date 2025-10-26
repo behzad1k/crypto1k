@@ -1,10 +1,12 @@
-    let currentPage = 1;
+let currentPage = 1;
     let totalPages = 1;
     let currentSymbol = null;
     let statusInterval = null;
     const symbol = window.location.pathname.split('/')[2].toUpperCase()
     let allSignalData = {}
     let fullSignals = {}
+    let comboData = {}; // NEW: Store combination data
+
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
         lucide.createIcons();
@@ -19,19 +21,6 @@
         currentSymbol = symbol;
         const response = await fetch(`/api/symbols/${symbol}`);
         const history = await response.json();
-
-
-//        signalAnalysisInputs = document.querySelectorAll("input[id^=symbol]");
-//
-//        for(input of signalAnalysisInputs){
-//            if(input.value){
-//                input.value = symbol;
-//                break;
-//            }
-//        }
-
-//        document.querySelector('#page-signals > .bg-slate-800').classList.add('hidden');
-//        document.getElementById('symbol-detail').classList.remove('hidden');
 
         document.getElementById('symbol-title').textContent = `${symbol} Signal History`;
         document.getElementById('symbol-total').textContent = history.length;
@@ -72,6 +61,83 @@
     }
 
 
+    // NEW: Function to fetch active combinations for the symbol
+    async function fetchActiveCombinations() {
+        try {
+            const response = await fetch(`/api/combo-analysis/active-combos/${symbol}`);
+            const data = await response.json();
+
+            if (data.success) {
+                comboData = data.timeframes;
+                return data;
+            }
+            return null;
+        } catch (error) {
+            console.error('Failed to fetch combinations:', error);
+            return null;
+        }
+    }
+
+    // NEW: Function to get combinations for a specific timeframe
+    function getCombinationsForTimeframe(timeframe) {
+        return comboData[timeframe] || [];
+    }
+
+    // NEW: Function to render combination badge
+    function renderComboBadge(combo) {
+        const accuracyColor = getAccuracyColorClass(combo.accuracy);
+        const pfColor = getProfitFactorColorClass(combo.profit_factor);
+
+        return `
+            <div class="bg-slate-700/50 rounded-lg p-3 border border-slate-600 hover:border-purple-500/50 transition-colors mt-2">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="link" class="w-4 h-4 text-purple-400"></i>
+                        <span class="text-xs font-semibold text-purple-400">COMBO (${combo.combo_size} signals)</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="px-2 py-1 rounded text-xs font-bold ${accuracyColor}">
+                            ${combo.accuracy.toFixed(1)}%
+                        </div>
+                        <div class="px-2 py-1 rounded text-xs ${pfColor}">
+                            PF: ${combo.profit_factor.toFixed(2)}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    ${combo.signals.map(sig => `
+                        <div class="text-xs text-slate-300 pl-4">
+                            <i data-lucide="chevron-right" class="w-3 h-3 inline mr-1"></i>
+                            ${formatSignalName(sig)}
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="mt-2 pt-2 border-t border-slate-600 flex justify-between text-xs text-slate-400">
+                    <span>Samples: ${combo.sample_count}</span>
+                    <span>Correct: ${combo.correct_predictions}</span>
+                    <span>Avg Change: ${combo.avg_price_change > 0 ? '+' : ''}${combo.avg_price_change.toFixed(2)}%</span>
+                </div>
+            </div>
+        `;
+    }
+
+    // NEW: Helper function to get color class based on accuracy
+    function getAccuracyColorClass(accuracy) {
+        if (accuracy >= 75) return 'bg-green-600 text-white';
+        if (accuracy >= 65) return 'bg-yellow-600 text-white';
+        if (accuracy >= 55) return 'bg-orange-600 text-white';
+        return 'bg-red-600 text-white';
+    }
+
+    // NEW: Helper function to get color class based on profit factor
+    function getProfitFactorColorClass(pf) {
+        if (pf >= 2.0) return 'text-green-400';
+        if (pf >= 1.5) return 'text-yellow-400';
+        if (pf >= 1.0) return 'text-orange-400';
+        return 'text-red-400';
+    }
 
 
 // Timeframe selection helpers
@@ -141,8 +207,8 @@
                     throw new Error(data.error || 'Analysis failed');
                 }
 
-                // Render results
-                renderAnalysisResults(resultsDiv, data);
+                // Render results WITH COMBOS
+                await renderAnalysisResults(resultsDiv, data);
 
             } catch (error) {
                 resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
@@ -152,8 +218,12 @@
             }
         }
 
-        function renderAnalysisResults(container, data) {
+        // MODIFIED: Updated to include combinations
+        async function renderAnalysisResults(container, data) {
             const { symbol, timeframes } = data;
+
+            // Fetch combo data first
+            await fetchActiveCombinations();
 
             let html = `
             <div class="bg-slate-700/50 rounded-lg p-3">
@@ -179,6 +249,7 @@
 
             sortedTFs.forEach(tf => {
                 const tfData = timeframes[tf];
+                const tfCombos = getCombinationsForTimeframe(tf); // NEW: Get combos for this timeframe
 
                 if (tfData.error) {
                     html += `
@@ -221,6 +292,12 @@
                                         <i data-lucide="${sentimentIcon}" class="w-3 h-3"></i>
                                         ${sentimentText}
                                     </span>
+                                    ${tfCombos.length > 0 ? `
+                                        <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+                                            <i data-lucide="link" class="w-3 h-3"></i>
+                                            ${tfCombos.length} Combo${tfCombos.length > 1 ? 's' : ''}
+                                        </span>
+                                    ` : ''}
                                 </div>
                                 <div class="text-right">
                                     <p class="text-white font-semibold">$${tfData.price.toFixed(5)}</p>
@@ -239,6 +316,22 @@
 
                         <div class="flex flex-col p-3 space-y-1 max-h-64 overflow-y-auto">
                 `;
+
+                // NEW: Show signal combinations first
+                if (tfCombos.length > 0) {
+                    html += `
+                        <div class="mb-2">
+                            <div class="text-xs font-semibold text-purple-300 mb-2 flex items-center gap-1">
+                                <i data-lucide="zap" class="w-3 h-3"></i>
+                                Active Combinations:
+                            </div>
+                            ${tfCombos.map(combo => renderComboBadge(combo)).join('')}
+                        </div>
+                        <div class="border-t border-slate-600 pt-2 mt-2">
+                            <div class="text-xs font-semibold text-slate-300 mb-2">Individual Signals:</div>
+                        </div>
+                    `;
+                }
 
                 if (totalSignals === 0) {
                     html += '<p class="text-slate-500 text-sm text-center py-2">No signals detected</p>';
@@ -410,11 +503,11 @@ function connectPositionWebSocket() {
         lucide.createIcons();
     };
 
-    positionWebSocket.onmessage = (event) => {
+    positionWebSocket.onmessage = async (event) => {
         const data = JSON.parse(event.data);
         const container = document.getElementById('analyzing-results');
 
-        renderAnalysisResults(container, data.analysis);
+        await renderAnalysisResults(container, data.analysis);
     };
 
     positionWebSocket.onerror = (error) => {

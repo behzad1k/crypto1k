@@ -1,13 +1,15 @@
 """
-Signal Combination Analyzer
-Analyzes accuracy of signal combinations that appear together in same timeframe
+Signal Combination Analyzer - Extended with Cross-Timeframe Analysis
+Analyzes accuracy of signal combinations:
+1. Same timeframe (original functionality)
+2. Cross-timeframe (NEW: signals from different timeframes)
 Uses fact-check results instead of live API calls for performance
 """
 
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Set, Optional
-from itertools import combinations
+from itertools import combinations, product
 from collections import defaultdict
 import logging
 
@@ -17,6 +19,7 @@ logging.basicConfig(level=logging.INFO)
 class SignalCombinationAnalyzer:
     """
     Analyzes signal combinations to find which signals work better together
+    Supports both same-timeframe and cross-timeframe combinations
     """
 
     def __init__(self, db_path: str = 'crypto_signals.db'):
@@ -24,10 +27,11 @@ class SignalCombinationAnalyzer:
         self.init_database()
 
     def init_database(self):
-        """Create table for combination results"""
+        """Create tables for both same-timeframe and cross-timeframe combination results"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
+        # Existing table for same-timeframe combinations
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tf_combos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,6 +48,25 @@ class SignalCombinationAnalyzer:
             )
         ''')
 
+        # NEW: Table for cross-timeframe combinations
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cross_tf_combos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                combo_signature TEXT NOT NULL,
+                timeframes TEXT NOT NULL,
+                signal_names TEXT NOT NULL,
+                accuracy REAL NOT NULL,
+                signals_count INTEGER NOT NULL,
+                correct_predictions INTEGER NOT NULL,
+                avg_price_change REAL,
+                profit_factor REAL,
+                combo_size INTEGER NOT NULL,
+                num_timeframes INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(combo_signature)
+            )
+        ''')
+
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_combos_accuracy 
             ON tf_combos(timeframe, accuracy DESC)
@@ -54,9 +77,19 @@ class SignalCombinationAnalyzer:
             ON tf_combos(combo_size, accuracy DESC)
         ''')
 
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_cross_combos_accuracy 
+            ON cross_tf_combos(accuracy DESC)
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_cross_combos_size 
+            ON cross_tf_combos(combo_size, num_timeframes, accuracy DESC)
+        ''')
+
         conn.commit()
         conn.close()
-        logging.info("✅ tf_combos table initialized")
+        logging.info("✅ Database tables initialized (tf_combos + cross_tf_combos)")
 
     def get_timeframe_window_seconds(self, timeframe: str) -> int:
         """Get time window in seconds for grouping signals"""
@@ -67,6 +100,10 @@ class SignalCombinationAnalyzer:
             '3d': 259200, '1w': 604800
         }
         return timeframe_seconds.get(timeframe, 3600)
+
+    # ========================================================================
+    # ORIGINAL SAME-TIMEFRAME FUNCTIONALITY
+    # ========================================================================
 
     def find_signal_combinations(self, timeframe: str, min_combo_size: int = 2,
                                  max_combo_size: int = 5) -> Dict[str, List[Dict]]:
@@ -218,125 +255,460 @@ class SignalCombinationAnalyzer:
 
         if results['combinations']:
             top = results['combinations'][0]
-            logging.info(f"\n🏆 Best combination: {top['combo_name']}")
+            logging.info(f"\n🏆 Best Combination:")
+            logging.info(f"   {top['combo_name']}")
             logging.info(f"   Accuracy: {top['accuracy']:.2f}%")
             logging.info(f"   Samples: {top['total_samples']}")
             logging.info(f"   Profit Factor: {top['profit_factor']:.2f}")
 
         return results
 
-    def analyze_all_timeframes(self, min_samples: int = 10,
-                              min_combo_size: int = 2, max_combo_size: int = 5) -> Dict:
-        """
-        Analyze combinations across all timeframes
-        """
-        # Get all timeframes that have fact-checked signals
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            SELECT DISTINCT ls.timeframe, COUNT(*) as signal_count
-            FROM live_signals ls
-            INNER JOIN signal_fact_checks sfc
-                ON ls.signal_name = sfc.signal_name
-                AND ls.timeframe = sfc.timeframe
-                AND ls.timestamp = sfc.detected_at
-            GROUP BY ls.timeframe
-            HAVING signal_count >= ?
-            ORDER BY ls.timeframe
-        ''', (min_samples * 2,))
-
-        timeframes = [row[0] for row in cursor.fetchall()]
-        conn.close()
-
-        logging.info(f"\n{'=' * 80}")
-        logging.info(f"BULK COMBINATION ANALYSIS - ALL TIMEFRAMES")
-        logging.info(f"{'=' * 80}")
-        logging.info(f"Timeframes to analyze: {', '.join(timeframes)}\n")
-
-        all_results = {
-            'timeframes_analyzed': len(timeframes),
-            'total_combinations': 0,
-            'best_overall': None,
-            'by_timeframe': {}
-        }
-
-        best_accuracy = 0
-        best_combo = None
-
-        for tf in timeframes:
-            tf_results = self.analyze_timeframe_combinations(
-                tf, min_samples, min_combo_size, max_combo_size
-            )
-
-            all_results['by_timeframe'][tf] = tf_results
-            all_results['total_combinations'] += tf_results['analyzed']
-
-            # Track best overall
-            if tf_results['combinations']:
-                top_combo = tf_results['combinations'][0]
-                if top_combo['accuracy'] > best_accuracy:
-                    best_accuracy = top_combo['accuracy']
-                    best_combo = {**top_combo, 'timeframe': tf}
-
-        all_results['best_overall'] = best_combo
-
-        # Print summary
-        logging.info(f"\n{'=' * 80}")
-        logging.info("SUMMARY - ALL TIMEFRAMES")
-        logging.info(f"{'=' * 80}")
-        logging.info(f"Timeframes analyzed: {all_results['timeframes_analyzed']}")
-        logging.info(f"Total combinations: {all_results['total_combinations']}")
-
-        if best_combo:
-            logging.info(f"\n🏆 BEST COMBINATION OVERALL:")
-            logging.info(f"   Signals: {best_combo['combo_name']}")
-            logging.info(f"   Timeframe: {best_combo['timeframe']}")
-            logging.info(f"   Accuracy: {best_combo['accuracy']:.2f}%")
-            logging.info(f"   Samples: {best_combo['total_samples']}")
-            logging.info(f"   Profit Factor: {best_combo['profit_factor']:.2f}")
-
-        return all_results
-
     def save_combination_result(self, stats: Dict, timeframe: str):
-        """Save combination analysis result to database"""
+        """Save combination analysis results to database"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
-            INSERT OR REPLACE INTO tf_combos (
-                signal_name, timeframe, accuracy, signals_count,
-                correct_predictions, avg_price_change, profit_factor,
-                combo_size, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO tf_combos 
+            (signal_name, timeframe, accuracy, signals_count, correct_predictions,
+             avg_price_change, profit_factor, combo_size)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            stats['combo_name'], timeframe, stats['accuracy'],
-            stats['total_samples'], stats['correct_predictions'],
-            stats['avg_price_change'], stats['profit_factor'],
-            stats['combo_size'], datetime.now()
+            stats['combo_name'],
+            timeframe,
+            stats['accuracy'],
+            stats['total_samples'],
+            stats['correct_predictions'],
+            stats['avg_price_change'],
+            stats['profit_factor'],
+            stats['combo_size']
         ))
 
         conn.commit()
         conn.close()
 
-    def get_top_combinations(self, timeframe: str = None, min_accuracy: float = 60.0,
-                            limit: int = 20) -> List[Dict]:
-        """Get top performing combinations"""
+    def analyze_all_timeframes(self, min_samples: int = 10, min_combo_size: int = 2,
+                               max_combo_size: int = 5, timeframes: List[str] = None) -> Dict:
+        """Run analysis on all timeframes"""
+        if timeframes is None:
+            timeframes = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h',
+                         '6h', '8h', '12h', '1d', '3d', '1w']
+
+        all_results = {}
+
+        for tf in timeframes:
+            try:
+                results = self.analyze_timeframe_combinations(
+                    tf, min_samples, min_combo_size, max_combo_size
+                )
+                all_results[tf] = results
+            except Exception as e:
+                logging.error(f"Error analyzing {tf}: {e}")
+                all_results[tf] = {'error': str(e)}
+
+        return all_results
+
+    # ========================================================================
+    # NEW: CROSS-TIMEFRAME FUNCTIONALITY
+    # ========================================================================
+
+    def find_cross_timeframe_combinations(
+        self,
+        timeframes: List[str],
+        min_combo_size: int = 2,
+        max_combo_size: int = 4,
+        time_tolerance_minutes: int = 5
+    ) -> Dict[str, List[Dict]]:
+        """
+        Find signal combinations across different timeframes
+
+        Args:
+            timeframes: List of timeframes to analyze (e.g., ['5m', '15m', '1h'])
+            min_combo_size: Minimum number of signals in combination
+            max_combo_size: Maximum number of signals in combination
+            time_tolerance_minutes: How close signals must be in time to be considered together
+
+        Returns:
+            Dictionary mapping combination signatures to their results
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Get all signals from all specified timeframes
+        timeframe_signals = {}
+
+        for tf in timeframes:
+            cursor.execute('''
+                SELECT 
+                    ls.symbol,
+                    ls.signal_name,
+                    ls.signal_type,
+                    ls.timeframe,
+                    ls.timestamp,
+                    sfc.predicted_correctly,
+                    sfc.price_change_pct
+                FROM live_signals ls
+                INNER JOIN signal_fact_checks sfc
+                    ON ls.signal_name = sfc.signal_name
+                    AND ls.timeframe = sfc.timeframe
+                    AND ls.timestamp = sfc.detected_at
+                WHERE ls.timeframe = ?
+                ORDER BY ls.symbol, ls.timestamp
+            ''', (tf,))
+
+            signals = [dict(row) for row in cursor.fetchall()]
+            timeframe_signals[tf] = signals
+            logging.info(f"Found {len(signals)} signals for {tf}")
+
+        conn.close()
+
+        # Group signals by symbol and find cross-timeframe matches
+        all_combinations = defaultdict(list)
+        time_tolerance = timedelta(minutes=time_tolerance_minutes)
+
+        # Organize signals by symbol
+        symbol_signals = defaultdict(lambda: defaultdict(list))
+        for tf, signals in timeframe_signals.items():
+            for signal in signals:
+                symbol_signals[signal['symbol']][tf].append(signal)
+
+        # For each symbol, find cross-timeframe combinations
+        for symbol, tf_signals in symbol_signals.items():
+            # Only proceed if we have signals in multiple timeframes
+            available_tfs = [tf for tf in timeframes if tf_signals.get(tf)]
+            if len(available_tfs) < 2:
+                continue
+
+            # Find temporal matches across timeframes
+            self._find_temporal_cross_tf_matches(
+                symbol, tf_signals, available_tfs, time_tolerance,
+                min_combo_size, max_combo_size, all_combinations
+            )
+
+        logging.info(f"Found {len(all_combinations)} unique cross-timeframe combinations")
+        return all_combinations
+
+    def _find_temporal_cross_tf_matches(
+        self,
+        symbol: str,
+        tf_signals: Dict[str, List[Dict]],
+        available_tfs: List[str],
+        time_tolerance: timedelta,
+        min_combo_size: int,
+        max_combo_size: int,
+        all_combinations: Dict[str, List[Dict]]
+    ):
+        """
+        Find signals that occur close together in time across different timeframes
+        """
+        # Get all signals sorted by time
+        all_signals = []
+        for tf in available_tfs:
+            for signal in tf_signals[tf]:
+                signal_copy = signal.copy()
+                signal_copy['parsed_timestamp'] = datetime.fromisoformat(signal['timestamp'])
+                all_signals.append(signal_copy)
+
+        all_signals.sort(key=lambda x: x['parsed_timestamp'])
+
+        # Use sliding window to find temporally close signals
+        for i, anchor_signal in enumerate(all_signals):
+            anchor_time = anchor_signal['parsed_timestamp']
+            window_signals = [anchor_signal]
+
+            # Look forward in time within tolerance
+            for j in range(i + 1, len(all_signals)):
+                candidate = all_signals[j]
+                time_diff = candidate['parsed_timestamp'] - anchor_time
+
+                if time_diff > time_tolerance:
+                    break
+
+                # Must be from different timeframe
+                if candidate['timeframe'] != anchor_signal['timeframe']:
+                    window_signals.append(candidate)
+
+            # Generate combinations from this window
+            if len(window_signals) >= min_combo_size:
+                self._generate_cross_tf_combinations(
+                    window_signals, min_combo_size, max_combo_size, all_combinations
+                )
+
+    def _generate_cross_tf_combinations(
+        self,
+        window_signals: List[Dict],
+        min_combo_size: int,
+        max_combo_size: int,
+        all_combinations: Dict[str, List[Dict]]
+    ):
+        """
+        Generate all valid cross-timeframe combinations from a window of signals
+        """
+        # Ensure signals are from different timeframes
+        for combo_size in range(min_combo_size, min(max_combo_size + 1, len(window_signals) + 1)):
+            for combo in combinations(window_signals, combo_size):
+                # Verify all signals are from different timeframes
+                timeframes = [s['timeframe'] for s in combo]
+                if len(set(timeframes)) != len(timeframes):
+                    continue  # Skip if duplicate timeframes
+
+                # Create combination signature
+                combo_parts = []
+                for signal in sorted(combo, key=lambda x: x['timeframe']):
+                    combo_parts.append(f"{signal['signal_name']}[{signal['timeframe']}]")
+
+                combo_signature = ' + '.join(combo_parts)
+
+                # Use the prediction result from the shortest timeframe signal
+                # (as it's typically the trigger)
+                shortest_tf_signal = min(combo, key=lambda x: self.get_timeframe_window_seconds(x['timeframe']))
+
+                result = {
+                    'predicted_correctly': shortest_tf_signal['predicted_correctly'],
+                    'price_change_pct': shortest_tf_signal['price_change_pct'],
+                    'signal_names': [s['signal_name'] for s in combo],
+                    'timeframes': timeframes,
+                    'signal_types': [s['signal_type'] for s in combo]
+                }
+
+                all_combinations[combo_signature].append(result)
+
+    def calculate_cross_tf_accuracy(
+        self,
+        combo_signature: str,
+        results: List[Dict],
+        min_samples: int = 10
+    ) -> Optional[Dict]:
+        """
+        Calculate accuracy metrics for a cross-timeframe combination
+        """
+        if len(results) < min_samples:
+            return None
+
+        total = len(results)
+        correct = sum(1 for r in results if r['predicted_correctly'])
+        accuracy = (correct / total) * 100
+
+        # Calculate profit metrics
+        winning_moves = [abs(r['price_change_pct']) for r in results if r['predicted_correctly']]
+        losing_moves = [abs(r['price_change_pct']) for r in results if not r['predicted_correctly']]
+
+        avg_win = sum(winning_moves) / len(winning_moves) if winning_moves else 0
+        avg_loss = sum(losing_moves) / len(losing_moves) if losing_moves else 0
+        profit_factor = avg_win / avg_loss if avg_loss > 0 else avg_win
+
+        avg_price_change = sum(r['price_change_pct'] for r in results) / total
+
+        # Extract timeframes and signal names
+        timeframes = sorted(set(results[0]['timeframes']))
+        signal_names = results[0]['signal_names']
+
+        return {
+            'combo_signature': combo_signature,
+            'timeframes': timeframes,
+            'signal_names': signal_names,
+            'total_samples': total,
+            'correct_predictions': correct,
+            'accuracy': accuracy,
+            'avg_price_change': avg_price_change,
+            'profit_factor': profit_factor,
+            'combo_size': len(signal_names),
+            'num_timeframes': len(timeframes)
+        }
+
+    def save_cross_tf_combination(self, stats: Dict):
+        """Save cross-timeframe combination to database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT OR REPLACE INTO cross_tf_combos 
+            (combo_signature, timeframes, signal_names, accuracy, signals_count,
+             correct_predictions, avg_price_change, profit_factor, combo_size, num_timeframes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            stats['combo_signature'],
+            ','.join(stats['timeframes']),
+            ','.join(stats['signal_names']),
+            stats['accuracy'],
+            stats['total_samples'],
+            stats['correct_predictions'],
+            stats['avg_price_change'],
+            stats['profit_factor'],
+            stats['combo_size'],
+            stats['num_timeframes']
+        ))
+
+        conn.commit()
+        conn.close()
+
+    def analyze_cross_timeframe_combinations(
+        self,
+        timeframes: List[str],
+        min_samples: int = 10,
+        min_combo_size: int = 2,
+        max_combo_size: int = 4,
+        time_tolerance_minutes: int = 5
+    ) -> Dict:
+        """
+        Analyze all cross-timeframe signal combinations
+
+        Args:
+            timeframes: List of timeframes to analyze together
+            min_samples: Minimum occurrences needed for analysis
+            min_combo_size: Minimum signals in combination
+            max_combo_size: Maximum signals in combination
+            time_tolerance_minutes: Time window for matching signals
+        """
+        logging.info(f"\n{'=' * 80}")
+        logging.info(f"Analyzing CROSS-TIMEFRAME combinations")
+        logging.info(f"Timeframes: {', '.join(timeframes)}")
+        logging.info(f"Time tolerance: {time_tolerance_minutes} minutes")
+        logging.info(f"{'=' * 80}")
+
+        # Find all cross-timeframe combinations
+        combinations_data = self.find_cross_timeframe_combinations(
+            timeframes, min_combo_size, max_combo_size, time_tolerance_minutes
+        )
+
+        results = {
+            'timeframes': timeframes,
+            'total_combinations': len(combinations_data),
+            'analyzed': 0,
+            'skipped_insufficient_samples': 0,
+            'combinations': []
+        }
+
+        # Analyze each combination
+        for combo_sig, combo_results in combinations_data.items():
+            stats = self.calculate_cross_tf_accuracy(combo_sig, combo_results, min_samples)
+
+            if stats:
+                results['analyzed'] += 1
+                results['combinations'].append(stats)
+
+                # Save to database
+                self.save_cross_tf_combination(stats)
+            else:
+                results['skipped_insufficient_samples'] += 1
+
+        # Sort by accuracy
+        results['combinations'].sort(key=lambda x: x['accuracy'], reverse=True)
+
+        logging.info(f"\n✅ Cross-Timeframe Analysis Complete:")
+        logging.info(f"   Total combinations found: {results['total_combinations']}")
+        logging.info(f"   Analyzed (>={min_samples} samples): {results['analyzed']}")
+        logging.info(f"   Skipped (insufficient data): {results['skipped_insufficient_samples']}")
+
+        if results['combinations']:
+            top = results['combinations'][0]
+            logging.info(f"\n🏆 Best Cross-Timeframe Combination:")
+            logging.info(f"   {top['combo_signature']}")
+            logging.info(f"   Accuracy: {top['accuracy']:.2f}%")
+            logging.info(f"   Samples: {top['total_samples']}")
+            logging.info(f"   Profit Factor: {top['profit_factor']:.2f}")
+
+        return results
+
+    def analyze_all_cross_tf_patterns(
+        self,
+        min_samples: int = 10,
+        min_combo_size: int = 2,
+        max_combo_size: int = 3,
+        time_tolerance_minutes: int = 5
+    ) -> Dict:
+        """
+        Analyze common cross-timeframe patterns
+        Tries various timeframe combinations
+        """
+        # Common timeframe patterns to analyze
+        tf_patterns = [
+            ['5m', '15m', '1h'],      # Short-term trend confirmation
+            ['15m', '1h', '4h'],      # Medium-term confirmation
+            ['1h', '4h', '1d'],       # Long-term trend alignment
+            ['5m', '1h'],             # Quick scalp with hourly confirmation
+            ['15m', '4h'],            # Swing setup
+            ['1h', '1d'],             # Position setup
+        ]
+
+        all_results = {}
+
+        for tf_pattern in tf_patterns:
+            pattern_name = '-'.join(tf_pattern)
+            logging.info(f"\n{'*' * 80}")
+            logging.info(f"Analyzing pattern: {pattern_name}")
+            logging.info(f"{'*' * 80}")
+
+            try:
+                results = self.analyze_cross_timeframe_combinations(
+                    tf_pattern,
+                    min_samples,
+                    min_combo_size,
+                    max_combo_size,
+                    time_tolerance_minutes
+                )
+                all_results[pattern_name] = results
+            except Exception as e:
+                logging.error(f"Error analyzing {pattern_name}: {e}")
+                all_results[pattern_name] = {'error': str(e)}
+
+        return all_results
+
+    # ========================================================================
+    # QUERY AND REPORTING METHODS
+    # ========================================================================
+
+    def get_top_combinations(self, limit: int = 20, min_accuracy: float = 0,
+                            timeframe: Optional[str] = None,
+                            min_samples: int = 0) -> List[Dict]:
+        """Get top performing same-timeframe combinations"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
         query = '''
             SELECT * FROM tf_combos
-            WHERE accuracy >= ?
+            WHERE accuracy >= ? AND signals_count >= ?
         '''
-        params = [min_accuracy]
+        params = [min_accuracy, min_samples]
 
         if timeframe:
             query += ' AND timeframe = ?'
             params.append(timeframe)
 
-        query += ' ORDER BY accuracy DESC, signals_count DESC LIMIT ?'
+        query += ' ORDER BY accuracy DESC, profit_factor DESC LIMIT ?'
+        params.append(limit)
+
+        cursor.execute(query, params)
+        results = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return results
+
+    def get_top_cross_tf_combinations(
+        self,
+        limit: int = 20,
+        min_accuracy: float = 0,
+        min_samples: int = 0,
+        num_timeframes: Optional[int] = None
+    ) -> List[Dict]:
+        """Get top performing cross-timeframe combinations"""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        query = '''
+            SELECT * FROM cross_tf_combos
+            WHERE accuracy >= ? AND signals_count >= ?
+        '''
+        params = [min_accuracy, min_samples]
+
+        if num_timeframes:
+            query += ' AND num_timeframes = ?'
+            params.append(num_timeframes)
+
+        query += ' ORDER BY accuracy DESC, profit_factor DESC LIMIT ?'
         params.append(limit)
 
         cursor.execute(query, params)
@@ -346,7 +718,7 @@ class SignalCombinationAnalyzer:
         return results
 
     def get_combination_details(self, combo_name: str, timeframe: str) -> Optional[Dict]:
-        """Get detailed stats for a specific combination"""
+        """Get detailed stats for a specific same-timeframe combination"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -355,6 +727,22 @@ class SignalCombinationAnalyzer:
             SELECT * FROM tf_combos
             WHERE signal_name = ? AND timeframe = ?
         ''', (combo_name, timeframe))
+
+        result = cursor.fetchone()
+        conn.close()
+
+        return dict(result) if result else None
+
+    def get_cross_tf_combination_details(self, combo_signature: str) -> Optional[Dict]:
+        """Get detailed stats for a specific cross-timeframe combination"""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM cross_tf_combos
+            WHERE combo_signature = ?
+        ''', (combo_signature,))
 
         result = cursor.fetchone()
         conn.close()
@@ -422,8 +810,91 @@ class SignalCombinationAnalyzer:
             'improved': improvement > 0
         }
 
+    def generate_comprehensive_report(self, min_accuracy: float = 60.0) -> Dict:
+        """Generate comprehensive report of both same-TF and cross-TF combinations"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Same-timeframe stats
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total_combos,
+                AVG(accuracy) as avg_accuracy,
+                MAX(accuracy) as max_accuracy,
+                SUM(signals_count) as total_samples
+            FROM tf_combos
+        ''')
+        same_tf_overall = cursor.fetchone()
+
+        # Cross-timeframe stats
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total_combos,
+                AVG(accuracy) as avg_accuracy,
+                MAX(accuracy) as max_accuracy,
+                SUM(signals_count) as total_samples
+            FROM cross_tf_combos
+        ''')
+        cross_tf_overall = cursor.fetchone()
+
+        # Top same-TF performers
+        cursor.execute('''
+            SELECT * FROM tf_combos
+            WHERE accuracy >= ?
+            ORDER BY accuracy DESC, profit_factor DESC
+            LIMIT 10
+        ''', (min_accuracy,))
+        top_same_tf = cursor.fetchall()
+
+        # Top cross-TF performers
+        cursor.execute('''
+            SELECT * FROM cross_tf_combos
+            WHERE accuracy >= ?
+            ORDER BY accuracy DESC, profit_factor DESC
+            LIMIT 10
+        ''', (min_accuracy,))
+        top_cross_tf = cursor.fetchall()
+
+        conn.close()
+
+        return {
+            'same_timeframe': {
+                'total_combinations': same_tf_overall[0],
+                'avg_accuracy': same_tf_overall[1],
+                'max_accuracy': same_tf_overall[2],
+                'total_samples': same_tf_overall[3],
+                'top_performers': [
+                    {
+                        'signal_name': row[1],
+                        'timeframe': row[2],
+                        'accuracy': row[3],
+                        'signals_count': row[4],
+                        'profit_factor': row[7]
+                    }
+                    for row in top_same_tf
+                ]
+            },
+            'cross_timeframe': {
+                'total_combinations': cross_tf_overall[0],
+                'avg_accuracy': cross_tf_overall[1],
+                'max_accuracy': cross_tf_overall[2],
+                'total_samples': cross_tf_overall[3],
+                'top_performers': [
+                    {
+                        'combo_signature': row[1],
+                        'timeframes': row[2],
+                        'signal_names': row[3],
+                        'accuracy': row[4],
+                        'signals_count': row[5],
+                        'profit_factor': row[8]
+                    }
+                    for row in top_cross_tf
+                ]
+            }
+        }
+
     def generate_report(self, min_accuracy: float = 60.0) -> Dict:
-        """Generate comprehensive report of best combinations"""
+        """Generate comprehensive report of best combinations (same-TF only for compatibility)"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -524,38 +995,67 @@ if __name__ == "__main__":
     analyzer = SignalCombinationAnalyzer()
 
     print("\n" + "=" * 80)
-    print("SIGNAL COMBINATION ANALYZER")
+    print("SIGNAL COMBINATION ANALYZER - EXTENDED")
+    print("Same-Timeframe + Cross-Timeframe Analysis")
     print("=" * 80)
 
-    # Analyze all timeframes
-    results = analyzer.analyze_all_timeframes(
-        min_samples=20,  # Need at least 20 samples
-        min_combo_size=2,  # Start with 2-signal combos
-        max_combo_size=4   # Up to 4-signal combos
+    # Example 1: Analyze same-timeframe combinations (original functionality)
+    print("\n" + "=" * 80)
+    print("PART 1: SAME-TIMEFRAME ANALYSIS")
+    print("=" * 80)
+
+    same_tf_results = analyzer.analyze_timeframe_combinations(
+        timeframe='1h',
+        min_samples=20,
+        min_combo_size=2,
+        max_combo_size=4
     )
 
-    # Generate report
+    # Example 2: Analyze cross-timeframe combinations (NEW)
     print("\n" + "=" * 80)
-    print("GENERATING REPORT...")
+    print("PART 2: CROSS-TIMEFRAME ANALYSIS")
     print("=" * 80)
 
-    report = analyzer.generate_report(min_accuracy=55.0)
+    cross_tf_results = analyzer.analyze_cross_timeframe_combinations(
+        timeframes=['5m', '15m', '1h'],
+        min_samples=15,
+        min_combo_size=2,
+        max_combo_size=3,
+        time_tolerance_minutes=5
+    )
 
-    print("\n📊 COMBINATION ANALYSIS REPORT")
-    print(f"Total combinations analyzed: {report['overall']['total_combinations']}")
-    print(f"Average accuracy: {report['overall']['avg_accuracy']:.2f}%")
-    print(f"Maximum accuracy: {report['overall']['max_accuracy']:.2f}%")
+    # Example 3: Analyze multiple cross-TF patterns
+    print("\n" + "=" * 80)
+    print("PART 3: ANALYZING ALL CROSS-TF PATTERNS")
+    print("=" * 80)
 
-    print("\n📈 By Combo Size:")
-    for size_data in report['by_combo_size']:
-        print(f"  {size_data['combo_size']} signals: "
-              f"Avg {size_data['avg_accuracy']:.2f}%, "
-              f"Max {size_data['max_accuracy']:.2f}% "
-              f"({size_data['count']} combinations)")
+    all_patterns = analyzer.analyze_all_cross_tf_patterns(
+        min_samples=15,
+        min_combo_size=2,
+        max_combo_size=3,
+        time_tolerance_minutes=5
+    )
 
-    print("\n🏆 Top 10 Combinations:")
-    for i, combo in enumerate(report['top_performers'][:10], 1):
-        print(f"{i}. {combo['signal_name']} [{combo['timeframe']}]")
+    # Generate comprehensive report
+    print("\n" + "=" * 80)
+    print("COMPREHENSIVE REPORT")
+    print("=" * 80)
+
+    report = analyzer.generate_comprehensive_report(min_accuracy=55.0)
+
+    print("\n📊 SAME-TIMEFRAME COMBINATIONS:")
+    print(f"Total combinations: {report['same_timeframe']['total_combinations']}")
+    print(f"Average accuracy: {report['same_timeframe']['avg_accuracy']:.2f}%")
+    print(f"Maximum accuracy: {report['same_timeframe']['max_accuracy']:.2f}%")
+
+    print("\n🔄 CROSS-TIMEFRAME COMBINATIONS:")
+    print(f"Total combinations: {report['cross_timeframe']['total_combinations']}")
+    print(f"Average accuracy: {report['cross_timeframe']['avg_accuracy']:.2f}%")
+    print(f"Maximum accuracy: {report['cross_timeframe']['max_accuracy']:.2f}%")
+
+    print("\n🏆 Top 5 Cross-Timeframe Combinations:")
+    for i, combo in enumerate(report['cross_timeframe']['top_performers'][:5], 1):
+        print(f"{i}. {combo['combo_signature']}")
         print(f"   Accuracy: {combo['accuracy']:.2f}%, "
               f"Samples: {combo['signals_count']}, "
               f"PF: {combo['profit_factor']:.2f}")

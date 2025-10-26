@@ -1299,6 +1299,66 @@ def analyze_signal_combinations():
     }), 500
 
 
+@app.route('/api/combo-analysis/analyze-cross-tf', methods=['POST'])
+@login_required
+def analyze_cross_tf_signal_combinations():
+  """
+  Trigger bulk combination analysis
+  POST body: {
+      "timeframes": ["1h"] (optional),
+      "min_samples": 20,
+      "min_combo_size": 2,
+      "max_combo_size": 4
+  }
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({
+      'success': False,
+      'error': 'Combination analyzer not initialized'
+    }), 500
+
+  try:
+    data = request.get_json() or {}
+
+    timeframes = data.get('timeframes', ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w'])
+    min_samples = int(data.get('min_samples', 20))
+    min_combo_size = int(data.get('min_combo_size', 2))
+    max_combo_size = int(data.get('max_combo_size', 4))
+
+    # Validate combo sizes
+    if min_combo_size < 2 or max_combo_size > 10:
+      return jsonify({
+        'success': False,
+        'error': 'Combo size must be between 2 and 10'
+      }), 400
+
+    logging.info(f"🚀 Starting combination analysis...")
+    logging.info(f"   tfs: {timeframes}")
+    logging.info(f"   Min samples: {min_samples}")
+    logging.info(f"   Combo size: {min_combo_size}-{max_combo_size}")
+
+    results = combo_analyzer.analyze_cross_timeframe_combinations(
+      timeframes,
+      min_samples,
+      min_combo_size,
+      max_combo_size,
+    )
+
+    return jsonify({
+      'success': True,
+      'result': result
+    })
+
+  except Exception as e:
+    logging.error(f"❌ Combination analysis failed: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+
 @app.route('/api/combo-analysis/top')
 @login_required
 def get_top_combinations():
@@ -1473,6 +1533,105 @@ def get_combination_details():
     logging.error(f"Failed to get combination details: {e}")
     return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/api/combo-analysis/active-combos/<symbol>')
+@login_required
+def get_active_combinations_for_symbol(symbol):
+  """
+  Get active signal combinations for a specific symbol across timeframes
+  This checks which combinations are currently active based on live_signals
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+
+  try:
+    # Get recent signals for this symbol (last 2 hours)
+    conn = sqlite3.connect(app.config['DB_PATH'])
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute('''
+      SELECT 
+        timeframe,
+        GROUP_CONCAT(signal_name) as signals,
+        timestamp,
+        MAX(timestamp) as latest_timestamp
+      FROM live_signals
+      WHERE symbol = ?
+        AND timestamp >= datetime('now', '-2 hours')
+      GROUP BY timeframe, 
+        CAST(strftime('%s', timestamp) / 
+          CASE timeframe
+            WHEN '1m' THEN 60
+            WHEN '3m' THEN 180
+            WHEN '5m' THEN 300
+            WHEN '15m' THEN 900
+            WHEN '30m' THEN 1800
+            WHEN '1h' THEN 3600
+            WHEN '2h' THEN 7200
+            WHEN '4h' THEN 14400
+            WHEN '6h' THEN 21600
+            WHEN '8h' THEN 28800
+            WHEN '12h' THEN 43200
+            WHEN '1d' THEN 86400
+            ELSE 3600
+          END AS INTEGER)
+      ORDER BY timeframe, timestamp DESC
+    ''', (symbol.upper(),))
+
+    active_windows = cursor.fetchall()
+
+    # For each timeframe window, check if the signal combination exists in tf_combos
+    results = {}
+
+    for window in active_windows:
+      timeframe = window['timeframe']
+      signals = window['signals'].split(',') if window['signals'] else []
+
+      if len(signals) < 2:
+        continue
+
+      # Generate combo key
+      combo_key = '+'.join(sorted(set(signals)))
+
+      # Check if this combo exists in our database
+      cursor.execute('''
+        SELECT * FROM tf_combos
+        WHERE signal_name = ? AND timeframe = ?
+      ''', (combo_key, timeframe))
+
+      combo_data = cursor.fetchone()
+
+      if combo_data:
+        if timeframe not in results:
+          results[timeframe] = []
+
+        results[timeframe].append({
+          'combo_name': combo_key,
+          'signals': signals,
+          'accuracy': combo_data['accuracy'],
+          'sample_count': combo_data['signals_count'],
+          'profit_factor': combo_data['profit_factor'],
+          'avg_price_change': combo_data['avg_price_change'],
+          'combo_size': combo_data['combo_size'],
+          'correct_predictions': combo_data['correct_predictions'],
+          'timestamp': window['latest_timestamp']
+        })
+
+    conn.close()
+
+    return jsonify({
+      'success': True,
+      'symbol': symbol,
+      'timeframes': results,
+      'total_combos': sum(len(combos) for combos in results.values())
+    })
+
+  except Exception as e:
+    logging.error(f"Failed to get active combinations: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== HELPER FUNCTIONS ====================
 
