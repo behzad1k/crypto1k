@@ -191,7 +191,7 @@ class SignalFactChecker:
 
     try:
       cursor.execute('''
-        SELECT validation_window FROM signals
+        SELECT initial_validation_window FROM signals
         WHERE signal_name = ? AND timeframe = ?
       ''', (signal_name, timeframe))
 
