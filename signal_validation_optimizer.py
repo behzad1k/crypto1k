@@ -43,6 +43,7 @@ class SignalValidationOptimizer:
     '3d': 5,  # Max 5 candles = 15 days
     '1w': 4,  # Max 4 candles = 4 weeks
   }
+  valid_tfs = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w']
 
   MIN_PROFIT_THRESHOLD_PCT = 0.1  # Same as fact-checker
 
@@ -113,17 +114,11 @@ class SignalValidationOptimizer:
 
     for signal_name, signal_info in ScalpSignalAnalyzer.SIGNAL_CONFIDENCE.items():
       confidence = signal_info['confidence']
-      suitable_timeframes = signal_info['timeframes']
       category = signal_categories.get(signal_name, 'Other')
       description = self._get_signal_description(signal_name)
 
-      # Get all timeframe types this signal is suitable for
-      all_timeframes = []
-      for tf_type in suitable_timeframes:
-        all_timeframes.extend(ScalpSignalAnalyzer.TIMEFRAMES[tf_type])
-
       # Insert for each timeframe
-      for timeframe in all_timeframes:
+      for timeframe in self.valid_tfs:
         initial_window = self._estimate_initial_validation_window(
           signal_name, timeframe, category
         )
