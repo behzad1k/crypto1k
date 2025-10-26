@@ -13,10 +13,10 @@ import pandas as pd
 from io import BytesIO
 import threading
 import logging
-# Import our monitoring module
 from monitor import CryptoPatternMonitor
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 from live_analysis_handler import LiveAnalysisDB
+from signal_combination_analyzer import SignalCombinationAnalyzer
 from trading_position_manager import TradingPositionManager
 from signal_fact_checker import SignalFactChecker
 
@@ -37,6 +37,8 @@ live_analyzer = None
 live_db = None
 trading_manager = None
 fact_checker = None
+combo_analyzer = None
+
 sock = None
 
 
@@ -76,7 +78,7 @@ def init_database():
 
 def initialize_app():
   """Initialize all modules - called on import for gunicorn compatibility"""
-  global live_analyzer, live_db, trading_manager, fact_checker, sock
+  global live_analyzer, live_db, trading_manager, fact_checker, sock, combo_analyzer
 
   # Only initialize once
   if live_analyzer is not None:
@@ -94,7 +96,6 @@ def initialize_app():
   except Exception as e:
     logging.error(f"❌ Failed to initialize live analysis: {e}")
 
-  # Initialize trading modules
   try:
     trading_manager = TradingPositionManager(db_path=app.config['DB_PATH'])
     fact_checker = SignalFactChecker(db_path=app.config['DB_PATH'])
@@ -104,7 +105,12 @@ def initialize_app():
     logging.error(f"❌ Failed to initialize trading modules: {e}")
     logging.error("Trading features will not be available!")
 
-
+  # Initialize signal combo modules
+  try:
+      combo_analyzer = SignalCombinationAnalyzer(db_path=app.config['DB_PATH'])
+      logging.info("✅ Signal combination analyzer initialized")
+  except Exception as e:
+      logging.error(f"❌ Failed to initialize combo analyzer: {e}")
 # Initialize immediately on import (works with both gunicorn and python app.py)
 initialize_app()
 
@@ -1181,6 +1187,245 @@ def cleanup_fact_checks():
     })
   except Exception as e:
     logging.error(f"Error cleaning up: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
+# ==================== SIGNAL-COMBO-ANALYSIS-CHECKING ROUTES ====================
+
+
+@app.route('/api/combo-analysis/analyze', methods=['POST'])
+@login_required
+def analyze_signal_combinations():
+  """
+  Trigger bulk combination analysis
+  POST body: {
+      "timeframe": "1h" (optional),
+      "min_samples": 20,
+      "min_combo_size": 2,
+      "max_combo_size": 4
+  }
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({
+      'success': False,
+      'error': 'Combination analyzer not initialized'
+    }), 500
+
+  try:
+    data = request.get_json() or {}
+
+    timeframe = data.get('timeframe')
+    min_samples = int(data.get('min_samples', 20))
+    min_combo_size = int(data.get('min_combo_size', 2))
+    max_combo_size = int(data.get('max_combo_size', 4))
+
+    # Validate combo sizes
+    if min_combo_size < 2 or max_combo_size > 10:
+      return jsonify({
+        'success': False,
+        'error': 'Combo size must be between 2 and 10'
+      }), 400
+
+    logging.info(f"🚀 Starting combination analysis...")
+    logging.info(f"   Min samples: {min_samples}")
+    logging.info(f"   Combo size: {min_combo_size}-{max_combo_size}")
+
+    if timeframe:
+      # Analyze single timeframe
+      result = combo_analyzer.analyze_timeframe_combinations(
+        timeframe, min_samples, min_combo_size, max_combo_size
+      )
+    else:
+      # Analyze all timeframes
+      result = combo_analyzer.analyze_all_timeframes(
+        min_samples, min_combo_size, max_combo_size
+      )
+
+    return jsonify({
+      'success': True,
+      'result': result
+    })
+
+  except Exception as e:
+    logging.error(f"❌ Combination analysis failed: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+
+@app.route('/api/combo-analysis/top')
+@login_required
+def get_top_combinations():
+  """
+  Get top performing signal combinations
+  Query params:
+      - timeframe: filter by timeframe (optional)
+      - min_accuracy: minimum accuracy threshold (default 60)
+      - limit: max results (default 20)
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+
+  try:
+    timeframe = request.args.get('timeframe')
+    min_accuracy = float(request.args.get('min_accuracy', 60.0))
+    limit = int(request.args.get('limit', 20))
+
+    combinations = combo_analyzer.get_top_combinations(
+      timeframe, min_accuracy, limit
+    )
+
+    return jsonify({
+      'success': True,
+      'combinations': combinations,
+      'count': len(combinations)
+    })
+
+  except Exception as e:
+    logging.error(f"Failed to get top combinations: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/combo-analysis/report')
+@login_required
+def get_combination_report():
+  """
+  Get comprehensive combination analysis report
+  Query params:
+      - min_accuracy: minimum accuracy for top performers (default 55)
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+
+  try:
+    min_accuracy = float(request.args.get('min_accuracy', 55.0))
+
+    report = combo_analyzer.generate_report(min_accuracy)
+
+    return jsonify({
+      'success': True,
+      'report': report
+    })
+
+  except Exception as e:
+    logging.error(f"Failed to generate report: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/combo-analysis/compare/<combo_name>')
+@login_required
+def compare_combo_to_individual_signals(combo_name):
+  """
+  Compare combination accuracy to individual signal accuracies
+  Query params:
+      - timeframe: required
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+
+  try:
+    timeframe = request.args.get('timeframe')
+
+    if not timeframe:
+      return jsonify({
+        'success': False,
+        'error': 'Timeframe parameter required'
+      }), 400
+
+    comparison = combo_analyzer.compare_combo_to_individual(
+      combo_name, timeframe
+    )
+
+    return jsonify({
+      'success': True,
+      'comparison': comparison
+    })
+
+  except Exception as e:
+    logging.error(f"Failed to compare combination: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/combo-analysis/timeframe/<timeframe>')
+@login_required
+def get_timeframe_combinations(timeframe):
+  """
+  Get all combinations for a specific timeframe
+  Query params:
+      - min_accuracy: minimum accuracy threshold (default 50)
+      - limit: max results (default 50)
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+
+  try:
+    min_accuracy = float(request.args.get('min_accuracy', 50.0))
+    limit = int(request.args.get('limit', 50))
+
+    combinations = combo_analyzer.get_top_combinations(
+      timeframe, min_accuracy, limit
+    )
+
+    return jsonify({
+      'success': True,
+      'timeframe': timeframe,
+      'combinations': combinations,
+      'count': len(combinations)
+    })
+
+  except Exception as e:
+    logging.error(f"Failed to get timeframe combinations: {e}")
+    return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/combo-analysis/details')
+@login_required
+def get_combination_details():
+  """
+  Get details for a specific combination
+  Query params:
+      - combo_name: required (e.g., "macd_cross_bullish+rsi_oversold")
+      - timeframe: required
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+
+  try:
+    combo_name = request.args.get('combo_name')
+    timeframe = request.args.get('timeframe')
+
+    if not combo_name or not timeframe:
+      return jsonify({
+        'success': False,
+        'error': 'Both combo_name and timeframe required'
+      }), 400
+
+    details = combo_analyzer.get_combination_details(combo_name, timeframe)
+
+    if not details:
+      return jsonify({
+        'success': False,
+        'error': 'Combination not found'
+      }), 404
+
+    return jsonify({
+      'success': True,
+      'details': details
+    })
+
+  except Exception as e:
+    logging.error(f"Failed to get combination details: {e}")
     return jsonify({'success': False, 'error': str(e)}), 500
 
 

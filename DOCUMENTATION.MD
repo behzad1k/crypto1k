@@ -416,7 +416,7 @@ adjusted_confidence", "accuracy_rate", "sample_size", "last_updated") VALUES ('6
 this table has 367 rows.
 not all the system's generated signals have been fact-checked yet.
 for my phase three I want to build a paper trading system
-that applies the live scalping signals on the signals my phase 1 generates, then based them and some other pro scalping
+that applies the live scalping signals on the signals my phase 1 generates, then based on them and some other pro scalping
 techniques, for example I myself tend to check if the current price of the coin is above/under the average price of that
 coin in the past year so I dont buy it at peaks. the system then imagines we have bought that coin on the signaled price
 and sells it at either a constant stop-profit percentage or a dynamic stop-profit percentage based on the signal's
