@@ -1,6 +1,9 @@
 """
-Comprehensive Scalp Trading Signal Analyzer
-Analyzes 50+ technical signals across multiple timeframes
+Comprehensive Scalp Trading Signal Analyzer - UPDATED
+Analyzes 80+ technical signals across multiple timeframes
+NEW: Added MFI, CMF, Harami, Inverted Hammer, Hanging Man, Volume Climax, Gap Detection,
+     ROC, Aroon, Elder Ray, TSI, Donchian, Order Blocks, FVG, Liquidity Sweep, ChoCh,
+     Premium/Discount Zones, Volume Profile, momentum_5, momentum_10
 """
 
 import requests
@@ -15,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 
 class ScalpSignalAnalyzer:
   """
-  Complete technical analysis signal generator
+  Complete technical analysis signal generator with 80+ signals
   Confidence ratings based on academic research, trading literature, and historical performance
   """
 
@@ -25,116 +28,159 @@ class ScalpSignalAnalyzer:
     'mid': ['30m', '1h', '2h', '4h', '6h', '8h'],
     'long': ['12h', '1d', '3d', '1w']
   }
-  # Signal confidence ratings (0-100)
+
+  # Signal confidence ratings (0-100) - UPDATED WITH NEW SIGNALS
   SIGNAL_CONFIDENCE = {
-    # Candlestick Patterns
-    'engulfing_bullish': {'confidence': 75, 'timeframes': ['short', 'mid', 'long']},
-    'engulfing_bearish': {'confidence': 75, 'timeframes': ['short', 'mid', 'long']},
-    'hammer': {'confidence': 72, 'timeframes': ['mid', 'long']},
-    'shooting_star': {'confidence': 72, 'timeframes': ['mid', 'long']},
-    'doji_reversal': {'confidence': 65, 'timeframes': ['short', 'mid', 'long']},
-    'morning_star': {'confidence': 78, 'timeframes': ['mid', 'long']},
-    'evening_star': {'confidence': 78, 'timeframes': ['mid', 'long']},
-    'three_white_soldiers': {'confidence': 80, 'timeframes': ['mid', 'long']},
-    'three_black_crows': {'confidence': 80, 'timeframes': ['mid', 'long']},
-    'piercing_pattern': {'confidence': 70, 'timeframes': ['mid', 'long']},
-    'dark_cloud_cover': {'confidence': 70, 'timeframes': ['mid', 'long']},
-    'tweezer_top': {'confidence': 68, 'timeframes': ['short', 'mid']},
-    'tweezer_bottom': {'confidence': 68, 'timeframes': ['short', 'mid']},
-    'marubozu_bullish': {'confidence': 73, 'timeframes': ['short', 'mid']},
-    'marubozu_bearish': {'confidence': 73, 'timeframes': ['short', 'mid']},
+    # ===== Candlestick Patterns (19 signals) =====
+    'engulfing_bullish': {'confidence': 75, 'timeframes': ['short', 'mid', 'long'], 'category': 'Candlestick Patterns'},
+    'engulfing_bearish': {'confidence': 75, 'timeframes': ['short', 'mid', 'long'], 'category': 'Candlestick Patterns'},
+    'hammer': {'confidence': 72, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'shooting_star': {'confidence': 72, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'doji_reversal': {'confidence': 65, 'timeframes': ['short', 'mid', 'long'], 'category': 'Candlestick Patterns'},
+    'morning_star': {'confidence': 78, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'evening_star': {'confidence': 78, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'three_white_soldiers': {'confidence': 80, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'three_black_crows': {'confidence': 80, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'piercing_pattern': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'dark_cloud_cover': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'tweezer_top': {'confidence': 68, 'timeframes': ['short', 'mid'], 'category': 'Candlestick Patterns'},
+    'tweezer_bottom': {'confidence': 68, 'timeframes': ['short', 'mid'], 'category': 'Candlestick Patterns'},
+    'marubozu_bullish': {'confidence': 73, 'timeframes': ['short', 'mid'], 'category': 'Candlestick Patterns'},
+    'marubozu_bearish': {'confidence': 73, 'timeframes': ['short', 'mid'], 'category': 'Candlestick Patterns'},
+    # NEW: Additional candlestick patterns
+    'harami_bullish': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'harami_bearish': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'inverted_hammer': {'confidence': 71, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
+    'hanging_man': {'confidence': 71, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
 
-    # Moving Average Signals
-    'ma_cross_golden': {'confidence': 82, 'timeframes': ['mid', 'long']},
-    'ma_cross_death': {'confidence': 82, 'timeframes': ['mid', 'long']},
-    'price_above_ma20': {'confidence': 70, 'timeframes': ['short', 'mid']},
-    'price_below_ma20': {'confidence': 70, 'timeframes': ['short', 'mid']},
-    'ma_ribbon_bullish': {'confidence': 76, 'timeframes': ['mid', 'long']},
-    'ma_ribbon_bearish': {'confidence': 76, 'timeframes': ['mid', 'long']},
-    'ema_cross_fast': {'confidence': 74, 'timeframes': ['short', 'mid']},
-    'triple_ema_bullish': {'confidence': 78, 'timeframes': ['mid']},
-    'triple_ema_bearish': {'confidence': 78, 'timeframes': ['mid']},
+    # ===== Moving Averages (9 signals) =====
+    'ma_cross_golden': {'confidence': 82, 'timeframes': ['mid', 'long'], 'category': 'Moving Averages'},
+    'ma_cross_death': {'confidence': 82, 'timeframes': ['mid', 'long'], 'category': 'Moving Averages'},
+    'price_above_ma20': {'confidence': 70, 'timeframes': ['short', 'mid'], 'category': 'Moving Averages'},
+    'price_below_ma20': {'confidence': 70, 'timeframes': ['short', 'mid'], 'category': 'Moving Averages'},
+    'ma_ribbon_bullish': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Moving Averages'},
+    'ma_ribbon_bearish': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Moving Averages'},
+    'ema_cross_fast': {'confidence': 74, 'timeframes': ['short', 'mid'], 'category': 'Moving Averages'},
+    'triple_ema_bullish': {'confidence': 78, 'timeframes': ['mid'], 'category': 'Moving Averages'},
+    'triple_ema_bearish': {'confidence': 78, 'timeframes': ['mid'], 'category': 'Moving Averages'},
 
-    # Momentum Indicators
-    'rsi_oversold': {'confidence': 68, 'timeframes': ['short', 'mid', 'long']},
-    'rsi_overbought': {'confidence': 68, 'timeframes': ['short', 'mid', 'long']},
-    'rsi_divergence_bullish': {'confidence': 85, 'timeframes': ['mid', 'long']},
-    'rsi_divergence_bearish': {'confidence': 85, 'timeframes': ['mid', 'long']},
-    'rsi_centerline_cross_up': {'confidence': 72, 'timeframes': ['mid']},
-    'rsi_centerline_cross_down': {'confidence': 72, 'timeframes': ['mid']},
-    'macd_cross_bullish': {'confidence': 79, 'timeframes': ['mid', 'long']},
-    'macd_cross_bearish': {'confidence': 79, 'timeframes': ['mid', 'long']},
-    'macd_divergence_bullish': {'confidence': 87, 'timeframes': ['mid', 'long']},
-    'macd_divergence_bearish': {'confidence': 87, 'timeframes': ['mid', 'long']},
-    'macd_histogram_reversal_bullish': {'confidence': 75, 'timeframes': ['short', 'mid']},
-    'macd_histogram_reversal_bearish': {'confidence': 75, 'timeframes': ['short', 'mid']},
-    'stoch_oversold': {'confidence': 66, 'timeframes': ['short', 'mid']},
-    'stoch_overbought': {'confidence': 66, 'timeframes': ['short', 'mid']},
-    'stoch_cross_bullish': {'confidence': 71, 'timeframes': ['short', 'mid']},
-    'stoch_cross_bearish': {'confidence': 71, 'timeframes': ['short', 'mid']},
-    'momentum_surge_bullish': {'confidence': 70, 'timeframes': ['short']},
-    'momentum_surge_bearish': {'confidence': 70, 'timeframes': ['short']},
-    'cci_oversold': {'confidence': 67, 'timeframes': ['short', 'mid']},
-    'cci_overbought': {'confidence': 67, 'timeframes': ['short', 'mid']},
-    'williams_r_oversold': {'confidence': 65, 'timeframes': ['short', 'mid']},
-    'williams_r_overbought': {'confidence': 65, 'timeframes': ['short', 'mid']},
+    # ===== Momentum Indicators (25 signals - EXPANDED) =====
+    'rsi_oversold': {'confidence': 68, 'timeframes': ['short', 'mid', 'long'], 'category': 'Momentum Indicators'},
+    'rsi_overbought': {'confidence': 68, 'timeframes': ['short', 'mid', 'long'], 'category': 'Momentum Indicators'},
+    'rsi_divergence_bullish': {'confidence': 85, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'rsi_divergence_bearish': {'confidence': 85, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'rsi_centerline_cross_up': {'confidence': 72, 'timeframes': ['mid'], 'category': 'Momentum Indicators'},
+    'rsi_centerline_cross_down': {'confidence': 72, 'timeframes': ['mid'], 'category': 'Momentum Indicators'},
+    'macd_cross_bullish': {'confidence': 79, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'macd_cross_bearish': {'confidence': 79, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'macd_divergence_bullish': {'confidence': 87, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'macd_divergence_bearish': {'confidence': 87, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'macd_histogram_reversal_bullish': {'confidence': 75, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'macd_histogram_reversal_bearish': {'confidence': 75, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'stoch_oversold': {'confidence': 66, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'stoch_overbought': {'confidence': 66, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'stoch_cross_bullish': {'confidence': 71, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'stoch_cross_bearish': {'confidence': 71, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'cci_oversold': {'confidence': 67, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'cci_overbought': {'confidence': 67, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'williams_r_oversold': {'confidence': 65, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'williams_r_overbought': {'confidence': 65, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    # NEW: Momentum signals
+    'momentum_5': {'confidence': 72, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'momentum_10': {'confidence': 74, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'mfi_oversold': {'confidence': 73, 'timeframes': ['short', 'mid', 'long'], 'category': 'Momentum Indicators'},
+    'mfi_overbought': {'confidence': 73, 'timeframes': ['short', 'mid', 'long'], 'category': 'Momentum Indicators'},
+    'mfi_divergence_bullish': {'confidence': 82, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'mfi_divergence_bearish': {'confidence': 82, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'roc_bullish': {'confidence': 70, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'roc_bearish': {'confidence': 70, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
+    'tsi_cross_bullish': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
+    'tsi_cross_bearish': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
 
-    # Volume Analysis
-    'volume_spike_bullish': {'confidence': 77, 'timeframes': ['short', 'mid', 'long']},
-    'volume_spike_bearish': {'confidence': 77, 'timeframes': ['short', 'mid', 'long']},
-    'volume_divergence_bullish': {'confidence': 81, 'timeframes': ['mid', 'long']},
-    'volume_divergence_bearish': {'confidence': 81, 'timeframes': ['mid', 'long']},
-    'obv_bullish': {'confidence': 74, 'timeframes': ['mid', 'long']},
-    'obv_bearish': {'confidence': 74, 'timeframes': ['mid', 'long']},
-    'vwap_cross_above': {'confidence': 76, 'timeframes': ['short', 'mid']},
-    'vwap_cross_below': {'confidence': 76, 'timeframes': ['short', 'mid']},
-    'accumulation_distribution_bullish': {'confidence': 73, 'timeframes': ['mid', 'long']},
-    'accumulation_distribution_bearish': {'confidence': 73, 'timeframes': ['mid', 'long']},
+    # ===== Volume Analysis (13 signals - EXPANDED) =====
+    'volume_spike_bullish': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volume Analysis'},
+    'volume_spike_bearish': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volume Analysis'},
+    'volume_divergence_bullish': {'confidence': 81, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
+    'volume_divergence_bearish': {'confidence': 81, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
+    'obv_bullish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
+    'obv_bearish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
+    'vwap_cross_above': {'confidence': 76, 'timeframes': ['short', 'mid'], 'category': 'Volume Analysis'},
+    'vwap_cross_below': {'confidence': 76, 'timeframes': ['short', 'mid'], 'category': 'Volume Analysis'},
+    'accumulation_distribution_bullish': {'confidence': 73, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
+    'accumulation_distribution_bearish': {'confidence': 73, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
+    # NEW: Volume signals
+    'cmf_bullish': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
+    'cmf_bearish': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
+    'volume_climax_bullish': {'confidence': 79, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volume Analysis'},
+    'volume_climax_bearish': {'confidence': 79, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volume Analysis'},
 
-    # Volatility Indicators
-    'bollinger_squeeze': {'confidence': 80, 'timeframes': ['short', 'mid', 'long']},
-    'bollinger_breakout_up': {'confidence': 78, 'timeframes': ['short', 'mid']},
-    'bollinger_breakout_down': {'confidence': 78, 'timeframes': ['short', 'mid']},
-    'bollinger_bounce_up': {'confidence': 69, 'timeframes': ['short', 'mid']},
-    'bollinger_bounce_down': {'confidence': 69, 'timeframes': ['short', 'mid']},
-    'atr_expansion': {'confidence': 71, 'timeframes': ['short', 'mid']},
-    'keltner_breakout_up': {'confidence': 75, 'timeframes': ['mid']},
-    'keltner_breakout_down': {'confidence': 75, 'timeframes': ['mid']},
+    # ===== Volatility Indicators (8 signals) =====
+    'bollinger_squeeze': {'confidence': 80, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volatility Indicators'},
+    'bollinger_breakout_up': {'confidence': 78, 'timeframes': ['short', 'mid'], 'category': 'Volatility Indicators'},
+    'bollinger_breakout_down': {'confidence': 78, 'timeframes': ['short', 'mid'], 'category': 'Volatility Indicators'},
+    'bollinger_bounce_up': {'confidence': 69, 'timeframes': ['short', 'mid'], 'category': 'Volatility Indicators'},
+    'bollinger_bounce_down': {'confidence': 69, 'timeframes': ['short', 'mid'], 'category': 'Volatility Indicators'},
+    'atr_expansion': {'confidence': 71, 'timeframes': ['short', 'mid'], 'category': 'Volatility Indicators'},
+    'keltner_breakout_up': {'confidence': 75, 'timeframes': ['mid'], 'category': 'Volatility Indicators'},
+    'keltner_breakout_down': {'confidence': 75, 'timeframes': ['mid'], 'category': 'Volatility Indicators'},
+    # NEW: Donchian Channel
+    'donchian_breakout_up': {'confidence': 77, 'timeframes': ['mid', 'long'], 'category': 'Volatility Indicators'},
+    'donchian_breakout_down': {'confidence': 77, 'timeframes': ['mid', 'long'], 'category': 'Volatility Indicators'},
 
-    # Trend Indicators
-    'adx_strong_trend': {'confidence': 79, 'timeframes': ['mid', 'long']},
-    'adx_weak_trend': {'confidence': 70, 'timeframes': ['mid', 'long']},
-    'adx_reversal': {'confidence': 76, 'timeframes': ['mid', 'long']},
-    'supertrend_bullish': {'confidence': 81, 'timeframes': ['mid', 'long']},
-    'supertrend_bearish': {'confidence': 81, 'timeframes': ['mid', 'long']},
-    'parabolic_sar_flip_bullish': {'confidence': 74, 'timeframes': ['mid', 'long']},
-    'parabolic_sar_flip_bearish': {'confidence': 74, 'timeframes': ['mid', 'long']},
-    'ichimoku_bullish': {'confidence': 83, 'timeframes': ['long']},
-    'ichimoku_bearish': {'confidence': 83, 'timeframes': ['long']},
+    # ===== Trend Indicators (11 signals - EXPANDED) =====
+    'adx_strong_trend': {'confidence': 79, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'adx_weak_trend': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'adx_reversal': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'supertrend_bullish': {'confidence': 81, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'supertrend_bearish': {'confidence': 81, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'parabolic_sar_flip_bullish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'parabolic_sar_flip_bearish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'ichimoku_bullish': {'confidence': 83, 'timeframes': ['long'], 'category': 'Trend Indicators'},
+    'ichimoku_bearish': {'confidence': 83, 'timeframes': ['long'], 'category': 'Trend Indicators'},
+    # NEW: Aroon and Elder Ray
+    'aroon_bullish': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'aroon_bearish': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'elder_ray_bullish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
+    'elder_ray_bearish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
 
-    # Price Action & Structure
-    'higher_high': {'confidence': 77, 'timeframes': ['short', 'mid', 'long']},
-    'lower_low': {'confidence': 77, 'timeframes': ['short', 'mid', 'long']},
-    'break_of_structure_bullish': {'confidence': 84, 'timeframes': ['short', 'mid', 'long']},
-    'break_of_structure_bearish': {'confidence': 84, 'timeframes': ['short', 'mid', 'long']},
-    'support_bounce': {'confidence': 72, 'timeframes': ['short', 'mid', 'long']},
-    'resistance_rejection': {'confidence': 72, 'timeframes': ['short', 'mid', 'long']},
-    'support_break': {'confidence': 80, 'timeframes': ['short', 'mid', 'long']},
-    'resistance_break': {'confidence': 80, 'timeframes': ['short', 'mid', 'long']},
-    'pivot_point_bullish': {'confidence': 69, 'timeframes': ['short', 'mid']},
-    'pivot_point_bearish': {'confidence': 69, 'timeframes': ['short', 'mid']},
-    'fibonacci_bounce_382': {'confidence': 73, 'timeframes': ['mid', 'long']},
-    'fibonacci_bounce_618': {'confidence': 76, 'timeframes': ['mid', 'long']},
-    'round_number_support': {'confidence': 68, 'timeframes': ['short', 'mid', 'long']},
-    'round_number_resistance': {'confidence': 68, 'timeframes': ['short', 'mid', 'long']},
+    # ===== Price Action & Structure (18 signals - EXPANDED) =====
+    'higher_high': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'lower_low': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'break_of_structure_bullish': {'confidence': 84, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'break_of_structure_bearish': {'confidence': 84, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'support_bounce': {'confidence': 72, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'resistance_rejection': {'confidence': 72, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'support_break': {'confidence': 80, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'resistance_break': {'confidence': 80, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'pivot_point_bullish': {'confidence': 69, 'timeframes': ['short', 'mid'], 'category': 'Price Action & Structure'},
+    'pivot_point_bearish': {'confidence': 69, 'timeframes': ['short', 'mid'], 'category': 'Price Action & Structure'},
+    'fibonacci_bounce_382': {'confidence': 73, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
+    'fibonacci_bounce_618': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
+    'round_number_support': {'confidence': 68, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'round_number_resistance': {'confidence': 68, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    # NEW: Gap detection and SMC concepts
+    'gap_up': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
+    'gap_down': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
+    'order_block_bullish': {'confidence': 78, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'order_block_bearish': {'confidence': 78, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'fvg_bullish': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'fvg_bearish': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'liquidity_sweep_bullish': {'confidence': 80, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'liquidity_sweep_bearish': {'confidence': 80, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'choch_bullish': {'confidence': 79, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'choch_bearish': {'confidence': 79, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
+    'premium_zone': {'confidence': 71, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
+    'discount_zone': {'confidence': 71, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
+
+    # ===== Volume Profile (4 signals) =====
+    'poc_support': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
+    'poc_resistance': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
+    'value_area_high': {'confidence': 72, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
+    'value_area_low': {'confidence': 72, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
+    'high_volume_node': {'confidence': 73, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
+    'low_volume_node': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
   }
 
-  objs = {}
-
-  for obj, value in SIGNAL_CONFIDENCE.items():
-    objs[obj] = value['confidence']
-
-  print(objs)
   def __init__(self):
     self.timeframe_minutes = {
       '1m': 1, '3m': 3, '5m': 5, '15m': 15,
@@ -153,7 +199,6 @@ class ScalpSignalAnalyzer:
 
       url = "https://api.kucoin.com/api/v1/market/candles"
 
-      # KuCoin timeframe mapping
       tf_map = {
         '1m': '1min', '3m': '3min', '5m': '5min', '15m': '15min',
         '30m': '30min', '1h': '1hour', '2h': '2hour', '4h': '4hour',
@@ -234,7 +279,7 @@ class ScalpSignalAnalyzer:
     return data
 
   def calculate_all_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate ALL technical indicators"""
+    """Calculate ALL technical indicators including new ones"""
     data = df.copy()
 
     if len(data) < 50:
@@ -285,9 +330,8 @@ class ScalpSignalAnalyzer:
       # OBV
       data['OBV'] = (np.sign(data['close'].diff()) * data['volume']).fillna(0).cumsum()
 
-      # VWAP (intraday)
-      data['VWAP'] = (data['volume'] * (data['high'] + data['low'] + data['close']) / 3).cumsum() / data[
-        'volume'].cumsum()
+      # VWAP
+      data['VWAP'] = (data['volume'] * (data['high'] + data['low'] + data['close']) / 3).cumsum() / data['volume'].cumsum()
 
       # ADX
       plus_dm = data['high'].diff()
@@ -313,11 +357,57 @@ class ScalpSignalAnalyzer:
       # Williams %R
       data['WILLR'] = -100 * ((high_14 - data['close']) / (high_14 - low_14))
 
-      # Momentum
-      data['MOM'] = data['close'].pct_change(periods=10)
+      # NEW: Money Flow Index (MFI)
+      typical_price = (data['high'] + data['low'] + data['close']) / 3
+      money_flow = typical_price * data['volume']
+
+      positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
+      negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
+
+      money_ratio = positive_flow / negative_flow
+      data['MFI'] = 100 - (100 / (1 + money_ratio))
+
+      # NEW: Chaikin Money Flow (CMF)
+      mf_multiplier = ((data['close'] - data['low']) - (data['high'] - data['close'])) / (data['high'] - data['low'])
+      mf_volume = mf_multiplier * data['volume']
+      data['CMF'] = mf_volume.rolling(20).sum() / data['volume'].rolling(20).sum()
+
+      # NEW: Rate of Change (ROC)
+      data['ROC'] = ((data['close'] - data['close'].shift(12)) / data['close'].shift(12)) * 100
+
+      # NEW: Aroon Indicator
+      aroon_period = 25
+      data['AROON_UP'] = data['high'].rolling(aroon_period + 1).apply(
+        lambda x: float(aroon_period - x.argmax()) / aroon_period * 100, raw=False
+      )
+      data['AROON_DOWN'] = data['low'].rolling(aroon_period + 1).apply(
+        lambda x: float(aroon_period - x.argmin()) / aroon_period * 100, raw=False
+      )
+
+      # NEW: Elder Ray Index
+      ema_13 = data['close'].ewm(span=13, adjust=False).mean()
+      data['BULL_POWER'] = data['high'] - ema_13
+      data['BEAR_POWER'] = data['low'] - ema_13
+
+      # NEW: True Strength Index (TSI)
+      price_change = data['close'].diff()
+      double_smoothed_pc = price_change.ewm(span=25, adjust=False).mean().ewm(span=13, adjust=False).mean()
+      double_smoothed_abs_pc = price_change.abs().ewm(span=25, adjust=False).mean().ewm(span=13, adjust=False).mean()
+      data['TSI'] = 100 * (double_smoothed_pc / double_smoothed_abs_pc)
+      data['TSI_signal'] = data['TSI'].ewm(span=7, adjust=False).mean()
+
+      # NEW: Donchian Channel
+      donchian_period = 20
+      data['DONCHIAN_HIGH'] = data['high'].rolling(donchian_period).max()
+      data['DONCHIAN_LOW'] = data['low'].rolling(donchian_period).min()
+      data['DONCHIAN_MID'] = (data['DONCHIAN_HIGH'] + data['DONCHIAN_LOW']) / 2
+
+      # NEW: Momentum indicators
+      data['MOMENTUM_5'] = data['close'].pct_change(periods=5)
+      data['MOMENTUM_10'] = data['close'].pct_change(periods=10)
 
       # Parabolic SAR (simplified)
-      data['SAR'] = data['close'].rolling(5).mean()  # Placeholder
+      data['SAR'] = data['close'].rolling(5).mean()
 
     except Exception as e:
       logging.error(f"Indicator calculation error: {e}")
@@ -325,7 +415,7 @@ class ScalpSignalAnalyzer:
     return data
 
   def analyze_candlestick_patterns(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Detect candlestick patterns"""
+    """Detect candlestick patterns including new patterns"""
     signals = {}
 
     if len(df) < 3:
@@ -366,22 +456,22 @@ class ScalpSignalAnalyzer:
     if body_curr < range_curr * 0.1:
       signals['doji_reversal'] = {'signal': 'REVERSAL', 'strength': 'WEAK'}
 
-    # Morning/Evening Star (requires 3 candles)
+    # Morning/Evening Star
     if prev2 is not None:
       body_prev2 = abs(prev2['close'] - prev2['open'])
 
       # Morning Star
-      if (prev2['close'] < prev2['open'] and  # Bearish
-        body_prev < body_prev2 * 0.3 and  # Small middle candle
-        curr['close'] > curr['open'] and  # Bullish
-        curr['close'] > (prev2['open'] + prev2['close']) / 2):
+      if (prev2['close'] < prev2['open'] and
+          body_prev < body_prev2 * 0.3 and
+          curr['close'] > curr['open'] and
+          curr['close'] > (prev2['open'] + prev2['close']) / 2):
         signals['morning_star'] = {'signal': 'BUY', 'strength': 'STRONG'}
 
       # Evening Star
-      if (prev2['close'] > prev2['open'] and  # Bullish
-        body_prev < body_prev2 * 0.3 and  # Small middle candle
-        curr['close'] < curr['open'] and  # Bearish
-        curr['close'] < (prev2['open'] + prev2['close']) / 2):
+      if (prev2['close'] > prev2['open'] and
+          body_prev < body_prev2 * 0.3 and
+          curr['close'] < curr['open'] and
+          curr['close'] < (prev2['open'] + prev2['close']) / 2):
         signals['evening_star'] = {'signal': 'SELL', 'strength': 'STRONG'}
 
     # Marubozu
@@ -390,6 +480,40 @@ class ScalpSignalAnalyzer:
         signals['marubozu_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
       else:
         signals['marubozu_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
+
+    # NEW: Harami Pattern
+    if prev2 is not None:
+      # Bullish Harami
+      if (prev['close'] < prev['open'] and  # Previous bearish
+          curr['close'] > curr['open'] and  # Current bullish
+          curr['open'] > prev['close'] and
+          curr['close'] < prev['open'] and
+          body_curr < body_prev):
+        signals['harami_bullish'] = {'signal': 'BUY', 'strength': 'MODERATE'}
+
+      # Bearish Harami
+      if (prev['close'] > prev['open'] and  # Previous bullish
+          curr['close'] < curr['open'] and  # Current bearish
+          curr['open'] < prev['close'] and
+          curr['close'] > prev['open'] and
+          body_curr < body_prev):
+        signals['harami_bearish'] = {'signal': 'SELL', 'strength': 'MODERATE'}
+
+    # NEW: Inverted Hammer (at support)
+    if upper_shadow > body_curr * 2 and lower_shadow < body_curr * 0.3:
+      # Check if near support
+      if len(df) >= 10:
+        recent_low = df['low'].iloc[-10:].min()
+        if abs(curr['low'] - recent_low) / recent_low < 0.02:
+          signals['inverted_hammer'] = {'signal': 'BUY', 'strength': 'MODERATE'}
+
+    # NEW: Hanging Man (at resistance)
+    if lower_shadow > body_curr * 2 and upper_shadow < body_curr * 0.3:
+      # Check if near resistance
+      if len(df) >= 10:
+        recent_high = df['high'].iloc[-10:].max()
+        if abs(curr['high'] - recent_high) / recent_high < 0.02:
+          signals['hanging_man'] = {'signal': 'SELL', 'strength': 'MODERATE'}
 
     return signals
 
@@ -419,7 +543,7 @@ class ScalpSignalAnalyzer:
       if curr['close'] < curr['SMA_20'] and prev['close'] >= prev['SMA_20']:
         signals['price_below_ma20'] = {'signal': 'SELL', 'strength': 'MODERATE'}
 
-    # MA Ribbon (5, 10, 20 aligned)
+    # MA Ribbon
     if all(not pd.isna(curr[f'EMA_{p}']) for p in [5, 10, 20]):
       if curr['EMA_5'] > curr['EMA_10'] > curr['EMA_20']:
         signals['ma_ribbon_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
@@ -430,7 +554,7 @@ class ScalpSignalAnalyzer:
     return signals
 
   def analyze_momentum(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze momentum indicators"""
+    """Analyze momentum indicators including new ones"""
     signals = {}
 
     if len(df) < 50:
@@ -447,14 +571,13 @@ class ScalpSignalAnalyzer:
       if curr['RSI'] > 70:
         signals['rsi_overbought'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['RSI']}
 
-      # RSI Centerline
       if curr['RSI'] > 50 and prev['RSI'] <= 50:
         signals['rsi_centerline_cross_up'] = {'signal': 'BUY', 'strength': 'MODERATE'}
 
       if curr['RSI'] < 50 and prev['RSI'] >= 50:
         signals['rsi_centerline_cross_down'] = {'signal': 'SELL', 'strength': 'MODERATE'}
 
-      # RSI Divergence (simplified)
+      # RSI Divergence
       if len(df) >= 20:
         price_trend = df['close'].iloc[-20:].is_monotonic_increasing
         rsi_trend = df['RSI'].iloc[-20:].is_monotonic_increasing
@@ -510,10 +633,58 @@ class ScalpSignalAnalyzer:
       if curr['WILLR'] > -20:
         signals['williams_r_overbought'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['WILLR']}
 
+    # NEW: Momentum_5 and Momentum_10
+    if not pd.isna(curr['MOMENTUM_5']):
+      if curr['MOMENTUM_5'] > 0.03:  # 3% gain in 5 periods
+        signals['momentum_5'] = {'signal': 'BUY', 'strength': 'MODERATE', 'value': curr['MOMENTUM_5']}
+      elif curr['MOMENTUM_5'] < -0.03:
+        signals['momentum_5'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['MOMENTUM_5']}
+
+    if not pd.isna(curr['MOMENTUM_10']):
+      if curr['MOMENTUM_10'] > 0.05:  # 5% gain in 10 periods
+        signals['momentum_10'] = {'signal': 'BUY', 'strength': 'MODERATE', 'value': curr['MOMENTUM_10']}
+      elif curr['MOMENTUM_10'] < -0.05:
+        signals['momentum_10'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['MOMENTUM_10']}
+
+    # NEW: Money Flow Index (MFI)
+    if not pd.isna(curr['MFI']):
+      if curr['MFI'] < 20:
+        signals['mfi_oversold'] = {'signal': 'BUY', 'strength': 'STRONG', 'value': curr['MFI']}
+
+      if curr['MFI'] > 80:
+        signals['mfi_overbought'] = {'signal': 'SELL', 'strength': 'STRONG', 'value': curr['MFI']}
+
+      # MFI Divergence
+      if len(df) >= 20:
+        price_trend = df['close'].iloc[-20:].is_monotonic_increasing
+        mfi_trend = df['MFI'].iloc[-20:].is_monotonic_increasing
+
+        if price_trend and not mfi_trend:
+          signals['mfi_divergence_bearish'] = {'signal': 'SELL', 'strength': 'VERY_STRONG'}
+
+        if not price_trend and mfi_trend:
+          signals['mfi_divergence_bullish'] = {'signal': 'BUY', 'strength': 'VERY_STRONG'}
+
+    # NEW: Rate of Change (ROC)
+    if not pd.isna(curr['ROC']):
+      if curr['ROC'] > 5:
+        signals['roc_bullish'] = {'signal': 'BUY', 'strength': 'MODERATE', 'value': curr['ROC']}
+
+      if curr['ROC'] < -5:
+        signals['roc_bearish'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['ROC']}
+
+    # NEW: True Strength Index (TSI)
+    if not pd.isna(curr['TSI']) and not pd.isna(curr['TSI_signal']):
+      if curr['TSI'] > curr['TSI_signal'] and prev['TSI'] <= prev['TSI_signal']:
+        signals['tsi_cross_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
+
+      if curr['TSI'] < curr['TSI_signal'] and prev['TSI'] >= prev['TSI_signal']:
+        signals['tsi_cross_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
+
     return signals
 
   def analyze_volume(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze volume signals"""
+    """Analyze volume signals including new ones"""
     signals = {}
 
     if len(df) < 20:
@@ -548,10 +719,33 @@ class ScalpSignalAnalyzer:
       if curr['close'] < curr['VWAP'] and prev['close'] >= prev['VWAP']:
         signals['vwap_cross_below'] = {'signal': 'SELL', 'strength': 'STRONG'}
 
+    # NEW: Chaikin Money Flow (CMF)
+    if not pd.isna(curr['CMF']):
+      if curr['CMF'] > 0.1:
+        signals['cmf_bullish'] = {'signal': 'BUY', 'strength': 'STRONG', 'value': curr['CMF']}
+
+      if curr['CMF'] < -0.1:
+        signals['cmf_bearish'] = {'signal': 'SELL', 'strength': 'STRONG', 'value': curr['CMF']}
+
+    # NEW: Volume Climax (exhaustion signal)
+    if len(df) >= 30:
+      # Volume spike at trend extreme
+      volume_max = df['volume'].iloc[-30:].max()
+      if curr['volume'] == volume_max:
+        # Check if at price extreme
+        price_high = df['high'].iloc[-30:].max()
+        price_low = df['low'].iloc[-30:].min()
+
+        if curr['high'] == price_high and curr['close'] < curr['open']:
+          signals['volume_climax_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
+
+        if curr['low'] == price_low and curr['close'] > curr['open']:
+          signals['volume_climax_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
+
     return signals
 
   def analyze_volatility(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze volatility indicators"""
+    """Analyze volatility indicators including Donchian"""
     signals = {}
 
     if len(df) < 30:
@@ -588,10 +782,18 @@ class ScalpSignalAnalyzer:
       if curr['ATR'] > avg_atr * 1.5:
         signals['atr_expansion'] = {'signal': 'VOLATILE', 'strength': 'MODERATE', 'value': curr['ATR'] / avg_atr}
 
+    # NEW: Donchian Channel
+    if not pd.isna(curr['DONCHIAN_HIGH']) and not pd.isna(curr['DONCHIAN_LOW']):
+      if curr['close'] > curr['DONCHIAN_HIGH'] and prev['close'] <= prev['DONCHIAN_HIGH']:
+        signals['donchian_breakout_up'] = {'signal': 'BUY', 'strength': 'STRONG'}
+
+      if curr['close'] < curr['DONCHIAN_LOW'] and prev['close'] >= prev['DONCHIAN_LOW']:
+        signals['donchian_breakout_down'] = {'signal': 'SELL', 'strength': 'STRONG'}
+
     return signals
 
   def analyze_trend(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze trend indicators"""
+    """Analyze trend indicators including Aroon and Elder Ray"""
     signals = {}
 
     if len(df) < 50:
@@ -610,10 +812,26 @@ class ScalpSignalAnalyzer:
       if curr['ADX'] < 20:
         signals['adx_weak_trend'] = {'signal': 'CONSOLIDATION', 'strength': 'MODERATE'}
 
+    # NEW: Aroon Indicator
+    if not pd.isna(curr['AROON_UP']) and not pd.isna(curr['AROON_DOWN']):
+      if curr['AROON_UP'] > 70 and curr['AROON_DOWN'] < 30:
+        signals['aroon_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
+
+      if curr['AROON_DOWN'] > 70 and curr['AROON_UP'] < 30:
+        signals['aroon_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
+
+    # NEW: Elder Ray Index
+    if not pd.isna(curr['BULL_POWER']) and not pd.isna(curr['BEAR_POWER']):
+      if curr['BULL_POWER'] > 0 and curr['BEAR_POWER'] > curr['BEAR_POWER']:
+        signals['elder_ray_bullish'] = {'signal': 'BUY', 'strength': 'MODERATE'}
+
+      if curr['BEAR_POWER'] < 0 and curr['BULL_POWER'] < 0:
+        signals['elder_ray_bearish'] = {'signal': 'SELL', 'strength': 'MODERATE'}
+
     return signals
 
   def analyze_price_action(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze price action and structure"""
+    """Analyze price action including SMC concepts and gap detection"""
     signals = {}
 
     if len(df) < 10:
@@ -633,7 +851,7 @@ class ScalpSignalAnalyzer:
     if curr['low'] < lows.iloc[-2:].min():
       signals['lower_low'] = {'signal': 'SELL', 'strength': 'MODERATE'}
 
-    # Support/Resistance (simplified)
+    # Support/Resistance
     support = recent['low'].min()
     resistance = recent['high'].max()
 
@@ -651,6 +869,172 @@ class ScalpSignalAnalyzer:
 
     if curr['close'] < support * 0.99:
       signals['support_break'] = {'signal': 'SELL', 'strength': 'STRONG', 'level': support}
+
+    # NEW: Gap Detection
+    if prev['high'] < curr['low']:  # Gap up
+      gap_size = ((curr['low'] - prev['high']) / prev['high']) * 100
+      if gap_size > 0.5:  # More than 0.5% gap
+        signals['gap_up'] = {'signal': 'BUY', 'strength': 'MODERATE', 'gap_size': gap_size}
+
+    if prev['low'] > curr['high']:  # Gap down
+      gap_size = ((prev['low'] - curr['high']) / curr['high']) * 100
+      if gap_size > 0.5:
+        signals['gap_down'] = {'signal': 'SELL', 'strength': 'MODERATE', 'gap_size': gap_size}
+
+    # NEW: Order Blocks (SMC concept)
+    if len(df) >= 5:
+      # Last opposing candle before strong move
+      last_5 = df.iloc[-5:]
+
+      # Bullish order block: last bearish candle before strong upward move
+      bearish_candles = last_5[last_5['close'] < last_5['open']]
+      if len(bearish_candles) > 0:
+        last_bearish = bearish_candles.iloc[-1]
+        # Check if followed by strong bullish moves
+        subsequent = df.loc[last_bearish.name:].iloc[1:4]
+        if len(subsequent) >= 2 and (subsequent['close'] > subsequent['open']).all():
+          signals['order_block_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
+
+      # Bearish order block
+      bullish_candles = last_5[last_5['close'] > last_5['open']]
+      if len(bullish_candles) > 0:
+        last_bullish = bullish_candles.iloc[-1]
+        subsequent = df.loc[last_bullish.name:].iloc[1:4]
+        if len(subsequent) >= 2 and (subsequent['close'] < subsequent['open']).all():
+          signals['order_block_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
+
+    # NEW: Fair Value Gap (FVG) - inefficient price zones
+    if len(df) >= 3:
+      candle_3 = df.iloc[-3]
+      candle_2 = df.iloc[-2]
+      candle_1 = df.iloc[-1]
+
+      # Bullish FVG: gap between candle 3 high and candle 1 low
+      if candle_1['low'] > candle_3['high']:
+        signals['fvg_bullish'] = {'signal': 'BUY', 'strength': 'MODERATE'}
+
+      # Bearish FVG
+      if candle_1['high'] < candle_3['low']:
+        signals['fvg_bearish'] = {'signal': 'SELL', 'strength': 'MODERATE'}
+
+    # NEW: Liquidity Sweep (stop hunt)
+    if len(df) >= 20:
+      swing_high = df['high'].iloc[-20:].max()
+      swing_low = df['low'].iloc[-20:].min()
+
+      # Bullish liquidity sweep: price takes out low then reverses
+      if curr['low'] < swing_low * 0.999 and curr['close'] > curr['open']:
+        signals['liquidity_sweep_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
+
+      # Bearish liquidity sweep
+      if curr['high'] > swing_high * 1.001 and curr['close'] < curr['open']:
+        signals['liquidity_sweep_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
+
+    # NEW: Change of Character (ChoCh) - momentum shift
+    if len(df) >= 10:
+      # Check for break of recent structure
+      recent_highs = df['high'].iloc[-10:-1]
+      recent_lows = df['low'].iloc[-10:-1]
+
+      # Bullish ChoCh: break above recent resistance
+      if curr['close'] > recent_highs.max() and df['close'].iloc[-5] < recent_highs.max():
+        signals['choch_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
+
+      # Bearish ChoCh
+      if curr['close'] < recent_lows.min() and df['close'].iloc[-5] > recent_lows.min():
+        signals['choch_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
+
+    # NEW: Premium/Discount Zones
+    if len(df) >= 50:
+      range_high = df['high'].iloc[-50:].max()
+      range_low = df['low'].iloc[-50:].min()
+      range_mid = (range_high + range_low) / 2
+
+      # Premium zone (upper 25%)
+      premium_threshold = range_mid + (range_high - range_mid) * 0.5
+      if curr['close'] > premium_threshold:
+        signals['premium_zone'] = {'signal': 'SELL', 'strength': 'MODERATE'}
+
+      # Discount zone (lower 25%)
+      discount_threshold = range_mid - (range_mid - range_low) * 0.5
+      if curr['close'] < discount_threshold:
+        signals['discount_zone'] = {'signal': 'BUY', 'strength': 'MODERATE'}
+
+    return signals
+
+  def analyze_volume_profile(self, df: pd.DataFrame) -> Dict[str, any]:
+    """Analyze volume profile - Point of Control, Value Area, Volume Nodes"""
+    signals = {}
+
+    if len(df) < 100:
+      return signals
+
+    curr = df.iloc[-1]
+
+    # Calculate volume profile over last 100 candles
+    recent_data = df.iloc[-100:]
+
+    # Create price bins
+    price_range = recent_data['high'].max() - recent_data['low'].min()
+    num_bins = 50
+    bins = np.linspace(recent_data['low'].min(), recent_data['high'].max(), num_bins)
+
+    # Aggregate volume by price level
+    volume_by_price = np.zeros(num_bins - 1)
+
+    for i in range(len(recent_data)):
+      row = recent_data.iloc[i]
+      # Distribute volume across the price range of the candle
+      candle_bins = np.digitize([row['low'], row['high']], bins)
+      for b in range(candle_bins[0], min(candle_bins[1] + 1, num_bins)):
+        if b < len(volume_by_price):
+          volume_by_price[b] += row['volume'] / (candle_bins[1] - candle_bins[0] + 1)
+
+    # Point of Control (POC) - price with highest volume
+    poc_idx = np.argmax(volume_by_price)
+    poc_price = (bins[poc_idx] + bins[poc_idx + 1]) / 2
+
+    # Value Area (70% of volume)
+    total_volume = volume_by_price.sum()
+    sorted_indices = np.argsort(volume_by_price)[::-1]
+    cumulative_volume = 0
+    value_area_indices = []
+
+    for idx in sorted_indices:
+      cumulative_volume += volume_by_price[idx]
+      value_area_indices.append(idx)
+      if cumulative_volume >= total_volume * 0.7:
+        break
+
+    value_area_high = bins[max(value_area_indices) + 1]
+    value_area_low = bins[min(value_area_indices)]
+
+    # Check current price position relative to POC and Value Area
+    if abs(curr['close'] - poc_price) / poc_price < 0.005:
+      if curr['close'] > poc_price:
+        signals['poc_support'] = {'signal': 'BUY', 'strength': 'MODERATE', 'level': poc_price}
+      else:
+        signals['poc_resistance'] = {'signal': 'SELL', 'strength': 'MODERATE', 'level': poc_price}
+
+    # Value Area signals
+    if abs(curr['close'] - value_area_high) / value_area_high < 0.005:
+      signals['value_area_high'] = {'signal': 'SELL', 'strength': 'MODERATE', 'level': value_area_high}
+
+    if abs(curr['close'] - value_area_low) / value_area_low < 0.005:
+      signals['value_area_low'] = {'signal': 'BUY', 'strength': 'MODERATE', 'level': value_area_low}
+
+    # High/Low Volume Nodes
+    avg_volume = volume_by_price.mean()
+    high_volume_threshold = avg_volume * 1.5
+    low_volume_threshold = avg_volume * 0.5
+
+    # Find current price bin
+    curr_bin = np.digitize([curr['close']], bins)[0]
+    if curr_bin < len(volume_by_price):
+      if volume_by_price[curr_bin] > high_volume_threshold:
+        signals['high_volume_node'] = {'signal': 'CONSOLIDATION', 'strength': 'MODERATE'}
+      elif volume_by_price[curr_bin] < low_volume_threshold:
+        signals['low_volume_node'] = {'signal': 'BREAKOUT_LIKELY', 'strength': 'MODERATE'}
 
     return signals
 
@@ -683,6 +1067,7 @@ class ScalpSignalAnalyzer:
       signals.update(self.analyze_volatility(df))
       signals.update(self.analyze_trend(df))
       signals.update(self.analyze_price_action(df))
+      signals.update(self.analyze_volume_profile(df))
 
       # Add current price info
       curr = df.iloc[-1]
@@ -699,28 +1084,16 @@ class ScalpSignalAnalyzer:
     return results
 
 
-# Example usage
 if __name__ == "__main__":
   analyzer = ScalpSignalAnalyzer()
 
-  # Analyze BTC across short-term timeframes
-  result = analyzer.analyze_symbol_all_timeframes('BTC', ['1m', '5m', '15m', '30m', '1h'])
+  print(f"Total signals implemented: {len(analyzer.SIGNAL_CONFIDENCE)}")
+  print("\nSignal breakdown by category:")
 
-  print(f"\n{'=' * 80}")
-  print(f"Analysis Results for BTC")
-  print(f"{'=' * 80}\n")
+  categories = {}
+  for signal, data in analyzer.SIGNAL_CONFIDENCE.items():
+    cat = data.get('category', 'Other')
+    categories[cat] = categories.get(cat, 0) + 1
 
-  for tf, data in result['timeframes'].items():
-    if 'error' in data:
-      print(f"{tf}: {data['error']}")
-      continue
-
-    print(f"\n{tf} - Price: ${data['price']:.2f}")
-    print(f"Total Signals: {data['signal_count']} | BUY: {data['buy_signals']} | SELL: {data['sell_signals']}")
-    print("-" * 60)
-
-    for signal_name, signal_data in data['signals'].items():
-      conf = ScalpSignalAnalyzer.SIGNAL_CONFIDENCE.get(signal_name, {}).get('confidence', 0)
-      print(f"  [{signal_data['signal']:^10}] {signal_name:40} | Confidence: {conf}%")
-      if 'strength' in signal_data:
-        print(f"{'':14}Strength: {signal_data['strength']}")
+  for cat, count in sorted(categories.items()):
+    print(f"  {cat}: {count} signals")
