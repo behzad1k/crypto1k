@@ -738,15 +738,18 @@ def get_live_signal_combos(symbol):
   """Get latest signal combinations for a symbol"""
   try:
     timeframe = request.args.get('timeframe')
-    limit = int(request.args.get('limit', 100))
+    limit = int(request.args.get('limit', 1000))
 
     conn = sqlite3.connect(app.config['DB_PATH'])
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
     query = '''
-            SELECT * FROM live_tf_combos
-            WHERE symbol = ?
+            SELECT live.*, combos.signals_count
+            FROM live_tf_combos live
+            INNER JOIN tf_combos combos 
+            ON live.combo_signal_name = combos.signal_name
+            WHERE live.symbol = ?
         '''
     params = [symbol.upper()]
 

@@ -144,7 +144,7 @@
                 lastAnalyze = data
                 // Render results
                 renderAnalysisResults(resultsDiv, data);
-
+                await fetchAndDisplayCombos()
             } catch (error) {
                 resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
                 lucide.createIcons();
@@ -157,11 +157,8 @@
         return '<p class="text-slate-500 text-xs mt-2">No combinations detected</p>';
     }
 
-    // Sort by accuracy
-    combinations.sort((a, b) => b.accuracy - a.accuracy);
-
     // Take top 3
-    const topCombos = combinations.sort((a, b) => b.accuracy - a.accuracy).slice(0, 7);
+    const topCombos = combinations.sort((a, b) => b.signals_count - a.signals_count).sort((a, b) => b.accuracy - a.accuracy).slice(0, 7);
 
     let html = '<div class="mt-3 pt-3 border-t border-slate-600">';
     html += '<p class="text-slate-400 text-xs font-semibold mb-2">🎯 Top Signal Combinations:</p>';
@@ -184,6 +181,9 @@
                         </span>
                         <span class="${signalColor} text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
                             ${Math.round(combo.combo_price_change * 10000) / 10000}%
+                        </span>
+                        <span class="text-slate-400 text-[10px]">
+                            ${combo.signals_count || '-'} samples
                         </span>
                         <span class="text-slate-400 text-[10px]">
                             ${combo.min_window}-${combo.max_window} candles
@@ -299,7 +299,7 @@
                             </div>
                         </div>
 
-                        <div class="flex flex-col p-3 space-y-1 max-h-64 overflow-y-auto">
+                        <div class="flex flex-col p-3 space-y-1 max-h-[500px] overflow-y-auto">
                         `
                         const tfCombos = combinations[tf] || [];
         html += renderCombinations(tf, tfCombos);
