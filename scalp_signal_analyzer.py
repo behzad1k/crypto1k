@@ -1066,10 +1066,17 @@ class ScalpSignalAnalyzer:
     symbol: str,
     results: Dict,
     min_conf_threshold: float = 70.0
-  ):
+  ) -> Dict:
     """
     Check if detected signals match any validated combinations from tf_combos table
     Only saves combinations that exist in tf_combos and meet the accuracy threshold
+
+    Returns:
+        Dict with combos grouped by timeframe: {
+            '5m': [combo1, combo2, ...],
+            '15m': [combo1, combo2, ...],
+            ...
+        }
     """
     logging.info(f"🔍 Checking for validated signal combinations for {symbol}...")
 
@@ -1078,6 +1085,7 @@ class ScalpSignalAnalyzer:
     cursor = conn.cursor()
 
     saved_count = 0
+    combos_by_tf = {}
 
     # Check each timeframe
     for tf, tf_data in results['timeframes'].items():
@@ -1089,6 +1097,10 @@ class ScalpSignalAnalyzer:
       if len(detected_signals) < 2:
         continue
 
+      # Initialize list for this timeframe
+      if tf not in combos_by_tf:
+        combos_by_tf[tf] = []
+
       # Generate all possible combinations from detected signals
       for combo_size in range(2, len(detected_signals) + 1):
         for signal_combo in combinations(sorted(detected_signals), combo_size):
@@ -1096,16 +1108,19 @@ class ScalpSignalAnalyzer:
 
           # Check if this combination exists in tf_combos with sufficient accuracy
           cursor.execute('''
-            SELECT 
-              signal_name,
-              accuracy,
-              signals_count,
-              avg_price_change
-            FROM tf_combos
-            WHERE signal_name = ? AND timeframe = ? AND accuracy >= ?
-          ''', (combo_name, tf, min_conf_threshold))
+                    SELECT 
+                        signal_name,
+                        accuracy,
+                        signals_count,
+                        avg_price_change,
+                        profit_factor,
+                        combo_size
+                    FROM tf_combos
+                    WHERE signal_name = ? AND timeframe = ? AND accuracy >= ?
+                ''', (combo_name, tf, min_conf_threshold))
 
           combo_result = cursor.fetchone()
+
           if combo_result:
             # Get individual signal details from signals table
             signal_accuracies = []
@@ -1114,13 +1129,13 @@ class ScalpSignalAnalyzer:
 
             for signal_name in signal_combo:
               cursor.execute('''
-                SELECT 
-                  signal_accuracy,
-                  sample_size,
-                  validation_window
-                FROM signals
-                WHERE signal_name = ? AND timeframe = ?
-              ''', (signal_name, tf))
+                            SELECT 
+                                signal_accuracy,
+                                sample_size,
+                                validation_window
+                            FROM signals
+                            WHERE signal_name = ? AND timeframe = ?
+                        ''', (signal_name, tf))
 
               signal_data = cursor.fetchone()
 
@@ -1141,11 +1156,11 @@ class ScalpSignalAnalyzer:
             # Save to live_tf_combos
             try:
               cursor.execute('''
-                INSERT OR REPLACE INTO live_tf_combos
-                (symbol, combo_signal_name, signal_accuracies, signal_samples,
-                 min_window, max_window, timeframe, accuracy, combo_price_change, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ''', (
+                            INSERT OR REPLACE INTO live_tf_combos
+                            (symbol, combo_signal_name, signal_accuracies, signal_samples,
+                             min_window, max_window, timeframe, accuracy, combo_price_change, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
                 symbol,
                 combo_name,
                 '+'.join(signal_accuracies),
@@ -1158,7 +1173,27 @@ class ScalpSignalAnalyzer:
                 datetime.now().isoformat()
               ))
 
+              # Add to result dict
+              combo_dict = {
+                'id': cursor.lastrowid,
+                'symbol': symbol,
+                'combo_signal_name': combo_name,
+                'signal_accuracies': '+'.join(signal_accuracies),
+                'signal_samples': '+'.join(signal_samples),
+                'min_window': min_window,
+                'max_window': max_window,
+                'timeframe': tf,
+                'accuracy': combo_result['accuracy'],
+                'combo_price_change': combo_result['avg_price_change'],
+                'profit_factor': combo_result['profit_factor'],
+                'combo_size': combo_result['combo_size'],
+                'signals_count': combo_result['signals_count'],
+                'timestamp': datetime.now().isoformat()
+              }
+
+              combos_by_tf[tf].append(combo_dict)
               saved_count += 1
+
               logging.info(f"   ✅ Found validated combo: {combo_name} ({tf}) - {combo_result['accuracy']:.1f}%")
 
             except Exception as e:
@@ -1168,8 +1203,12 @@ class ScalpSignalAnalyzer:
     conn.close()
 
     logging.info(f"   Saved {saved_count} validated combinations for {symbol}")
-    return saved_count
 
+    # Sort each timeframe's combos by accuracy (descending)
+    for tf in combos_by_tf:
+      combos_by_tf[tf].sort(key=lambda x: x['accuracy'], reverse=True)
+
+    return combos_by_tf
   # ========================================================================
   # UPDATED: Main Analysis Method with Combo Integration
   # ========================================================================
@@ -1182,7 +1221,8 @@ class ScalpSignalAnalyzer:
     results = {
       'symbol': symbol,
       'timestamp': datetime.now().isoformat(),
-      'timeframes': {}
+      'timeframes': {},
+      'combinations': []
     }
 
     for tf in timeframes:
@@ -1223,12 +1263,15 @@ class ScalpSignalAnalyzer:
     # ========================================================================
     # NEW: Analyze signal combinations after all timeframe analysis is complete
     # ========================================================================
+
     try:
-      self.analyze_live_combinations(
+      combinations = self.analyze_live_combinations(
         symbol=symbol,
         results=results,
-        min_conf_threshold=70.0  # Only save combos with >= 60% accuracy
+        min_conf_threshold=20.0  # Only save combos with >= 60% accuracy
       )
+      if combinations:
+        results['combinations'] = combinations
     except Exception as e:
       logging.error(f"Error in combination analysis: {e}")
 

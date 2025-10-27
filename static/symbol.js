@@ -143,8 +143,7 @@
                 }
                 lastAnalyze = data
                 // Render results
-                renderAnalysisResults(resultsDiv, data);
-                await fetchAndDisplayCombos()
+                renderAnalysisResults(resultsDiv, data, data.combinations);
             } catch (error) {
                 resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
                 lucide.createIcons();

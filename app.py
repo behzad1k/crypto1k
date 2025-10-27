@@ -599,7 +599,8 @@ def analyze_symbol_live():
       'success': True,
       'symbol': symbol,
       'timestamp': result['timestamp'],
-      'timeframes': result['timeframes']
+      'timeframes': result['timeframes'],
+      'combinations': result['combinations'],
     })
 
   except Exception as e:
@@ -1028,38 +1029,14 @@ def symbol_websocket(ws, symbol):
 
       live_db.save_analysis_result(result)
 
-      # NEW: Fetch latest combos for this symbol
-      conn = sqlite3.connect(app.config['DB_PATH'])
-      conn.row_factory = sqlite3.Row
-      cursor = conn.cursor()
-
-      cursor.execute('''
-                SELECT * FROM live_tf_combos
-                WHERE symbol = ?
-                ORDER BY timestamp DESC
-                LIMIT 50
-            ''', (symbol,))
-
-      combos = [dict(row) for row in cursor.fetchall()]
-      conn.close()
-
-      # Group combos by timeframe
-      combos_by_tf = {}
-      for combo in combos:
-        tf = combo['timeframe']
-        if tf not in combos_by_tf:
-          combos_by_tf[tf] = []
-        combos_by_tf[tf].append(combo)
-
       # Send update to client with combos
       ws.send(json.dumps({
         'timestamp': datetime.now().isoformat(),
         'symbol': symbol,
         'analysis': result,
-        'combinations': combos_by_tf  # NEW
       }))
 
-      time.sleep(30)
+      time.sleep(50)
 
   except Exception as e:
     logging.error(f"WebSocket error: {e}")
