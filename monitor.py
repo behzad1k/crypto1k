@@ -3,6 +3,7 @@ Integrated Crypto Pattern Monitoring Module with Scalp Signal Analysis
 Designed to run as background thread in Flask app
 """
 
+import random
 import requests
 import pandas as pd
 import numpy as np
@@ -59,7 +60,7 @@ def fetch_tabdeal_top_symbols(limit: int = 100) -> List[str]:
     for coin in [x for x in tabdeal_json if x['quoteAsset'] == 'USDT']:
       if "LIMIT" in coin['orderTypes'] or "MARKET" in coin['orderTypes']:
         coins.append(coin['baseAsset'])
-
+    random.shuffle(coins)
     logging.info(f"✅ Fetched {len(coins)} symbols from tabdeal")
     return coins
 
