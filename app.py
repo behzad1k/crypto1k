@@ -732,6 +732,45 @@ def cleanup_old_signals():
     return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/live-analysis/combos/<symbol>')
+@login_required
+def get_live_signal_combos(symbol):
+  """Get latest signal combinations for a symbol"""
+  try:
+    timeframe = request.args.get('timeframe')
+    limit = int(request.args.get('limit', 30))
+
+    conn = sqlite3.connect(app.config['DB_PATH'])
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    query = '''
+            SELECT * FROM live_tf_combos
+            WHERE symbol = ?
+        '''
+    params = [symbol.upper()]
+
+    if timeframe:
+      query += ' AND timeframe = ?'
+      params.append(timeframe)
+
+    query += ' ORDER BY accuracy DESC, timestamp DESC LIMIT ?'
+    params.append(limit)
+
+    cursor.execute(query, params)
+    combos = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify({
+      'success': True,
+      'symbol': symbol,
+      'combinations': combos,
+      'count': len(combos)
+    })
+
+  except Exception as e:
+    logging.error(f"Failed to get combos: {e}")
+    return jsonify({'error': str(e)}), 500
 # ==================== TRADING POSITION ROUTES ====================
 
 @app.route('/api/trading/positions', methods=['GET', 'POST'])
@@ -967,18 +1006,11 @@ def position_websocket(ws, position_id):
     logging.error(f"WebSocket error: {e}")
     ws.send(json.dumps({'error': str(e)}))
 
+
 @sock.route('/ws/live-analysis/<symbol>')
 def symbol_websocket(ws, symbol):
   """WebSocket for real-time symbol monitoring"""
-  global trading_manager, fact_checker
-
-  if trading_manager is None:
-    ws.send(json.dumps({'error': 'Trading manager not initialized'}))
-    return
-
   analyzer = ScalpSignalAnalyzer()
-
-  # Timeframes to monitor (can be customized)
   timeframes = ['1m', '5m', '15m', '30m', '1h', '2h']
 
   try:
@@ -990,13 +1022,38 @@ def symbol_websocket(ws, symbol):
       for tf, data in result['timeframes'].items():
         if 'error' in data:
           continue
+
       live_db.save_analysis_result(result)
 
-      # Send update to client
+      # NEW: Fetch latest combos for this symbol
+      conn = sqlite3.connect(app.config['DB_PATH'])
+      conn.row_factory = sqlite3.Row
+      cursor = conn.cursor()
+
+      cursor.execute('''
+                SELECT * FROM live_tf_combos
+                WHERE symbol = ?
+                ORDER BY timestamp DESC
+                LIMIT 50
+            ''', (symbol,))
+
+      combos = [dict(row) for row in cursor.fetchall()]
+      conn.close()
+
+      # Group combos by timeframe
+      combos_by_tf = {}
+      for combo in combos:
+        tf = combo['timeframe']
+        if tf not in combos_by_tf:
+          combos_by_tf[tf] = []
+        combos_by_tf[tf].append(combo)
+
+      # Send update to client with combos
       ws.send(json.dumps({
         'timestamp': datetime.now().isoformat(),
         'symbol': symbol,
-        'analysis': result
+        'analysis': result,
+        'combinations': combos_by_tf  # NEW
       }))
 
       time.sleep(30)
@@ -1004,7 +1061,6 @@ def symbol_websocket(ws, symbol):
   except Exception as e:
     logging.error(f"WebSocket error: {e}")
     ws.send(json.dumps({'error': str(e)}))
-
 
 # ==================== FACT-CHECKING ROUTES ====================
 

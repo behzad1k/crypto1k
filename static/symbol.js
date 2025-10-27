@@ -5,6 +5,7 @@
     const symbol = window.location.pathname.split('/')[2].toUpperCase()
     let allSignalData = {}
     let fullSignals = {}
+    let lastAnalyze = {}
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
         lucide.createIcons();
@@ -140,7 +141,7 @@
                 if (!data.success) {
                     throw new Error(data.error || 'Analysis failed');
                 }
-
+                lastAnalyze = data
                 // Render results
                 renderAnalysisResults(resultsDiv, data);
 
@@ -151,8 +152,69 @@
                 statusDiv.classList.add('hidden');
             }
         }
+        function renderCombinations(timeframe, combinations) {
+    if (!combinations || combinations.length === 0) {
+        return '<p class="text-slate-500 text-xs mt-2">No combinations detected</p>';
+    }
 
-        function renderAnalysisResults(container, data) {
+    // Sort by accuracy
+    combinations.sort((a, b) => b.accuracy - a.accuracy);
+
+    // Take top 3
+    const topCombos = combinations.sort((a, b) => b.accuracy - a.accuracy).slice(0, 7);
+
+    let html = '<div class="mt-3 pt-3 border-t border-slate-600">';
+    html += '<p class="text-slate-400 text-xs font-semibold mb-2">🎯 Top Signal Combinations:</p>';
+    html += '<div class="space-y-1">';
+
+    topCombos.forEach(combo => {
+        const signals = combo.combo_signal_name.split('+');
+        const accuracies = combo.signal_accuracies.split('+');
+        const samples = combo.signal_samples.split('+');
+        const accuracy = Math.round(combo.accuracy * 100) / 100;
+        const signalColor = getSignalColor(combo.combo_price_change)
+        const accuracyColor = getConfidenceColor(accuracy);
+
+        html += `
+            <div class="bg-slate-500 rounded p-2">
+                <div class="flex items-center justify-between mb-1">
+                    <div class="flex items-center gap-1">
+                        <span class="${accuracyColor} text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
+                            ${accuracy}%
+                        </span>
+                        <span class="${signalColor} text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
+                            ${Math.round(combo.combo_price_change * 10000) / 10000}%
+                        </span>
+                        <span class="text-slate-400 text-[10px]">
+                            ${combo.min_window}-${combo.max_window} candles
+                        </span>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-1">
+        `;
+
+        signals.forEach((signal, idx) => {
+            const sigAccuracy = accuracies[idx] || 0;
+            const sigSamples = samples[idx] || '0'
+            html += `
+                <span class="text-slate-300 text-[10px] bg-slate-700/50 px-1.5 py-0.5 rounded">
+                    ${formatSignalName(signal)}
+                    <span class="text-slate-400">${Math.round(sigAccuracy * 100) / 100}%/${sigSamples}</span>
+                </span>
+            `;
+        });
+
+        html += `
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div></div>';
+    return html;
+}
+
+        function renderAnalysisResults(container, data, combinations = {}) {
             const { symbol, timeframes } = data;
 
             let html = `
@@ -214,7 +276,7 @@
                 html += `
                     <div class="bg-slate-700/30 rounded-lg border border-slate-600 hover:border-purple-500/50 transition-colors">
                         <div class="p-3 border-b border-slate-600">
-                            <div class="flex items-center justify-between">
+                        <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-3">
                                     <span class="text-white font-bold">${tf}</span>
                                     <span class="${sentimentClass} text-white text-xs px-2 py-1 rounded flex items-center gap-1">
@@ -238,7 +300,9 @@
                         </div>
 
                         <div class="flex flex-col p-3 space-y-1 max-h-64 overflow-y-auto">
-                `;
+                        `
+                        const tfCombos = combinations[tf] || [];
+        html += renderCombinations(tf, tfCombos);
 
                 if (totalSignals === 0) {
                     html += '<p class="text-slate-500 text-sm text-center py-2">No signals detected</p>';
@@ -254,7 +318,6 @@
 
                     signals.forEach(([signalName, signalData]) => {
                         let signalInfo = getSignalDetail(signalName);
-                        console.log(signalName, signalInfo, signalData);
                         let signalIsOriginal = true;
                         if (!signalInfo || !signalInfo[tf]){
                             signalIsOriginal = false
@@ -307,6 +370,7 @@
                     });
                 }
 
+
                 html += `
                         </div>
                     </div>
@@ -325,7 +389,9 @@
                     method: 'GET',
                     headers: {'Content-Type': 'application/json'},
                 });
-
+//                if (!data.success) {
+//                    throw new Error(data.error || 'Signal Fetch Failed');
+//                }
                 const data = await response.json();
 
                 const formatted = {}
@@ -335,9 +401,6 @@
                 })
 
                 return formatted
-                if (!data.success) {
-                    throw new Error(data.error || 'Signal Fetch Failed');
-                }
             } catch (error) {
                 resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
                 lucide.createIcons();
@@ -350,13 +413,12 @@
                     method: 'GET',
                     headers: {'Content-Type': 'application/json'},
                 });
-
+//                if (!data.success) {
+//                    throw new Error(data.error || 'Signal Fetch Failed');
+//                }
                 const data = await response.json();
 
                 return data.signals
-                if (!data.success) {
-                    throw new Error(data.error || 'Signal Fetch Failed');
-                }
             } catch (error) {
                 resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
                 lucide.createIcons();
@@ -378,6 +440,12 @@
             return 'bg-slate-500';
         }
 
+        function getSignalColor(value) {
+            if (value > 0.5) return 'bg-green-500';
+            if (value < 0) return 'bg-red-500';
+            return 'bg-slate-500';
+        }
+
         function formatSignalName(name) {
             return name
                 .replace(/_/g, ' ')
@@ -391,9 +459,31 @@
                 analyzeCoin(parseInt(num));
             }
         });
+let currentAnalysisData
 
+async function fetchAndDisplayCombos() {
+    try {
+        const response = await fetch(`/api/live-analysis/combos/${symbol}`);
+        const data = await response.json();
+        console.log(data)
+        if (data.success) {
+            // Group by timeframe
+            const combosByTf = {};
+            data.combinations.forEach(combo => {
+                if (!combosByTf[combo.timeframe]) {
+                    combosByTf[combo.timeframe] = [];
+                }
+                combosByTf[combo.timeframe].push(combo);
+            });
 
-
+            // Update display (re-render with combos)
+            const container = document.getElementById('analyzing-results');
+            renderAnalysisResults(container, lastAnalyze, combosByTf);
+        }
+    } catch (error) {
+        console.error('Failed to fetch combinations:', error);
+    }
+}
 
 let currentPositionId = null;
 let positionWebSocket = null;
@@ -419,11 +509,12 @@ function connectPositionWebSocket() {
     };
 
     positionWebSocket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        const container = document.getElementById('analyzing-results');
+    const data = JSON.parse(event.data);
+    const container = document.getElementById('analyzing-results');
 
-        renderAnalysisResults(container, data.analysis);
-    };
+    // Pass combinations to render function
+    renderAnalysisResults(container, data.analysis, data.combinations || {});
+};
 
     positionWebSocket.onerror = (error) => {
         console.error('WebSocket error:', error);

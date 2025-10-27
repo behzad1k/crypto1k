@@ -199,6 +199,7 @@ class ScalpSignalAnalyzer:
         combo_signal_name TEXT NOT NULL,
         signal_accuracies TEXT NOT NULL,
         signal_samples TEXT NOT NULL,
+        combo_price_change REAL NOT NULL,
         min_window INTEGER NOT NULL,
         max_window INTEGER NOT NULL,
         timeframe TEXT NOT NULL,
@@ -1098,13 +1099,13 @@ class ScalpSignalAnalyzer:
             SELECT 
               signal_name,
               accuracy,
-              signals_count
+              signals_count,
+              avg_price_change
             FROM tf_combos
             WHERE signal_name = ? AND timeframe = ? AND accuracy >= ?
           ''', (combo_name, tf, min_conf_threshold))
 
           combo_result = cursor.fetchone()
-
           if combo_result:
             # Get individual signal details from signals table
             signal_accuracies = []
@@ -1142,8 +1143,8 @@ class ScalpSignalAnalyzer:
               cursor.execute('''
                 INSERT OR REPLACE INTO live_tf_combos
                 (symbol, combo_signal_name, signal_accuracies, signal_samples,
-                 min_window, max_window, timeframe, accuracy, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 min_window, max_window, timeframe, accuracy, combo_price_change, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ''', (
                 symbol,
                 combo_name,
@@ -1153,6 +1154,7 @@ class ScalpSignalAnalyzer:
                 max_window,
                 tf,
                 combo_result['accuracy'],
+                combo_result['avg_price_change'],
                 datetime.now().isoformat()
               ))
 
@@ -1225,7 +1227,7 @@ class ScalpSignalAnalyzer:
       self.analyze_live_combinations(
         symbol=symbol,
         results=results,
-        min_conf_threshold=70.0  # Only save combos with >= 60% accuracy
+        min_conf_threshold=60.0  # Only save combos with >= 60% accuracy
       )
     except Exception as e:
       logging.error(f"Error in combination analysis: {e}")
