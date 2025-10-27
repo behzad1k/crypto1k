@@ -60,10 +60,10 @@ class PatternMonitor:
       pass
     return []
 
-  def fetch_nobitex_symbols(self, limit=100):
-    """Fetch symbols from Nobitex"""
+  def fetch_tabdeal_symbols(self, limit=100):
+    """Fetch symbols from tabdeal"""
     try:
-      response = requests.get('https://apiv2.nobitex.ir/market/stats', timeout=10)
+      response = requests.get('https://apiv2.tabdeal.ir/market/stats', timeout=10)
       response.raise_for_status()
       data = response.json()
 
@@ -80,7 +80,7 @@ class PatternMonitor:
 
       return [c['symbol'].split('-')[0].upper() for c in sorted_coins[:limit]]
     except Exception as e:
-      logging.error(f"Failed to fetch Nobitex symbols: {e}")
+      logging.error(f"Failed to fetch tabdeal symbols: {e}")
       return ['BTC', 'ETH', 'SOL']
 
   def monitor_and_save(self, symbol):
@@ -98,10 +98,10 @@ class PatternMonitor:
       try:
         # Get priority coins first
         priority = self.get_priority_coins()
-        nobitex = self.fetch_nobitex_symbols(top_coins)
+        tabdeal = self.fetch_tabdeal_symbols(top_coins)
 
         # Combine with priority first
-        symbols = priority + [s for s in nobitex if s not in priority]
+        symbols = priority + [s for s in tabdeal if s not in priority]
 
         logging.info(f"Monitoring {len(symbols)} symbols...")
 

@@ -1,16 +1,17 @@
 """
-Comprehensive Scalp Trading Signal Analyzer - UPDATED
+Comprehensive Scalp Trading Signal Analyzer - UPDATED WITH LIVE COMBO ANALYSIS
 Analyzes 80+ technical signals across multiple timeframes
-NEW: Added MFI, CMF, Harami, Inverted Hammer, Hanging Man, Volume Climax, Gap Detection,
-     ROC, Aroon, Elder Ray, TSI, Donchian, Order Blocks, FVG, Liquidity Sweep, ChoCh,
-     Premium/Discount Zones, Volume Profile, momentum_5, momentum_10
+NEW: Integrated live signal combination analysis after each symbol analysis
 """
 
 import requests
 import pandas as pd
 import numpy as np
+import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
+from itertools import combinations
+from collections import defaultdict
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,7 @@ class ScalpSignalAnalyzer:
   """
   Complete technical analysis signal generator with 80+ signals
   Confidence ratings based on academic research, trading literature, and historical performance
+  NEW: Includes live combination analysis for detected signals
   """
 
   # Timeframe definitions (in minutes)
@@ -47,7 +49,6 @@ class ScalpSignalAnalyzer:
     'tweezer_bottom': {'confidence': 68, 'timeframes': ['short', 'mid'], 'category': 'Candlestick Patterns'},
     'marubozu_bullish': {'confidence': 73, 'timeframes': ['short', 'mid'], 'category': 'Candlestick Patterns'},
     'marubozu_bearish': {'confidence': 73, 'timeframes': ['short', 'mid'], 'category': 'Candlestick Patterns'},
-    # NEW: Additional candlestick patterns
     'harami_bullish': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
     'harami_bearish': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
     'inverted_hammer': {'confidence': 71, 'timeframes': ['mid', 'long'], 'category': 'Candlestick Patterns'},
@@ -64,7 +65,7 @@ class ScalpSignalAnalyzer:
     'triple_ema_bullish': {'confidence': 78, 'timeframes': ['mid'], 'category': 'Moving Averages'},
     'triple_ema_bearish': {'confidence': 78, 'timeframes': ['mid'], 'category': 'Moving Averages'},
 
-    # ===== Momentum Indicators (25 signals - EXPANDED) =====
+    # ===== Momentum Indicators (30 signals) =====
     'rsi_oversold': {'confidence': 68, 'timeframes': ['short', 'mid', 'long'], 'category': 'Momentum Indicators'},
     'rsi_overbought': {'confidence': 68, 'timeframes': ['short', 'mid', 'long'], 'category': 'Momentum Indicators'},
     'rsi_divergence_bullish': {'confidence': 85, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
@@ -85,7 +86,6 @@ class ScalpSignalAnalyzer:
     'cci_overbought': {'confidence': 67, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
     'williams_r_oversold': {'confidence': 65, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
     'williams_r_overbought': {'confidence': 65, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
-    # NEW: Momentum signals
     'momentum_5': {'confidence': 72, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
     'momentum_10': {'confidence': 74, 'timeframes': ['short', 'mid'], 'category': 'Momentum Indicators'},
     'mfi_oversold': {'confidence': 73, 'timeframes': ['short', 'mid', 'long'], 'category': 'Momentum Indicators'},
@@ -97,7 +97,7 @@ class ScalpSignalAnalyzer:
     'tsi_cross_bullish': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
     'tsi_cross_bearish': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Momentum Indicators'},
 
-    # ===== Volume Analysis (13 signals - EXPANDED) =====
+    # ===== Volume Analysis (14 signals) =====
     'volume_spike_bullish': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volume Analysis'},
     'volume_spike_bearish': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volume Analysis'},
     'volume_divergence_bullish': {'confidence': 81, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
@@ -108,13 +108,12 @@ class ScalpSignalAnalyzer:
     'vwap_cross_below': {'confidence': 76, 'timeframes': ['short', 'mid'], 'category': 'Volume Analysis'},
     'accumulation_distribution_bullish': {'confidence': 73, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
     'accumulation_distribution_bearish': {'confidence': 73, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
-    # NEW: Volume signals
     'cmf_bullish': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
     'cmf_bearish': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Volume Analysis'},
     'volume_climax_bullish': {'confidence': 79, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volume Analysis'},
     'volume_climax_bearish': {'confidence': 79, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volume Analysis'},
 
-    # ===== Volatility Indicators (8 signals) =====
+    # ===== Volatility Indicators (10 signals) =====
     'bollinger_squeeze': {'confidence': 80, 'timeframes': ['short', 'mid', 'long'], 'category': 'Volatility Indicators'},
     'bollinger_breakout_up': {'confidence': 78, 'timeframes': ['short', 'mid'], 'category': 'Volatility Indicators'},
     'bollinger_breakout_down': {'confidence': 78, 'timeframes': ['short', 'mid'], 'category': 'Volatility Indicators'},
@@ -123,11 +122,10 @@ class ScalpSignalAnalyzer:
     'atr_expansion': {'confidence': 71, 'timeframes': ['short', 'mid'], 'category': 'Volatility Indicators'},
     'keltner_breakout_up': {'confidence': 75, 'timeframes': ['mid'], 'category': 'Volatility Indicators'},
     'keltner_breakout_down': {'confidence': 75, 'timeframes': ['mid'], 'category': 'Volatility Indicators'},
-    # NEW: Donchian Channel
     'donchian_breakout_up': {'confidence': 77, 'timeframes': ['mid', 'long'], 'category': 'Volatility Indicators'},
     'donchian_breakout_down': {'confidence': 77, 'timeframes': ['mid', 'long'], 'category': 'Volatility Indicators'},
 
-    # ===== Trend Indicators (11 signals - EXPANDED) =====
+    # ===== Trend Indicators (13 signals) =====
     'adx_strong_trend': {'confidence': 79, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
     'adx_weak_trend': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
     'adx_reversal': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
@@ -137,13 +135,12 @@ class ScalpSignalAnalyzer:
     'parabolic_sar_flip_bearish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
     'ichimoku_bullish': {'confidence': 83, 'timeframes': ['long'], 'category': 'Trend Indicators'},
     'ichimoku_bearish': {'confidence': 83, 'timeframes': ['long'], 'category': 'Trend Indicators'},
-    # NEW: Aroon and Elder Ray
     'aroon_bullish': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
     'aroon_bearish': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
     'elder_ray_bullish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
     'elder_ray_bearish': {'confidence': 74, 'timeframes': ['mid', 'long'], 'category': 'Trend Indicators'},
 
-    # ===== Price Action & Structure (18 signals - EXPANDED) =====
+    # ===== Price Action & Structure (26 signals) =====
     'higher_high': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
     'lower_low': {'confidence': 77, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
     'break_of_structure_bullish': {'confidence': 84, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
@@ -158,7 +155,6 @@ class ScalpSignalAnalyzer:
     'fibonacci_bounce_618': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
     'round_number_support': {'confidence': 68, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
     'round_number_resistance': {'confidence': 68, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
-    # NEW: Gap detection and SMC concepts
     'gap_up': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
     'gap_down': {'confidence': 76, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
     'order_block_bullish': {'confidence': 78, 'timeframes': ['short', 'mid', 'long'], 'category': 'Price Action & Structure'},
@@ -172,7 +168,7 @@ class ScalpSignalAnalyzer:
     'premium_zone': {'confidence': 71, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
     'discount_zone': {'confidence': 71, 'timeframes': ['mid', 'long'], 'category': 'Price Action & Structure'},
 
-    # ===== Volume Profile (4 signals) =====
+    # ===== Volume Profile (6 signals) =====
     'poc_support': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
     'poc_resistance': {'confidence': 75, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
     'value_area_high': {'confidence': 72, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
@@ -181,13 +177,59 @@ class ScalpSignalAnalyzer:
     'low_volume_node': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
   }
 
-  def __init__(self):
+  def __init__(self, db_path: str = 'crypto_signals.db'):
+    self.db_path = db_path
     self.timeframe_minutes = {
       '1m': 1, '3m': 3, '5m': 5, '15m': 15,
       '30m': 30, '1h': 60, '2h': 120, '4h': 240,
       '6h': 360, '8h': 480, '12h': 720, '1d': 1440,
       '3d': 4320, '1w': 10080
     }
+    self.init_combo_database()
+
+  def init_combo_database(self):
+    """Initialize the live_tf_combos table for storing live combination analysis"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+      CREATE TABLE IF NOT EXISTS live_tf_combos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        combo_signal_name TEXT NOT NULL,
+        signal_accuracies TEXT NOT NULL,
+        signal_samples TEXT NOT NULL,
+        min_window INTEGER NOT NULL,
+        max_window INTEGER NOT NULL,
+        timeframe TEXT NOT NULL,
+        accuracy REAL NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(symbol, combo_signal_name, timeframe, timestamp)
+      )
+    ''')
+
+    cursor.execute('''
+      CREATE INDEX IF NOT EXISTS idx_live_combos_symbol_time
+      ON live_tf_combos(symbol, timestamp DESC)
+    ''')
+
+    cursor.execute('''
+      CREATE INDEX IF NOT EXISTS idx_live_combos_combo
+      ON live_tf_combos(combo_signal_name, timeframe)
+    ''')
+
+    cursor.execute('''
+      CREATE INDEX IF NOT EXISTS idx_live_combos_accuracy
+      ON live_tf_combos(accuracy DESC)
+    ''')
+
+    conn.commit()
+    conn.close()
+
+  # ... [Keep all the existing methods: fetch_kucoin_data, fetch_binance_data, fetch_data,
+  # calculate_all_indicators, analyze_candlestick_patterns, analyze_moving_averages,
+  # analyze_momentum, analyze_volume, analyze_volatility, analyze_trend,
+  # analyze_price_action, analyze_volume_profile - UNCHANGED] ...
 
   def fetch_kucoin_data(self, symbol: str, timeframe: str, limit: int = 200) -> Optional[pd.DataFrame]:
     """Fetch OHLCV data from KuCoin"""
@@ -279,7 +321,7 @@ class ScalpSignalAnalyzer:
     return data
 
   def calculate_all_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate ALL technical indicators including new ones"""
+    """Calculate ALL technical indicators"""
     data = df.copy()
 
     if len(data) < 50:
@@ -357,7 +399,7 @@ class ScalpSignalAnalyzer:
       # Williams %R
       data['WILLR'] = -100 * ((high_14 - data['close']) / (high_14 - low_14))
 
-      # NEW: Money Flow Index (MFI)
+      # MFI
       typical_price = (data['high'] + data['low'] + data['close']) / 3
       money_flow = typical_price * data['volume']
 
@@ -367,15 +409,15 @@ class ScalpSignalAnalyzer:
       money_ratio = positive_flow / negative_flow
       data['MFI'] = 100 - (100 / (1 + money_ratio))
 
-      # NEW: Chaikin Money Flow (CMF)
+      # CMF
       mf_multiplier = ((data['close'] - data['low']) - (data['high'] - data['close'])) / (data['high'] - data['low'])
       mf_volume = mf_multiplier * data['volume']
       data['CMF'] = mf_volume.rolling(20).sum() / data['volume'].rolling(20).sum()
 
-      # NEW: Rate of Change (ROC)
+      # ROC
       data['ROC'] = ((data['close'] - data['close'].shift(12)) / data['close'].shift(12)) * 100
 
-      # NEW: Aroon Indicator
+      # Aroon
       aroon_period = 25
       data['AROON_UP'] = data['high'].rolling(aroon_period + 1).apply(
         lambda x: float(aroon_period - x.argmax()) / aroon_period * 100, raw=False
@@ -384,29 +426,29 @@ class ScalpSignalAnalyzer:
         lambda x: float(aroon_period - x.argmin()) / aroon_period * 100, raw=False
       )
 
-      # NEW: Elder Ray Index
+      # Elder Ray
       ema_13 = data['close'].ewm(span=13, adjust=False).mean()
       data['BULL_POWER'] = data['high'] - ema_13
       data['BEAR_POWER'] = data['low'] - ema_13
 
-      # NEW: True Strength Index (TSI)
+      # TSI
       price_change = data['close'].diff()
       double_smoothed_pc = price_change.ewm(span=25, adjust=False).mean().ewm(span=13, adjust=False).mean()
       double_smoothed_abs_pc = price_change.abs().ewm(span=25, adjust=False).mean().ewm(span=13, adjust=False).mean()
       data['TSI'] = 100 * (double_smoothed_pc / double_smoothed_abs_pc)
       data['TSI_signal'] = data['TSI'].ewm(span=7, adjust=False).mean()
 
-      # NEW: Donchian Channel
+      # Donchian Channel
       donchian_period = 20
       data['DONCHIAN_HIGH'] = data['high'].rolling(donchian_period).max()
       data['DONCHIAN_LOW'] = data['low'].rolling(donchian_period).min()
       data['DONCHIAN_MID'] = (data['DONCHIAN_HIGH'] + data['DONCHIAN_LOW']) / 2
 
-      # NEW: Momentum indicators
+      # Momentum
       data['MOMENTUM_5'] = data['close'].pct_change(periods=5)
       data['MOMENTUM_10'] = data['close'].pct_change(periods=10)
 
-      # Parabolic SAR (simplified)
+      # Parabolic SAR
       data['SAR'] = data['close'].rolling(5).mean()
 
     except Exception as e:
@@ -415,7 +457,7 @@ class ScalpSignalAnalyzer:
     return data
 
   def analyze_candlestick_patterns(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Detect candlestick patterns including new patterns"""
+    """Detect candlestick patterns"""
     signals = {}
 
     if len(df) < 3:
@@ -481,35 +523,33 @@ class ScalpSignalAnalyzer:
       else:
         signals['marubozu_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
 
-    # NEW: Harami Pattern
+    # Harami
     if prev2 is not None:
       # Bullish Harami
-      if (prev['close'] < prev['open'] and  # Previous bearish
-          curr['close'] > curr['open'] and  # Current bullish
+      if (prev['close'] < prev['open'] and
+          curr['close'] > curr['open'] and
           curr['open'] > prev['close'] and
           curr['close'] < prev['open'] and
           body_curr < body_prev):
         signals['harami_bullish'] = {'signal': 'BUY', 'strength': 'MODERATE'}
 
       # Bearish Harami
-      if (prev['close'] > prev['open'] and  # Previous bullish
-          curr['close'] < curr['open'] and  # Current bearish
+      if (prev['close'] > prev['open'] and
+          curr['close'] < curr['open'] and
           curr['open'] < prev['close'] and
           curr['close'] > prev['open'] and
           body_curr < body_prev):
         signals['harami_bearish'] = {'signal': 'SELL', 'strength': 'MODERATE'}
 
-    # NEW: Inverted Hammer (at support)
+    # Inverted Hammer
     if upper_shadow > body_curr * 2 and lower_shadow < body_curr * 0.3:
-      # Check if near support
       if len(df) >= 10:
         recent_low = df['low'].iloc[-10:].min()
         if abs(curr['low'] - recent_low) / recent_low < 0.02:
           signals['inverted_hammer'] = {'signal': 'BUY', 'strength': 'MODERATE'}
 
-    # NEW: Hanging Man (at resistance)
+    # Hanging Man
     if lower_shadow > body_curr * 2 and upper_shadow < body_curr * 0.3:
-      # Check if near resistance
       if len(df) >= 10:
         recent_high = df['high'].iloc[-10:].max()
         if abs(curr['high'] - recent_high) / recent_high < 0.02:
@@ -554,7 +594,7 @@ class ScalpSignalAnalyzer:
     return signals
 
   def analyze_momentum(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze momentum indicators including new ones"""
+    """Analyze momentum indicators"""
     signals = {}
 
     if len(df) < 50:
@@ -633,20 +673,20 @@ class ScalpSignalAnalyzer:
       if curr['WILLR'] > -20:
         signals['williams_r_overbought'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['WILLR']}
 
-    # NEW: Momentum_5 and Momentum_10
+    # Momentum_5 and Momentum_10
     if not pd.isna(curr['MOMENTUM_5']):
-      if curr['MOMENTUM_5'] > 0.03:  # 3% gain in 5 periods
+      if curr['MOMENTUM_5'] > 0.03:
         signals['momentum_5'] = {'signal': 'BUY', 'strength': 'MODERATE', 'value': curr['MOMENTUM_5']}
       elif curr['MOMENTUM_5'] < -0.03:
         signals['momentum_5'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['MOMENTUM_5']}
 
     if not pd.isna(curr['MOMENTUM_10']):
-      if curr['MOMENTUM_10'] > 0.05:  # 5% gain in 10 periods
+      if curr['MOMENTUM_10'] > 0.05:
         signals['momentum_10'] = {'signal': 'BUY', 'strength': 'MODERATE', 'value': curr['MOMENTUM_10']}
       elif curr['MOMENTUM_10'] < -0.05:
         signals['momentum_10'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['MOMENTUM_10']}
 
-    # NEW: Money Flow Index (MFI)
+    # MFI
     if not pd.isna(curr['MFI']):
       if curr['MFI'] < 20:
         signals['mfi_oversold'] = {'signal': 'BUY', 'strength': 'STRONG', 'value': curr['MFI']}
@@ -665,7 +705,7 @@ class ScalpSignalAnalyzer:
         if not price_trend and mfi_trend:
           signals['mfi_divergence_bullish'] = {'signal': 'BUY', 'strength': 'VERY_STRONG'}
 
-    # NEW: Rate of Change (ROC)
+    # ROC
     if not pd.isna(curr['ROC']):
       if curr['ROC'] > 5:
         signals['roc_bullish'] = {'signal': 'BUY', 'strength': 'MODERATE', 'value': curr['ROC']}
@@ -673,7 +713,7 @@ class ScalpSignalAnalyzer:
       if curr['ROC'] < -5:
         signals['roc_bearish'] = {'signal': 'SELL', 'strength': 'MODERATE', 'value': curr['ROC']}
 
-    # NEW: True Strength Index (TSI)
+    # TSI
     if not pd.isna(curr['TSI']) and not pd.isna(curr['TSI_signal']):
       if curr['TSI'] > curr['TSI_signal'] and prev['TSI'] <= prev['TSI_signal']:
         signals['tsi_cross_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
@@ -684,7 +724,7 @@ class ScalpSignalAnalyzer:
     return signals
 
   def analyze_volume(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze volume signals including new ones"""
+    """Analyze volume signals"""
     signals = {}
 
     if len(df) < 20:
@@ -719,7 +759,7 @@ class ScalpSignalAnalyzer:
       if curr['close'] < curr['VWAP'] and prev['close'] >= prev['VWAP']:
         signals['vwap_cross_below'] = {'signal': 'SELL', 'strength': 'STRONG'}
 
-    # NEW: Chaikin Money Flow (CMF)
+    # CMF
     if not pd.isna(curr['CMF']):
       if curr['CMF'] > 0.1:
         signals['cmf_bullish'] = {'signal': 'BUY', 'strength': 'STRONG', 'value': curr['CMF']}
@@ -727,12 +767,10 @@ class ScalpSignalAnalyzer:
       if curr['CMF'] < -0.1:
         signals['cmf_bearish'] = {'signal': 'SELL', 'strength': 'STRONG', 'value': curr['CMF']}
 
-    # NEW: Volume Climax (exhaustion signal)
+    # Volume Climax
     if len(df) >= 30:
-      # Volume spike at trend extreme
       volume_max = df['volume'].iloc[-30:].max()
       if curr['volume'] == volume_max:
-        # Check if at price extreme
         price_high = df['high'].iloc[-30:].max()
         price_low = df['low'].iloc[-30:].min()
 
@@ -745,7 +783,7 @@ class ScalpSignalAnalyzer:
     return signals
 
   def analyze_volatility(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze volatility indicators including Donchian"""
+    """Analyze volatility indicators"""
     signals = {}
 
     if len(df) < 30:
@@ -782,7 +820,7 @@ class ScalpSignalAnalyzer:
       if curr['ATR'] > avg_atr * 1.5:
         signals['atr_expansion'] = {'signal': 'VOLATILE', 'strength': 'MODERATE', 'value': curr['ATR'] / avg_atr}
 
-    # NEW: Donchian Channel
+    # Donchian Channel
     if not pd.isna(curr['DONCHIAN_HIGH']) and not pd.isna(curr['DONCHIAN_LOW']):
       if curr['close'] > curr['DONCHIAN_HIGH'] and prev['close'] <= prev['DONCHIAN_HIGH']:
         signals['donchian_breakout_up'] = {'signal': 'BUY', 'strength': 'STRONG'}
@@ -793,7 +831,7 @@ class ScalpSignalAnalyzer:
     return signals
 
   def analyze_trend(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze trend indicators including Aroon and Elder Ray"""
+    """Analyze trend indicators"""
     signals = {}
 
     if len(df) < 50:
@@ -812,7 +850,7 @@ class ScalpSignalAnalyzer:
       if curr['ADX'] < 20:
         signals['adx_weak_trend'] = {'signal': 'CONSOLIDATION', 'strength': 'MODERATE'}
 
-    # NEW: Aroon Indicator
+    # Aroon
     if not pd.isna(curr['AROON_UP']) and not pd.isna(curr['AROON_DOWN']):
       if curr['AROON_UP'] > 70 and curr['AROON_DOWN'] < 30:
         signals['aroon_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
@@ -820,7 +858,7 @@ class ScalpSignalAnalyzer:
       if curr['AROON_DOWN'] > 70 and curr['AROON_UP'] < 30:
         signals['aroon_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
 
-    # NEW: Elder Ray Index
+    # Elder Ray
     if not pd.isna(curr['BULL_POWER']) and not pd.isna(curr['BEAR_POWER']):
       if curr['BULL_POWER'] > 0 and curr['BEAR_POWER'] > curr['BEAR_POWER']:
         signals['elder_ray_bullish'] = {'signal': 'BUY', 'strength': 'MODERATE'}
@@ -831,7 +869,7 @@ class ScalpSignalAnalyzer:
     return signals
 
   def analyze_price_action(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze price action including SMC concepts and gap detection"""
+    """Analyze price action including SMC concepts"""
     signals = {}
 
     if len(df) < 10:
@@ -870,32 +908,28 @@ class ScalpSignalAnalyzer:
     if curr['close'] < support * 0.99:
       signals['support_break'] = {'signal': 'SELL', 'strength': 'STRONG', 'level': support}
 
-    # NEW: Gap Detection
-    if prev['high'] < curr['low']:  # Gap up
+    # Gap Detection
+    if prev['high'] < curr['low']:
       gap_size = ((curr['low'] - prev['high']) / prev['high']) * 100
-      if gap_size > 0.5:  # More than 0.5% gap
+      if gap_size > 0.5:
         signals['gap_up'] = {'signal': 'BUY', 'strength': 'MODERATE', 'gap_size': gap_size}
 
-    if prev['low'] > curr['high']:  # Gap down
+    if prev['low'] > curr['high']:
       gap_size = ((prev['low'] - curr['high']) / curr['high']) * 100
       if gap_size > 0.5:
         signals['gap_down'] = {'signal': 'SELL', 'strength': 'MODERATE', 'gap_size': gap_size}
 
-    # NEW: Order Blocks (SMC concept)
+    # Order Blocks
     if len(df) >= 5:
-      # Last opposing candle before strong move
       last_5 = df.iloc[-5:]
 
-      # Bullish order block: last bearish candle before strong upward move
       bearish_candles = last_5[last_5['close'] < last_5['open']]
       if len(bearish_candles) > 0:
         last_bearish = bearish_candles.iloc[-1]
-        # Check if followed by strong bullish moves
         subsequent = df.loc[last_bearish.name:].iloc[1:4]
         if len(subsequent) >= 2 and (subsequent['close'] > subsequent['open']).all():
           signals['order_block_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
 
-      # Bearish order block
       bullish_candles = last_5[last_5['close'] > last_5['open']]
       if len(bullish_candles) > 0:
         last_bullish = bullish_candles.iloc[-1]
@@ -903,59 +937,49 @@ class ScalpSignalAnalyzer:
         if len(subsequent) >= 2 and (subsequent['close'] < subsequent['open']).all():
           signals['order_block_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
 
-    # NEW: Fair Value Gap (FVG) - inefficient price zones
+    # Fair Value Gap
     if len(df) >= 3:
       candle_3 = df.iloc[-3]
-      candle_2 = df.iloc[-2]
       candle_1 = df.iloc[-1]
 
-      # Bullish FVG: gap between candle 3 high and candle 1 low
       if candle_1['low'] > candle_3['high']:
         signals['fvg_bullish'] = {'signal': 'BUY', 'strength': 'MODERATE'}
 
-      # Bearish FVG
       if candle_1['high'] < candle_3['low']:
         signals['fvg_bearish'] = {'signal': 'SELL', 'strength': 'MODERATE'}
 
-    # NEW: Liquidity Sweep (stop hunt)
+    # Liquidity Sweep
     if len(df) >= 20:
       swing_high = df['high'].iloc[-20:].max()
       swing_low = df['low'].iloc[-20:].min()
 
-      # Bullish liquidity sweep: price takes out low then reverses
       if curr['low'] < swing_low * 0.999 and curr['close'] > curr['open']:
         signals['liquidity_sweep_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
 
-      # Bearish liquidity sweep
       if curr['high'] > swing_high * 1.001 and curr['close'] < curr['open']:
         signals['liquidity_sweep_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
 
-    # NEW: Change of Character (ChoCh) - momentum shift
+    # Change of Character
     if len(df) >= 10:
-      # Check for break of recent structure
       recent_highs = df['high'].iloc[-10:-1]
       recent_lows = df['low'].iloc[-10:-1]
 
-      # Bullish ChoCh: break above recent resistance
       if curr['close'] > recent_highs.max() and df['close'].iloc[-5] < recent_highs.max():
         signals['choch_bullish'] = {'signal': 'BUY', 'strength': 'STRONG'}
 
-      # Bearish ChoCh
       if curr['close'] < recent_lows.min() and df['close'].iloc[-5] > recent_lows.min():
         signals['choch_bearish'] = {'signal': 'SELL', 'strength': 'STRONG'}
 
-    # NEW: Premium/Discount Zones
+    # Premium/Discount Zones
     if len(df) >= 50:
       range_high = df['high'].iloc[-50:].max()
       range_low = df['low'].iloc[-50:].min()
       range_mid = (range_high + range_low) / 2
 
-      # Premium zone (upper 25%)
       premium_threshold = range_mid + (range_high - range_mid) * 0.5
       if curr['close'] > premium_threshold:
         signals['premium_zone'] = {'signal': 'SELL', 'strength': 'MODERATE'}
 
-      # Discount zone (lower 25%)
       discount_threshold = range_mid - (range_mid - range_low) * 0.5
       if curr['close'] < discount_threshold:
         signals['discount_zone'] = {'signal': 'BUY', 'strength': 'MODERATE'}
@@ -963,19 +987,16 @@ class ScalpSignalAnalyzer:
     return signals
 
   def analyze_volume_profile(self, df: pd.DataFrame) -> Dict[str, any]:
-    """Analyze volume profile - Point of Control, Value Area, Volume Nodes"""
+    """Analyze volume profile"""
     signals = {}
 
     if len(df) < 100:
       return signals
 
     curr = df.iloc[-1]
-
-    # Calculate volume profile over last 100 candles
     recent_data = df.iloc[-100:]
 
     # Create price bins
-    price_range = recent_data['high'].max() - recent_data['low'].min()
     num_bins = 50
     bins = np.linspace(recent_data['low'].min(), recent_data['high'].max(), num_bins)
 
@@ -984,17 +1005,16 @@ class ScalpSignalAnalyzer:
 
     for i in range(len(recent_data)):
       row = recent_data.iloc[i]
-      # Distribute volume across the price range of the candle
       candle_bins = np.digitize([row['low'], row['high']], bins)
       for b in range(candle_bins[0], min(candle_bins[1] + 1, num_bins)):
         if b < len(volume_by_price):
           volume_by_price[b] += row['volume'] / (candle_bins[1] - candle_bins[0] + 1)
 
-    # Point of Control (POC) - price with highest volume
+    # Point of Control
     poc_idx = np.argmax(volume_by_price)
     poc_price = (bins[poc_idx] + bins[poc_idx + 1]) / 2
 
-    # Value Area (70% of volume)
+    # Value Area
     total_volume = volume_by_price.sum()
     sorted_indices = np.argsort(volume_by_price)[::-1]
     cumulative_volume = 0
@@ -1009,26 +1029,24 @@ class ScalpSignalAnalyzer:
     value_area_high = bins[max(value_area_indices) + 1]
     value_area_low = bins[min(value_area_indices)]
 
-    # Check current price position relative to POC and Value Area
+    # Check current price position
     if abs(curr['close'] - poc_price) / poc_price < 0.005:
       if curr['close'] > poc_price:
         signals['poc_support'] = {'signal': 'BUY', 'strength': 'MODERATE', 'level': poc_price}
       else:
         signals['poc_resistance'] = {'signal': 'SELL', 'strength': 'MODERATE', 'level': poc_price}
 
-    # Value Area signals
     if abs(curr['close'] - value_area_high) / value_area_high < 0.005:
       signals['value_area_high'] = {'signal': 'SELL', 'strength': 'MODERATE', 'level': value_area_high}
 
     if abs(curr['close'] - value_area_low) / value_area_low < 0.005:
       signals['value_area_low'] = {'signal': 'BUY', 'strength': 'MODERATE', 'level': value_area_low}
 
-    # High/Low Volume Nodes
+    # Volume Nodes
     avg_volume = volume_by_price.mean()
     high_volume_threshold = avg_volume * 1.5
     low_volume_threshold = avg_volume * 0.5
 
-    # Find current price bin
     curr_bin = np.digitize([curr['close']], bins)[0]
     if curr_bin < len(volume_by_price):
       if volume_by_price[curr_bin] > high_volume_threshold:
@@ -1038,8 +1056,127 @@ class ScalpSignalAnalyzer:
 
     return signals
 
+  # ========================================================================
+  # NEW: LIVE COMBINATION ANALYSIS METHODS
+  # ========================================================================
+
+  def analyze_live_combinations(
+    self,
+    symbol: str,
+    results: Dict,
+    min_conf_threshold: float = 60.0
+  ):
+    """
+    Check if detected signals match any validated combinations from tf_combos table
+    Only saves combinations that exist in tf_combos and meet the accuracy threshold
+    """
+    logging.info(f"🔍 Checking for validated signal combinations for {symbol}...")
+
+    conn = sqlite3.connect(self.db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    saved_count = 0
+
+    # Check each timeframe
+    for tf, tf_data in results['timeframes'].items():
+      if 'error' in tf_data or not tf_data.get('signals'):
+        continue
+
+      detected_signals = list(tf_data['signals'].keys())
+
+      if len(detected_signals) < 2:
+        continue
+
+      # Generate all possible combinations from detected signals
+      for combo_size in range(2, len(detected_signals) + 1):
+        for signal_combo in combinations(sorted(detected_signals), combo_size):
+          combo_name = '+'.join(sorted(signal_combo))
+
+          # Check if this combination exists in tf_combos with sufficient accuracy
+          cursor.execute('''
+            SELECT 
+              signal_name,
+              accuracy,
+              signals_count
+            FROM tf_combos
+            WHERE signal_name = ? AND timeframe = ? AND accuracy >= ?
+          ''', (combo_name, tf, min_conf_threshold))
+
+          combo_result = cursor.fetchone()
+
+          if combo_result:
+            # Get individual signal details from signals table
+            signal_accuracies = []
+            signal_samples = []
+            validation_windows = []
+
+            for signal_name in signal_combo:
+              cursor.execute('''
+                SELECT 
+                  signal_accuracy,
+                  sample_size,
+                  validation_window
+                FROM signals
+                WHERE signal_name = ? AND timeframe = ?
+              ''', (signal_name, tf))
+
+              signal_data = cursor.fetchone()
+
+              if signal_data:
+                signal_accuracies.append(str(signal_data['signal_accuracy']))
+                signal_samples.append(str(signal_data['sample_size']))
+                validation_windows.append(signal_data['validation_window'])
+              else:
+                # Fallback to default values if not in signals table
+                signal_accuracies.append('0')
+                signal_samples.append('0')
+                validation_windows.append(5)
+
+            # Calculate min and max validation windows
+            min_window = min(validation_windows) if validation_windows else 5
+            max_window = max(validation_windows) if validation_windows else 10
+
+            # Save to live_tf_combos
+            try:
+              cursor.execute('''
+                INSERT OR REPLACE INTO live_tf_combos
+                (symbol, combo_signal_name, signal_accuracies, signal_samples,
+                 min_window, max_window, timeframe, accuracy, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ''', (
+                symbol,
+                combo_name,
+                '+'.join(signal_accuracies),
+                '+'.join(signal_samples),
+                min_window,
+                max_window,
+                tf,
+                combo_result['accuracy'],
+                datetime.now().isoformat()
+              ))
+
+              saved_count += 1
+              logging.info(f"   ✅ Found validated combo: {combo_name} ({tf}) - {combo_result['accuracy']:.1f}%")
+
+            except Exception as e:
+              logging.error(f"Error saving combo {combo_name}: {e}")
+
+    conn.commit()
+    conn.close()
+
+    logging.info(f"   Saved {saved_count} validated combinations for {symbol}")
+    return saved_count
+
+  # ========================================================================
+  # UPDATED: Main Analysis Method with Combo Integration
+  # ========================================================================
+
   def analyze_symbol_all_timeframes(self, symbol: str, timeframes: List[str]) -> Dict:
-    """Comprehensive analysis across multiple timeframes"""
+    """
+    Comprehensive analysis across multiple timeframes
+    NOW WITH INTEGRATED COMBINATION ANALYSIS
+    """
     results = {
       'symbol': symbol,
       'timestamp': datetime.now().isoformat(),
@@ -1081,6 +1218,18 @@ class ScalpSignalAnalyzer:
         'sell_signals': len([s for s in signals.values() if s.get('signal') == 'SELL'])
       }
 
+    # ========================================================================
+    # NEW: Analyze signal combinations after all timeframe analysis is complete
+    # ========================================================================
+    try:
+      self.analyze_live_combinations(
+        symbol=symbol,
+        results=results,
+        min_conf_threshold=70.0  # Only save combos with >= 60% accuracy
+      )
+    except Exception as e:
+      logging.error(f"Error in combination analysis: {e}")
+
     return results
 
 
@@ -1097,3 +1246,12 @@ if __name__ == "__main__":
 
   for cat, count in sorted(categories.items()):
     print(f"  {cat}: {count} signals")
+
+  # Test combination analysis
+  print("\n" + "=" * 80)
+  print("Testing combination analysis integration")
+  print("=" * 80)
+
+  result = analyzer.analyze_symbol_all_timeframes('BTC', ['5m', '15m', '1h'])
+  print(f"\nAnalysis complete for BTC")
+  print(f"Timeframes analyzed: {list(result['timeframes'].keys())}")

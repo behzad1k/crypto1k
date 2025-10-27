@@ -135,7 +135,7 @@ Open browser: `http://localhost:5000`
 - Add coins to monitor first (comma-separated)
 - Example: `BTC, ETH, SOL, NEAR, APT`
 - Click "Save Settings"
-- Priority coins are checked before Nobitex fetch
+- Priority coins are checked before tabdeal fetch
 
 **System Info:**
 - View current thresholds
@@ -166,7 +166,7 @@ Status updates automatically every 3 seconds.
 │                                              │
 │  ┌────────────────────────────────────────┐ │
 │  │  Background Thread (Monitor)           │ │
-│  │  - Fetches symbols from Nobitex        │ │
+│  │  - Fetches symbols from tabdeal        │ │
 │  │  - Analyzes patterns                   │ │
 │  │  - Saves signals to database           │ │
 │  │  - Updates real-time stats             │ │
@@ -185,7 +185,7 @@ Status updates automatically every 3 seconds.
 2. **Background Thread** → Runs `monitor.run()` in daemon thread
 3. **Continuous Loop**:
    - Load priority coins from file
-   - Fetch top 100 coins from Nobitex
+   - Fetch top 100 coins from tabdeal
    - Combine lists (priority first)
    - Analyze each symbol:
      - Fetch 30m OHLCV data

@@ -45,6 +45,25 @@ def fetch_nobitex_top_symbols(limit: int = 100) -> List[str]:
     logging.error(f"Failed to fetch Nobitex symbols: {e}")
     return ['BTC', 'ETH', 'SOL', 'NEAR', 'APT', 'SUI', 'DOGE', 'ADA', 'DOT', 'LINK']
 
+def fetch_tabdeal_top_symbols(limit: int = 100) -> List[str]:
+  """Fetch top symbols from tabdeal API based on daily change"""
+  try:
+    logging.info("Fetching updated symbol list from tabdeal...")
+    response = requests.get('https://api1.tabdeal.org/r/api/v1/exchangeInfo', timeout=10)
+    response.raise_for_status()
+    tabdeal_json = response.json()
+
+    coins = []
+    for coin in [x for x in tabdeal_json if x['quoteAsset'] == 'USDT']:
+      if "LIMIT" in coin['orderTypes'] or "MARKET" in coin['orderTypes']:
+        coins.append(coin['baseAsset'])
+
+    logging.info(f"✅ Fetched {len(coins)} symbols from tabdeal")
+    return coins
+
+  except Exception as e:
+    logging.error(f"Failed to fetch tabdeal symbols: {e}")
+    return ['BTC', 'ETH', 'SOL', 'NEAR', 'APT', 'SUI', 'DOGE', 'ADA', 'DOT', 'LINK']
 
 class ScalpSignalValidator:
   """Validates signals using short-term scalp analysis"""
@@ -315,7 +334,7 @@ class CryptoPatternMonitor:
 
     # Configuration
     self.min_pattern_accuracy = 0.75  # Changed to 75%
-    self.min_pattern_count = 100
+    self.min_pattern_count = 600
     self.min_confidence = 0.75  # Changed to 75%
 
     # Initialize scalp signal validator
@@ -786,11 +805,11 @@ class CryptoPatternMonitor:
 
       # NEW: Validate with scalp signal analyzer
       scalp_validation = self.scalp_validator.validate_signal(symbol, analysis_result['signal'])
-
-      if not scalp_validation['validated']:
-        logging.info(f"❌ {symbol}: No strong short-term signals found - REJECTED")
-        self.stats['signals_rejected'] += 1
-        return
+      #
+      # if not scalp_validation['validated']:
+      #   logging.info(f"❌ {symbol}: No strong short-term signals found - REJECTED")
+      #   self.stats['signals_rejected'] += 1
+      #   return
 
       # logging.info(f"✅ {symbol}: VALIDATED with {scalp_validation['total_strong_signals']} strong signal(s)!")
       self.stats['signals_validated'] += 1
@@ -844,11 +863,11 @@ class CryptoPatternMonitor:
         # Get priority coins
         priority = self.get_priority_coins()
 
-        # Get Nobitex symbols
-        nobitex = fetch_nobitex_top_symbols(top_coins)
+        # Get tabdeal symbols
+        tabdeal = fetch_tabdeal_top_symbols(top_coins)
 
         # Combine
-        symbols = priority + [s for s in nobitex if s not in priority]
+        symbols = priority + [s for s in tabdeal if s not in priority]
         self.current_symbols = symbols
 
         logging.info(f"📊 Monitoring {len(symbols)} symbols")

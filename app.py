@@ -1547,16 +1547,43 @@ def get_active_combinations_for_symbol(symbol):
     return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
 
   try:
-    # Get recent signals for this symbol (last 2 hours)
     conn = sqlite3.connect(app.config['DB_PATH'])
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
+    # DEBUG 1: Check if we have ANY signals for this symbol
+    cursor.execute('''
+      SELECT COUNT(*) as total, 
+             MIN(timestamp) as oldest, 
+             MAX(timestamp) as newest
+      FROM live_signals
+      WHERE symbol = ?
+    ''', (symbol.upper(),))
+
+    signal_stats = cursor.fetchone()
+    logging.info(f"🔍 DEBUG - Symbol: {symbol}")
+    logging.info(f"   Total signals in DB: {signal_stats['total']}")
+    logging.info(f"   Oldest: {signal_stats['oldest']}")
+    logging.info(f"   Newest: {signal_stats['newest']}")
+    logging.info(f"   now: {datetime.now() - timedelta(hours=2)}")
+
+    # DEBUG 2: Check signals in last 2 hours
+    cursor.execute('''
+      SELECT COUNT(*) as count_2h
+      FROM live_signals
+      WHERE symbol = ?
+        AND timestamp >= datetime('now', '-2 hours')
+    ''', (symbol.upper(),))
+
+    count_2h = cursor.fetchone()['count_2h']
+    logging.info(f"   Signals in last 2 hours: {count_2h}")
+
+    # DEBUG 3: Get actual signals with details
     cursor.execute('''
       SELECT 
         timeframe,
+        COUNT(*) as signal_count,
         GROUP_CONCAT(signal_name) as signals,
-        timestamp,
         MAX(timestamp) as latest_timestamp
       FROM live_signals
       WHERE symbol = ?
@@ -1578,23 +1605,45 @@ def get_active_combinations_for_symbol(symbol):
             WHEN '1d' THEN 86400
             ELSE 3600
           END AS INTEGER)
-      ORDER BY timeframe, timestamp DESC
+      ORDER BY timeframe, latest_timestamp DESC
     ''', (symbol.upper(),))
 
     active_windows = cursor.fetchall()
 
-    # For each timeframe window, check if the signal combination exists in tf_combos
+    logging.info(f"   Active windows found: {len(active_windows)}")
+
+    for idx, window in enumerate(active_windows):
+      signals_list = window['signals'].split(',') if window['signals'] else []
+      logging.info(f"   Window {idx + 1}: {window['timeframe']} - {len(signals_list)} signals")
+      logging.info(f"      Signals: {signals_list}")
+      logging.info(f"      Timestamp: {window['latest_timestamp']}")
+
+    # DEBUG 4: Check tf_combos table
+    cursor.execute('SELECT COUNT(*) as total FROM tf_combos')
+    combo_total = cursor.fetchone()['total']
+    logging.info(f"   Total combinations in tf_combos: {combo_total}")
+
+    if combo_total == 0:
+      logging.warning("⚠️  tf_combos table is EMPTY - run combination analysis first!")
+
+    # Process combinations
     results = {}
+    checked_combos = 0
+    matched_combos = 0
 
     for window in active_windows:
       timeframe = window['timeframe']
       signals = window['signals'].split(',') if window['signals'] else []
 
       if len(signals) < 2:
+        logging.info(f"   ⏭️  Skipping {timeframe}: only {len(signals)} signal(s)")
         continue
 
       # Generate combo key
       combo_key = '+'.join(sorted(set(signals)))
+      checked_combos += 1
+
+      logging.info(f"   🔍 Checking combo: {combo_key} in {timeframe}")
 
       # Check if this combo exists in our database
       cursor.execute('''
@@ -1605,6 +1654,9 @@ def get_active_combinations_for_symbol(symbol):
       combo_data = cursor.fetchone()
 
       if combo_data:
+        matched_combos += 1
+        logging.info(f"   ✅ MATCH FOUND! Accuracy: {combo_data['accuracy']:.2f}%")
+
         if timeframe not in results:
           results[timeframe] = []
 
@@ -1619,20 +1671,36 @@ def get_active_combinations_for_symbol(symbol):
           'correct_predictions': combo_data['correct_predictions'],
           'timestamp': window['latest_timestamp']
         })
+      else:
+        logging.info(f"   ❌ No match in tf_combos for: {combo_key}")
 
     conn.close()
+
+    logging.info(f"\n📊 SUMMARY:")
+    logging.info(f"   Checked combinations: {checked_combos}")
+    logging.info(f"   Matched combinations: {matched_combos}")
+    logging.info(f"   Timeframes with results: {len(results)}")
 
     return jsonify({
       'success': True,
       'symbol': symbol,
       'timeframes': results,
-      'total_combos': sum(len(combos) for combos in results.values())
+      'total_combos': sum(len(combos) for combos in results.values()),
+      'debug_info': {
+        'total_signals': signal_stats['total'],
+        'signals_last_2h': count_2h,
+        'windows_found': len(active_windows),
+        'combos_checked': checked_combos,
+        'combos_matched': matched_combos,
+        'tf_combos_total': combo_total
+      }
     })
 
   except Exception as e:
-    logging.error(f"Failed to get active combinations: {e}")
+    logging.error(f"❌ Failed to get active combinations: {e}")
+    import traceback
+    logging.error(traceback.format_exc())
     return jsonify({'success': False, 'error': str(e)}), 500
-
 # ==================== HELPER FUNCTIONS ====================
 
 def calculate_validity_hours(confidence, pattern_count):
