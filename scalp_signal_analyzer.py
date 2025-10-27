@@ -1268,7 +1268,7 @@ class ScalpSignalAnalyzer:
       combinations = self.analyze_live_combinations(
         symbol=symbol,
         results=results,
-        min_conf_threshold=20.0  # Only save combos with >= 60% accuracy
+        min_conf_threshold=60.0  # Only save combos with >= 60% accuracy
       )
       if combinations:
         results['combinations'] = combinations
