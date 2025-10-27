@@ -94,7 +94,8 @@ class TradingPositionManager:
                 -- Check timing
                 checked_at TIMESTAMP NOT NULL,
                 candles_elapsed INTEGER NOT NULL,
-                
+                exit_reason TEXT,
+                validation_window INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
