@@ -794,6 +794,11 @@ class CryptoPatternMonitor:
       matching_patterns = self.find_matching_patterns(analysis_result)
       pattern_count = len(matching_patterns)
 
+      # NEW: Validate with scalp signal analyzer
+      scalp_validation = self.scalp_validator.validate_signal(symbol, analysis_result['signal'])
+      scalp_analysis = self.scalp_signal_analyzer.analyze_symbol_all_timeframes(symbol, SHORT_TIMEFRAMES)
+      self.scalp_signal_analyzer.save_analysis_result(scalp_analysis)
+
       # Check pattern count threshold (minimum 100)
       if pattern_count < self.min_pattern_count:
         logging.info(f"{symbol}: {pattern_count} patterns - below minimum threshold of {self.min_pattern_count}")
@@ -808,10 +813,8 @@ class CryptoPatternMonitor:
 
       logging.info(f"🎯 {symbol}: {pattern_count} patterns, {confidence:.1%} confidence - Validating with scalp signals...")
 
-      # NEW: Validate with scalp signal analyzer
-      scalp_validation = self.scalp_validator.validate_signal(symbol, analysis_result['signal'])
-      scalp_analysis = self.scalp_signal_analyzer.analyze_symbol_all_timeframes(symbol, SHORT_TIMEFRAMES)
-      self.scalp_signal_analyzer.save_analysis_result(scalp_analysis)
+      # if len(scalp_analysis['combinations']) > 0:
+      #   if len([x in ])
       #
       # if not scalp_validation['validated']:
       #   logging.info(f"❌ {symbol}: No strong short-term signals found - REJECTED")
