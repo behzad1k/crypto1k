@@ -512,7 +512,7 @@ function connectPositionWebSocket() {
     const container = document.getElementById('analyzing-results');
 
     // Pass combinations to render function
-    renderAnalysisResults(container, data.analysis, data.combinations || {});
+    renderAnalysisResults(container, data.analysis, data.analysis.combinations || {});
 };
 
     positionWebSocket.onerror = (error) => {
