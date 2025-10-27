@@ -738,7 +738,7 @@ def get_live_signal_combos(symbol):
   """Get latest signal combinations for a symbol"""
   try:
     timeframe = request.args.get('timeframe')
-    limit = int(request.args.get('limit', 30))
+    limit = int(request.args.get('limit', 100))
 
     conn = sqlite3.connect(app.config['DB_PATH'])
     conn.row_factory = sqlite3.Row
