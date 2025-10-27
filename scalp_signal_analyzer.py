@@ -1066,7 +1066,7 @@ class ScalpSignalAnalyzer:
     self,
     symbol: str,
     results: Dict,
-    min_conf_threshold: float = 70.0
+    min_conf_threshold: float = 60.0
   ) -> Dict:
     """
     Check if detected signals match any validated combinations from tf_combos table
@@ -1269,7 +1269,7 @@ class ScalpSignalAnalyzer:
       combinations = self.analyze_live_combinations(
         symbol=symbol,
         results=results,
-        min_conf_threshold=80.0  # Only save combos with >= 60% accuracy
+        min_conf_threshold=60.0  # Only save combos with >= 60% accuracy
       )
       if combinations:
         results['combinations'] = combinations
