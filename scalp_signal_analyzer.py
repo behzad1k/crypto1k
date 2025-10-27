@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple, Optional
 from itertools import combinations
 from collections import defaultdict
 import logging
+import json
 
 logging.basicConfig(level=logging.INFO)
 
@@ -1268,7 +1269,7 @@ class ScalpSignalAnalyzer:
       combinations = self.analyze_live_combinations(
         symbol=symbol,
         results=results,
-        min_conf_threshold=60.0  # Only save combos with >= 60% accuracy
+        min_conf_threshold=80.0  # Only save combos with >= 60% accuracy
       )
       if combinations:
         results['combinations'] = combinations
@@ -1276,6 +1277,72 @@ class ScalpSignalAnalyzer:
       logging.error(f"Error in combination analysis: {e}")
 
     return results
+
+  def save_analysis_result(self, result: Dict):
+    """Save complete analysis result"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    try:
+      symbol = result['symbol']
+      total_signals = 0
+      total_buy = 0
+      total_sell = 0
+
+      # Save signals from each timeframe
+      for tf, data in result['timeframes'].items():
+        if 'error' in data:
+          continue
+
+        price = data['price']
+        timestamp = data['timestamp']
+
+        total_signals += data['signal_count']
+        total_buy += data['buy_signals']
+        total_sell += data['sell_signals']
+
+        # Import signal confidence
+        from scalp_signal_analyzer import ScalpSignalAnalyzer
+
+        # Save each signal
+        for signal_name, signal_data in data['signals'].items():
+          signal_info = ScalpSignalAnalyzer.SIGNAL_CONFIDENCE.get(signal_name, {})
+          confidence = signal_info.get('confidence', 0)
+
+          cursor.execute('''
+                        INSERT OR REPLACE INTO live_signals 
+                        (symbol, timeframe, signal_name, signal_type, confidence, 
+                         strength, signal_value, price, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+            symbol, tf, signal_name,
+            signal_data.get('signal', 'UNKNOWN'),
+            confidence,
+            signal_data.get('strength'),
+            signal_data.get('value'),
+            price, timestamp
+          ))
+
+      # Save analysis run summary
+      cursor.execute('''
+                INSERT INTO analysis_runs 
+                (symbol, timeframes, total_signals, buy_signals, sell_signals)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+        symbol,
+        json.dumps(list(result['timeframes'].keys())),
+        total_signals, total_buy, total_sell
+      ))
+
+      conn.commit()
+      logging.info(f"✅ Saved analysis for {symbol}: {total_signals} signals")
+
+    except Exception as e:
+      logging.error(f"Failed to save analysis: {e}")
+      conn.rollback()
+    finally:
+      conn.close()
+
 
 
 if __name__ == "__main__":

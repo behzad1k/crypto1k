@@ -15,6 +15,8 @@ import time
 from typing import Dict, List, Tuple, Optional
 from collections import deque
 
+from scalp_signal_analyzer import ScalpSignalAnalyzer
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
@@ -79,7 +81,7 @@ class ScalpSignalValidator:
     'supertrend_bullish', 'supertrend_bearish', 'ichimoku_bullish', 'ichimoku_bearish'
   ]
 
-  SHORT_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m']
+  SHORT_TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h']
 
   def __init__(self):
     self.timeframe_minutes = {
@@ -319,6 +321,7 @@ class ScalpSignalValidator:
 
     return validation_result
 
+SHORT_TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h']
 
 class CryptoPatternMonitor:
   """Main monitoring class - thread-safe for Flask integration"""
@@ -339,6 +342,7 @@ class CryptoPatternMonitor:
 
     # Initialize scalp signal validator
     self.scalp_validator = ScalpSignalValidator()
+    self.scalp_signal_analyzer = ScalpSignalAnalyzer()
 
     # Load patterns
     self.indicator_patterns = self.load_indicator_patterns()
@@ -805,6 +809,8 @@ class CryptoPatternMonitor:
 
       # NEW: Validate with scalp signal analyzer
       scalp_validation = self.scalp_validator.validate_signal(symbol, analysis_result['signal'])
+      scalp_analysis = self.scalp_signal_analyzer.analyze_symbol_all_timeframes(symbol, SHORT_TIMEFRAMES)
+      self.scalp_signal_analyzer.save_analysis_result(scalp_analysis)
       #
       # if not scalp_validation['validated']:
       #   logging.info(f"❌ {symbol}: No strong short-term signals found - REJECTED")
