@@ -313,33 +313,70 @@ class SignalCombinationAnalyzer:
     # ========================================================================
 
     def find_cross_timeframe_combinations(
-        self,
-        timeframes: List[str],
-        min_combo_size: int = 2,
-        max_combo_size: int = 4,
-        time_tolerance_minutes: int = 5
+      self,
+      timeframes: List[str],
+      min_combo_size: int = 2,
+      max_combo_size: int = 4,
+      time_tolerance_minutes: int = 5,
+      skip_existing: bool = True
     ) -> Dict[str, List[Dict]]:
-        """
-        Find signal combinations across different timeframes
+      """
+      Find signal combinations across different timeframes
 
-        Args:
-            timeframes: List of timeframes to analyze (e.g., ['5m', '15m', '1h'])
-            min_combo_size: Minimum number of signals in combination
-            max_combo_size: Maximum number of signals in combination
-            time_tolerance_minutes: How close signals must be in time to be considered together
+      Args:
+          timeframes: List of timeframes to analyze (e.g., ['5m', '15m', '1h'])
+          min_combo_size: Minimum number of signals in combination
+          max_combo_size: Maximum number of signals in combination
+          time_tolerance_minutes: How close signals must be in time to be considered together
+          skip_existing: If True, skip combinations already in cross_tf_combos table
 
-        Returns:
-            Dictionary mapping combination signatures to their results
-        """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+      Returns:
+          Dictionary mapping combination signatures to their results
+      """
+      import time
+      start_time = time.time()
 
-        # Get all signals from all specified timeframes
-        timeframe_signals = {}
+      logging.info("\n" + "=" * 80)
+      logging.info("🔍 CROSS-TIMEFRAME COMBINATION FINDER")
+      logging.info("=" * 80)
+      logging.info(f"Timeframes: {', '.join(timeframes)}")
+      logging.info(f"Combo size: {min_combo_size}-{max_combo_size}")
+      logging.info(f"Time tolerance: {time_tolerance_minutes} minutes")
+      logging.info(f"Skip existing: {skip_existing}")
+      logging.info("=" * 80 + "\n")
 
-        for tf in timeframes:
-            cursor.execute('''
+      conn = sqlite3.connect(self.db_path)
+      conn.row_factory = sqlite3.Row
+      cursor = conn.cursor()
+
+      # ========================================================================
+      # STEP 0: Load existing combinations to skip (if enabled)
+      # ========================================================================
+      existing_combo_signatures = set()
+      if skip_existing:
+        logging.info("🔍 STEP 0/4: Loading existing combinations from database...")
+
+        cursor.execute('''
+                SELECT DISTINCT combo_signature 
+                FROM cross_tf_combos
+            ''')
+
+        existing_combo_signatures = {row['combo_signature'] for row in cursor.fetchall()}
+
+        logging.info(f"   ✓ Found {len(existing_combo_signatures):,} existing combinations to skip")
+        logging.info(f"   ⏱️  Time elapsed: {time.time() - start_time:.2f}s\n")
+
+      # ========================================================================
+      # STEP 1: Fetch signals from all timeframes
+      # ========================================================================
+      logging.info("📥 STEP 1/4: Fetching signals from database...")
+      timeframe_signals = {}
+      total_signals = 0
+
+      for idx, tf in enumerate(timeframes, 1):
+        logging.info(f"   [{idx}/{len(timeframes)}] Fetching {tf} signals...")
+
+        cursor.execute('''
                 SELECT 
                     ls.symbol,
                     ls.signal_name,
@@ -357,123 +394,270 @@ class SignalCombinationAnalyzer:
                 ORDER BY ls.symbol, ls.timestamp
             ''', (tf,))
 
-            signals = [dict(row) for row in cursor.fetchall()]
-            timeframe_signals[tf] = signals
-            logging.info(f"Found {len(signals)} signals for {tf}")
+        signals = [dict(row) for row in cursor.fetchall()]
+        timeframe_signals[tf] = signals
+        total_signals += len(signals)
 
-        conn.close()
+        logging.info(f"      ✓ Found {len(signals):,} signals for {tf}")
 
-        # Group signals by symbol and find cross-timeframe matches
-        all_combinations = defaultdict(list)
-        time_tolerance = timedelta(minutes=time_tolerance_minutes)
+      conn.close()
 
-        # Organize signals by symbol
-        symbol_signals = defaultdict(lambda: defaultdict(list))
-        for tf, signals in timeframe_signals.items():
-            for signal in signals:
-                symbol_signals[signal['symbol']][tf].append(signal)
+      logging.info(f"\n   ✅ Total signals fetched: {total_signals:,}")
+      logging.info(f"   ⏱️  Time elapsed: {time.time() - start_time:.2f}s\n")
 
-        # For each symbol, find cross-timeframe combinations
-        for symbol, tf_signals in symbol_signals.items():
-            # Only proceed if we have signals in multiple timeframes
-            available_tfs = [tf for tf in timeframes if tf_signals.get(tf)]
-            if len(available_tfs) < 2:
-                continue
+      # ========================================================================
+      # STEP 2: Organize signals by symbol
+      # ========================================================================
+      logging.info("🗂️  STEP 2/4: Organizing signals by symbol...")
 
-            # Find temporal matches across timeframes
-            self._find_temporal_cross_tf_matches(
-                symbol, tf_signals, available_tfs, time_tolerance,
-                min_combo_size, max_combo_size, all_combinations
-            )
+      symbol_signals = defaultdict(lambda: defaultdict(list))
+      for tf, signals in timeframe_signals.items():
+        for signal in signals:
+          symbol_signals[signal['symbol']][tf].append(signal)
 
-        logging.info(f"Found {len(all_combinations)} unique cross-timeframe combinations")
-        return all_combinations
+      total_symbols = len(symbol_signals)
+      logging.info(f"   ✓ Organized {total_symbols:,} unique symbols")
+
+      # Count symbols with multi-timeframe signals
+      multi_tf_symbols = [
+        symbol for symbol, tf_sigs in symbol_signals.items()
+        if len([tf for tf in timeframes if tf_sigs.get(tf)]) >= 2
+      ]
+
+      logging.info(f"   ✓ {len(multi_tf_symbols):,} symbols have signals in multiple timeframes")
+      logging.info(f"   ⏱️  Time elapsed: {time.time() - start_time:.2f}s\n")
+
+      # ========================================================================
+      # STEP 3: Find cross-timeframe matches
+      # ========================================================================
+      logging.info("🔗 STEP 3/4: Finding cross-timeframe combinations...")
+      all_combinations = defaultdict(list)
+      time_tolerance = timedelta(minutes=time_tolerance_minutes)
+
+      processed_symbols = 0
+      symbols_with_combos = 0
+      skipped_combos = 0
+      new_combos = 0
+      last_log_time = time.time()
+      log_interval = 5  # Log every 5 seconds
+
+      for symbol, tf_signals in symbol_signals.items():
+        processed_symbols += 1
+
+        # Log progress every 5 seconds or every 100 symbols
+        current_time = time.time()
+        if current_time - last_log_time >= log_interval or processed_symbols % 100 == 0:
+          progress_pct = (processed_symbols / total_symbols) * 100
+          elapsed = current_time - start_time
+          rate = processed_symbols / elapsed if elapsed > 0 else 0
+          eta = (total_symbols - processed_symbols) / rate if rate > 0 else 0
+
+          logging.info(
+            f"   Progress: {processed_symbols:,}/{total_symbols:,} symbols "
+            f"({progress_pct:.1f}%) | "
+            f"Rate: {rate:.1f} symbols/s | "
+            f"ETA: {eta:.0f}s | "
+            f"New: {new_combos:,} | Skipped: {skipped_combos:,}"
+          )
+          last_log_time = current_time
+
+        # Only proceed if we have signals in multiple timeframes
+        available_tfs = [tf for tf in timeframes if tf_signals.get(tf)]
+        if len(available_tfs) < 2:
+          continue
+
+        # Track if this symbol produced any combos
+        combos_before = len(all_combinations)
+
+        # Find temporal matches across timeframes (with skip check)
+        skipped_count = self._find_temporal_cross_tf_matches(
+          symbol, tf_signals, available_tfs, time_tolerance,
+          min_combo_size, max_combo_size, all_combinations,
+          existing_combo_signatures  # Pass existing signatures
+        )
+
+        skipped_combos += skipped_count
+
+        # Count if new combos were added
+        new_count = len(all_combinations) - combos_before
+        if new_count > 0:
+          symbols_with_combos += 1
+          new_combos += new_count
+
+      logging.info(f"\n   ✅ Processed all {total_symbols:,} symbols")
+      logging.info(f"   ✓ {symbols_with_combos:,} symbols produced valid combinations")
+      logging.info(f"   ✓ {new_combos:,} NEW cross-timeframe combinations found")
+      logging.info(f"   ⏭️  {skipped_combos:,} combinations skipped (already exist)")
+      logging.info(f"   ⏱️  Time elapsed: {time.time() - start_time:.2f}s\n")
+
+      # ========================================================================
+      # STEP 4: Summary statistics
+      # ========================================================================
+      logging.info("📊 STEP 4/4: Generating statistics...")
+
+      # Count combo sizes
+      combo_size_distribution = defaultdict(int)
+      samples_per_combo = []
+
+      for combo_name, results in all_combinations.items():
+        # Count signals in combo (split by ' + ')
+        combo_size = len(combo_name.split(' + '))
+        combo_size_distribution[combo_size] += 1
+        samples_per_combo.append(len(results))
+
+      if combo_size_distribution:
+        logging.info(f"\n   Combination size distribution:")
+        for size in sorted(combo_size_distribution.keys()):
+          count = combo_size_distribution[size]
+          pct = (count / len(all_combinations)) * 100 if all_combinations else 0
+          logging.info(f"      {size} signals: {count:,} combinations ({pct:.1f}%)")
+
+      if samples_per_combo:
+        avg_samples = sum(samples_per_combo) / len(samples_per_combo)
+        min_samples = min(samples_per_combo)
+        max_samples = max(samples_per_combo)
+        total_samples = sum(samples_per_combo)
+
+        logging.info(f"\n   Sample statistics:")
+        logging.info(f"      Total samples: {total_samples:,}")
+        logging.info(f"      Avg samples per combo: {avg_samples:.1f}")
+        logging.info(f"      Min samples: {min_samples}")
+        logging.info(f"      Max samples: {max_samples}")
+
+      # ========================================================================
+      # Final summary
+      # ========================================================================
+      total_time = time.time() - start_time
+
+      logging.info("\n" + "=" * 80)
+      logging.info("✅ CROSS-TIMEFRAME COMBINATION FINDER COMPLETE")
+      logging.info("=" * 80)
+      logging.info(f"Total signals processed: {total_signals:,}")
+      logging.info(f"Total symbols analyzed: {total_symbols:,}")
+      logging.info(f"Symbols with multi-TF signals: {len(multi_tf_symbols):,}")
+      logging.info(f"Symbols producing combinations: {symbols_with_combos:,}")
+      logging.info(f"NEW combinations found: {new_combos:,}")
+      logging.info(f"Existing combinations skipped: {skipped_combos:,}")
+      logging.info(f"Total execution time: {total_time:.2f}s ({total_time / 60:.2f} minutes)")
+      if total_symbols > 0:
+        logging.info(f"Average time per symbol: {(total_time / total_symbols) * 1000:.2f}ms")
+      logging.info("=" * 80 + "\n")
+
+      return all_combinations
 
     def _find_temporal_cross_tf_matches(
-        self,
-        symbol: str,
-        tf_signals: Dict[str, List[Dict]],
-        available_tfs: List[str],
-        time_tolerance: timedelta,
-        min_combo_size: int,
-        max_combo_size: int,
-        all_combinations: Dict[str, List[Dict]]
-    ):
-        """
-        Find signals that occur close together in time across different timeframes
-        """
-        # Get all signals sorted by time
-        all_signals = []
-        for tf in available_tfs:
-            for signal in tf_signals[tf]:
-                signal_copy = signal.copy()
-                signal_copy['parsed_timestamp'] = datetime.fromisoformat(signal['timestamp'])
-                all_signals.append(signal_copy)
+      self,
+      symbol: str,
+      tf_signals: Dict[str, List[Dict]],
+      available_tfs: List[str],
+      time_tolerance: timedelta,
+      min_combo_size: int,
+      max_combo_size: int,
+      all_combinations: Dict[str, List[Dict]],
+      existing_combo_signatures: set = None  # NEW parameter
+    ) -> int:
+      """
+      Find signals that occur close together in time across different timeframes
 
-        all_signals.sort(key=lambda x: x['parsed_timestamp'])
+      Returns:
+          Number of combinations skipped
+      """
+      if existing_combo_signatures is None:
+        existing_combo_signatures = set()
 
-        # Use sliding window to find temporally close signals
-        for i, anchor_signal in enumerate(all_signals):
-            anchor_time = anchor_signal['parsed_timestamp']
-            window_signals = [anchor_signal]
+      skipped_count = 0
 
-            # Look forward in time within tolerance
-            for j in range(i + 1, len(all_signals)):
-                candidate = all_signals[j]
-                time_diff = candidate['parsed_timestamp'] - anchor_time
+      # Get all signals sorted by time
+      all_signals = []
+      for tf in available_tfs:
+        for signal in tf_signals[tf]:
+          signal_copy = signal.copy()
+          signal_copy['parsed_timestamp'] = datetime.fromisoformat(signal['timestamp'])
+          all_signals.append(signal_copy)
 
-                if time_diff > time_tolerance:
-                    break
+      all_signals.sort(key=lambda x: x['parsed_timestamp'])
 
-                # Must be from different timeframe
-                if candidate['timeframe'] != anchor_signal['timeframe']:
-                    window_signals.append(candidate)
+      # Use sliding window to find temporally close signals
+      for i, anchor_signal in enumerate(all_signals):
+        anchor_time = anchor_signal['parsed_timestamp']
+        window_signals = [anchor_signal]
 
-            # Generate combinations from this window
-            if len(window_signals) >= min_combo_size:
-                self._generate_cross_tf_combinations(
-                    window_signals, min_combo_size, max_combo_size, all_combinations
-                )
+        # Look forward in time within tolerance
+        for j in range(i + 1, len(all_signals)):
+          candidate = all_signals[j]
+          time_diff = candidate['parsed_timestamp'] - anchor_time
+
+          if time_diff > time_tolerance:
+            break
+
+          # Must be from different timeframe
+          if candidate['timeframe'] != anchor_signal['timeframe']:
+            window_signals.append(candidate)
+
+        # Generate combinations from this window
+        if len(window_signals) >= min_combo_size:
+          skipped = self._generate_cross_tf_combinations(
+            window_signals, min_combo_size, max_combo_size,
+            all_combinations, existing_combo_signatures  # Pass existing signatures
+          )
+          skipped_count += skipped
+
+      return skipped_count
 
     def _generate_cross_tf_combinations(
-        self,
-        window_signals: List[Dict],
-        min_combo_size: int,
-        max_combo_size: int,
-        all_combinations: Dict[str, List[Dict]]
-    ):
-        """
-        Generate all valid cross-timeframe combinations from a window of signals
-        """
-        # Ensure signals are from different timeframes
-        for combo_size in range(min_combo_size, min(max_combo_size + 1, len(window_signals) + 1)):
-            for combo in combinations(window_signals, combo_size):
-                # Verify all signals are from different timeframes
-                timeframes = [s['timeframe'] for s in combo]
-                if len(set(timeframes)) != len(timeframes):
-                    continue  # Skip if duplicate timeframes
+      self,
+      window_signals: List[Dict],
+      min_combo_size: int,
+      max_combo_size: int,
+      all_combinations: Dict[str, List[Dict]],
+      existing_combo_signatures: set = None  # NEW parameter
+    ) -> int:
+      """
+      Generate all valid cross-timeframe combinations from a window of signals
 
-                # Create combination signature
-                combo_parts = []
-                for signal in sorted(combo, key=lambda x: x['timeframe']):
-                    combo_parts.append(f"{signal['signal_name']}[{signal['timeframe']}]")
+      Returns:
+          Number of combinations skipped
+      """
+      if existing_combo_signatures is None:
+        existing_combo_signatures = set()
 
-                combo_signature = ' + '.join(combo_parts)
+      skipped_count = 0
 
-                # Use the prediction result from the shortest timeframe signal
-                # (as it's typically the trigger)
-                shortest_tf_signal = min(combo, key=lambda x: self.get_timeframe_window_seconds(x['timeframe']))
+      # Ensure signals are from different timeframes
+      for combo_size in range(min_combo_size, min(max_combo_size + 1, len(window_signals) + 1)):
+        for combo in combinations(window_signals, combo_size):
+          # Verify all signals are from different timeframes
+          timeframes = [s['timeframe'] for s in combo]
+          if len(set(timeframes)) != len(timeframes):
+            continue  # Skip if duplicate timeframes
 
-                result = {
-                    'predicted_correctly': shortest_tf_signal['predicted_correctly'],
-                    'price_change_pct': shortest_tf_signal['price_change_pct'],
-                    'signal_names': [s['signal_name'] for s in combo],
-                    'timeframes': timeframes,
-                    'signal_types': [s['signal_type'] for s in combo]
-                }
+          # Create combination signature
+          combo_parts = []
+          for signal in sorted(combo, key=lambda x: x['timeframe']):
+            combo_parts.append(f"{signal['signal_name']}[{signal['timeframe']}]")
 
-                all_combinations[combo_signature].append(result)
+          combo_signature = ' + '.join(combo_parts)
 
+          # NEW: Skip if this combination already exists
+          if combo_signature in existing_combo_signatures:
+            skipped_count += 1
+            continue
+
+          # Use the prediction result from the shortest timeframe signal
+          # (as it's typically the trigger)
+          shortest_tf_signal = min(combo, key=lambda x: self.get_timeframe_window_seconds(x['timeframe']))
+
+          result = {
+            'predicted_correctly': shortest_tf_signal['predicted_correctly'],
+            'price_change_pct': shortest_tf_signal['price_change_pct'],
+            'signal_names': [s['signal_name'] for s in combo],
+            'timeframes': timeframes,
+            'signal_types': [s['signal_type'] for s in combo]
+          }
+
+          all_combinations[combo_signature].append(result)
+
+      return skipped_count
     def calculate_cross_tf_accuracy(
         self,
         combo_signature: str,

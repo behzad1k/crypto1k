@@ -1384,7 +1384,7 @@ def analyze_cross_tf_signal_combinations():
 
     return jsonify({
       'success': True,
-      'result': result
+      'result': results
     })
 
   except Exception as e:
