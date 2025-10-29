@@ -166,11 +166,14 @@ def symbol_info(symbol):
   return render_template('symbol.html', symbol=symbol.upper())
 
 
+# ==================== PATTERN SIGNALS API ====================
+
 @app.route('/api/signals')
 @login_required
 def get_signals():
+  """Get pattern signals with pagination and filters"""
   page = int(request.args.get('page', 1))
-  per_page = 10
+  per_page = int(request.args.get('per_page', 10))
   min_accuracy = request.args.get('minAccuracy', type=float)
   min_patterns = request.args.get('minPatterns', type=int)
   signal_type = request.args.get('signalType')
@@ -180,12 +183,11 @@ def get_signals():
   conn.row_factory = sqlite3.Row
   cursor = conn.cursor()
 
-  # Build query
   query = "SELECT * FROM pattern_signals WHERE 1=1"
   params = []
 
   if signal_type:
-    query += " AND signal == ?"
+    query += " AND signal = ?"
     params.append(signal_type.upper())
 
   if min_accuracy:
@@ -198,7 +200,7 @@ def get_signals():
     query += " AND symbol LIKE ?"
     params.append(f'%{symbol}%')
 
-  # Get total count
+    # Count total
   count_query = query.replace('SELECT *', 'SELECT COUNT(*)')
   cursor.execute(count_query, params)
   total = cursor.fetchone()[0]
@@ -208,20 +210,7 @@ def get_signals():
   params.extend([per_page, (page - 1) * per_page])
 
   cursor.execute(query, params)
-  signals = []
-  for row in cursor.fetchall():
-    signals.append({
-      'id': row['id'],
-      'symbol': row['symbol'],
-      'signal': row['signal'],
-      'pattern_confidence': row['pattern_confidence'],
-      'pattern_count': row['pattern_count'],
-      'price': row['price'],
-      'stop_loss': row['stop_loss'],
-      'datetime_created': row['datetime_created'],
-      'validity_hours': calculate_validity_hours(row['pattern_confidence'], row['pattern_count'])
-    })
-
+  signals = [dict(row) for row in cursor.fetchall()]
   conn.close()
 
   return jsonify({
@@ -234,6 +223,7 @@ def get_signals():
 @app.route('/api/symbols/<symbol>')
 @login_required
 def get_symbol_history(symbol):
+  """Get signal history for a specific symbol"""
   conn = sqlite3.connect(app.config['DB_PATH'])
   conn.row_factory = sqlite3.Row
   cursor = conn.cursor()
@@ -244,44 +234,15 @@ def get_symbol_history(symbol):
         ORDER BY datetime_created DESC
     ''', (symbol,))
 
-  history = []
-  for row in cursor.fetchall():
-    history.append({
-      'id': row['id'],
-      'signal': row['signal'],
-      'pattern_confidence': row['pattern_confidence'],
-      'pattern_count': row['pattern_count'],
-      'price': row['price'],
-      'stop_loss': row['stop_loss'],
-      'datetime_created': row['datetime_created'],
-      'validity_hours': calculate_validity_hours(row['pattern_confidence'], row['pattern_count'])
-    })
-
+  history = [dict(row) for row in cursor.fetchall()]
   conn.close()
   return jsonify(history)
-
-
-@app.route('/api/priority-coins', methods=['GET', 'POST'])
-@login_required
-def priority_coins():
-  if request.method == 'POST':
-    data = request.get_json()
-    coins = data.get('coins', [])
-    with open(app.config['PRIORITY_COINS_FILE'], 'w') as f:
-      json.dump(coins, f)
-    return jsonify({'success': True})
-  else:
-    if os.path.exists(app.config['PRIORITY_COINS_FILE']):
-      with open(app.config['PRIORITY_COINS_FILE'], 'r') as f:
-        coins = json.load(f)
-    else:
-      coins = []
-    return jsonify(coins)
 
 
 @app.route('/api/export')
 @login_required
 def export_signals():
+  """Export signals to Excel"""
   min_accuracy = request.args.get('minAccuracy', type=float)
   min_patterns = request.args.get('minPatterns', type=int)
   symbol = request.args.get('symbol', '').upper()
@@ -306,13 +267,6 @@ def export_signals():
   df = pd.read_sql_query(query, conn, params=params)
   conn.close()
 
-  # Add validity hours
-  df['validity_hours'] = df.apply(
-    lambda row: calculate_validity_hours(row['pattern_confidence'], row['pattern_count']),
-    axis=1
-  )
-
-  # Create Excel file
   output = BytesIO()
   with pd.ExcelWriter(output, engine='openpyxl') as writer:
     df.to_excel(writer, index=False, sheet_name='Signals')
@@ -326,29 +280,42 @@ def export_signals():
   )
 
 
+# ==================== PRIORITY COINS ====================
+
+@app.route('/api/priority-coins', methods=['GET', 'POST'])
+@login_required
+def priority_coins():
+  """Manage priority coins list"""
+  if request.method == 'POST':
+    data = request.get_json()
+    coins = data.get('coins', [])
+    with open(app.config['PRIORITY_COINS_FILE'], 'w') as f:
+        json.dump(coins, f)
+    return jsonify({'success': True})
+  else:
+    if os.path.exists(app.config['PRIORITY_COINS_FILE']):
+      with open(app.config['PRIORITY_COINS_FILE'], 'r') as f:
+        coins = json.load(f)
+    else:
+      coins = []
+    return jsonify(coins)
+
+
 # ==================== MONITORING CONTROL ====================
 
 @app.route('/api/monitor/status')
 @login_required
 def monitor_status():
+  """Get monitoring status"""
   global monitor
 
   if monitor is None:
     return jsonify({
       'running': False,
-      'message': 'Monitor not initialized',
-      'symbols_processed': 0,
-      'alerts_triggered': 0,
-      'current_symbol': None,
-      'patterns_loaded': 0,
-      'last_update': None,
-      'current_symbols_count': 0
+            'message': 'Monitor not initialized'
     })
 
-  # Get stats from monitor
   stats = monitor.get_stats()
-
-  # Return consistent status
   return jsonify({
     'running': monitor.running,
     'symbols_processed': stats.get('symbols_processed', 0),
@@ -361,10 +328,10 @@ def monitor_status():
   })
 
 
-# REPLACE your start_monitor route with this:
 @app.route('/api/monitor/start')
 @login_required
 def start_monitor():
+  """Start pattern monitoring"""
   global monitor, monitor_thread
 
   # Check if already running
@@ -417,6 +384,7 @@ def start_monitor():
 @app.route('/api/monitor/stop')
 @login_required
 def stop_monitor():
+  """Stop pattern monitoring"""
   global monitor, monitor_thread
 
   if monitor is None or not monitor.running:
@@ -448,129 +416,10 @@ def stop_monitor():
 
 # ==================== LIVE ANALYSIS ROUTES ====================
 
-
-def get_signal_description(signal_name: str) -> str:
-  """Get human-readable description of signal"""
-  descriptions = {
-    # Candlestick patterns
-    'engulfing_bullish': 'Bullish engulfing pattern - strong reversal signal',
-    'engulfing_bearish': 'Bearish engulfing pattern - strong reversal signal',
-    'hammer': 'Hammer pattern - bullish reversal at support',
-    'shooting_star': 'Shooting star - bearish reversal at resistance',
-    'doji_reversal': 'Doji candle - indecision and potential reversal',
-    'morning_star': 'Morning star pattern - strong bullish reversal',
-    'evening_star': 'Evening star pattern - strong bearish reversal',
-    'three_white_soldiers': 'Three white soldiers - strong bullish continuation',
-    'three_black_crows': 'Three black crows - strong bearish continuation',
-
-    # Moving averages
-    'ma_cross_golden': 'Golden cross - 50 MA crosses above 200 MA (bullish)',
-    'ma_cross_death': 'Death cross - 50 MA crosses below 200 MA (bearish)',
-    'price_above_ma20': 'Price crosses above 20 MA (bullish)',
-    'price_below_ma20': 'Price crosses below 20 MA (bearish)',
-    'ma_ribbon_bullish': 'MA ribbon aligned bullish (5>10>20 EMAs)',
-    'ma_ribbon_bearish': 'MA ribbon aligned bearish (5<10<20 EMAs)',
-
-    # Momentum
-    'rsi_oversold': 'RSI below 30 - oversold condition',
-    'rsi_overbought': 'RSI above 70 - overbought condition',
-    'rsi_divergence_bullish': 'Bullish RSI divergence - very strong signal',
-    'rsi_divergence_bearish': 'Bearish RSI divergence - very strong signal',
-    'macd_cross_bullish': 'MACD bullish crossover',
-    'macd_cross_bearish': 'MACD bearish crossover',
-    'macd_divergence_bullish': 'Bullish MACD divergence',
-    'macd_divergence_bearish': 'Bearish MACD divergence',
-    'stoch_oversold': 'Stochastic oversold (<20)',
-    'stoch_overbought': 'Stochastic overbought (>80)',
-
-    # Volume
-    'volume_spike_bullish': 'Volume spike on bullish candle',
-    'volume_spike_bearish': 'Volume spike on bearish candle',
-    'volume_divergence_bullish': 'Bullish volume divergence',
-    'volume_divergence_bearish': 'Bearish volume divergence',
-    'obv_bullish': 'On-Balance Volume trending up',
-    'obv_bearish': 'On-Balance Volume trending down',
-    'vwap_cross_above': 'Price crosses above VWAP',
-    'vwap_cross_below': 'Price crosses below VWAP',
-
-    # Volatility
-    'bollinger_squeeze': 'Bollinger Band squeeze - breakout pending',
-    'bollinger_breakout_up': 'Price breaks above upper Bollinger Band',
-    'bollinger_breakout_down': 'Price breaks below lower Bollinger Band',
-    'bollinger_bounce_up': 'Price bounces off lower Bollinger Band',
-    'bollinger_bounce_down': 'Price bounces off upper Bollinger Band',
-    'atr_expansion': 'ATR expanding - increased volatility',
-
-    # Trend
-    'adx_strong_trend': 'ADX >25 - strong trend in place',
-    'adx_weak_trend': 'ADX <20 - weak or no trend',
-    'supertrend_bullish': 'SuperTrend indicator bullish',
-    'supertrend_bearish': 'SuperTrend indicator bearish',
-    'parabolic_sar_flip_bullish': 'Parabolic SAR flips bullish',
-    'parabolic_sar_flip_bearish': 'Parabolic SAR flips bearish',
-
-    # Price action
-    'higher_high': 'Price making higher high',
-    'lower_low': 'Price making lower low',
-    'break_of_structure_bullish': 'Bullish break of structure',
-    'break_of_structure_bearish': 'Bearish break of structure',
-    'support_bounce': 'Price bouncing off support level',
-    'resistance_rejection': 'Price rejected at resistance level',
-    'support_break': 'Price breaks below support',
-    'resistance_break': 'Price breaks above resistance',
-  }
-
-  return descriptions.get(signal_name, 'Technical analysis signal')
-
-
-def categorize_signal(signal_name: str) -> str:
-  """Categorize signal by type"""
-  signal_lower = signal_name.lower()
-
-  # Candlestick patterns
-  if any(x in signal_lower for x in
-         ['engulfing', 'hammer', 'star', 'doji', 'marubozu', 'soldiers', 'crows', 'piercing', 'tweezer']):
-    return 'Candlestick Pattern'
-
-  # Moving averages
-  elif any(x in signal_lower for x in ['ma_', 'ema_', 'ribbon', 'moving_average']):
-    return 'Moving Average'
-
-  # Momentum indicators
-  elif any(x in signal_lower for x in ['rsi', 'macd', 'stoch', 'cci', 'williams', 'momentum']):
-    return 'Momentum'
-
-  # Volume indicators
-  elif any(x in signal_lower for x in ['volume', 'obv', 'vwap', 'accumulation']):
-    return 'Volume'
-
-  # Volatility indicators
-  elif any(x in signal_lower for x in ['bollinger', 'atr', 'keltner', 'volatility']):
-    return 'Volatility'
-
-  # Trend indicators
-  elif any(x in signal_lower for x in ['adx', 'supertrend', 'sar', 'ichimoku', 'parabolic']):
-    return 'Trend'
-
-  # Price action
-  elif any(x in signal_lower for x in
-           ['support', 'resistance', 'structure', 'pivot', 'fibonacci', 'break', 'bounce', 'higher', 'lower']):
-    return 'Price Action'
-
-  else:
-    return 'Other'
-
-
 @app.route('/api/live-analysis/analyze', methods=['POST'])
 @login_required
 def analyze_symbol_live():
-  """
-  Analyze a symbol across specified timeframes
-  Request body: {
-      "symbol": "BTC",
-      "timeframes": ["1m", "5m", "15m", "1h"]
-  }
-  """
+  """Analyze symbol across multiple timeframes"""
   try:
     data = request.get_json()
     symbol = data.get('symbol', '').upper()
@@ -600,7 +449,7 @@ def analyze_symbol_live():
       'symbol': symbol,
       'timestamp': result['timestamp'],
       'timeframes': result['timeframes'],
-      'combinations': result['combinations'],
+            'combinations': result['combinations']
     })
 
   except Exception as e:
@@ -632,14 +481,11 @@ def get_live_signals(symbol):
 @app.route('/api/live-analysis/full-signals')
 @login_required
 def get_full_signals():
-  """Get latest signals for a symbol"""
+  """Get all adjusted confidence signals"""
   global fact_checker
   try:
     signals = fact_checker.get_all_adjusted_confidence()
-    return jsonify({
-      'success': True,
-      'signals': signals,
-    })
+    return jsonify({'success': True, 'signals': signals})
 
   except Exception as e:
     logging.error(f"Failed to get signals: {e}")
@@ -680,7 +526,6 @@ def get_signal_info(signal_name):
       'signal_name': signal_name,
       'confidence': info.get('confidence', 0),
       'suitable_timeframes': info.get('timeframes', []),
-      'description': get_signal_description(signal_name)
     })
 
   except Exception as e:
@@ -699,7 +544,7 @@ def get_all_signal_definitions():
         'name': signal_name,
         'confidence': info['confidence'],
         'timeframes': info['timeframes'],
-        'category': categorize_signal(signal_name)
+        # 'category': categorize_signal(signal_name)
       })
 
     # Sort by confidence
@@ -1044,54 +889,22 @@ def symbol_websocket(ws, symbol):
 
 # ==================== FACT-CHECKING ROUTES ====================
 
-@app.route('/api/fact-check/bulk-positions', methods=['POST'])
+@app.route('/api/fact-check/bulk-signals', methods=['POST'])
 @login_required
 def bulk_fact_check_live_signals():
-  """Fact-check all signals for a position"""
-  global trading_manager, fact_checker
+  """Fact-check all signals"""
+  global fact_checker
 
-  if trading_manager is None or fact_checker is None:
-    return jsonify({'success': False, 'error': 'Modules not initialized'}), 500
-
-  data = request.get_json()
-  min_samples = data.get('min_samples', 10)
-
-  try:
-    results = fact_checker.bulk_fact_check_all_signals()
-
-    print(f"Time per check: {elapsed / results['total_checked']:.2f}s")
-    print(f"Accuracy: {results['accuracy']:.2f}%")
-    print(f"Profit Factor: {results['profit_factor']:.2f}")
-    return jsonify({
-      'success': True,
-      'results': results['accuracy']
-    })
-
-  except Exception as e:
-    logging.error(f"Error fact-checking: {e}")
-  return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# ==================== SIGNAL VALIDATION ROUTES ====================
-
-@app.route('/api/signal-validation/bulk-validate', methods=['POST'])
-@login_required
-def bulk_validate_all_signals():
-  """Fact-check all signals for a position"""
-  global signal_validation
-
-  if signal_validation is None:
-    return jsonify({'success': False, 'error': 'Modules not initialized'}), 500
+  if fact_checker is None:
+    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
 
   data = request.get_json()
-  max_workers = data.get('max_workers', 10)
-  limit_per_signal = data.get('limit_per_signal', None)
+  limit = data.get('limit')
+  symbol = data.get('symbol')
 
   try:
     start_time = time.time()
-
-    results = signal_validation.optimize_all_signals(limit_per_signal=limit_per_signal, max_workers=max_workers)
-
+    results = fact_checker.bulk_fact_check_live_signals(symbol=symbol, limit=limit)
     elapsed = time.time() - start_time
     print("\n" + "=" * 80)
     print("VALIDATION WINDOW OPTIMIZATION COMPLETE")
@@ -1133,7 +946,8 @@ def fact_check_position(position_id):
 
     return jsonify({
       'success': True,
-      'results': results
+      'results': results,
+      'time_elapsed': elapsed
     })
 
   except Exception as e:
@@ -1158,11 +972,8 @@ def get_signal_accuracy(signal_name):
     if accuracy:
       return jsonify({'success': True, 'accuracy': accuracy})
     else:
-      return jsonify({
-        'success': False,
-        'error': 'Insufficient data',
-        'message': 'Need at least 10 samples'
-      }), 404
+      return jsonify({'success': False, 'error': 'Insufficient data'}), 404
+
   except Exception as e:
     logging.error(f"Error getting accuracy: {e}")
     return jsonify({'success': False, 'error': str(e)}), 500
@@ -1223,54 +1034,40 @@ def bulk_adjust_signals():
   return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/fact-check/adjustments')
+# ==================== SIGNAL VALIDATION ROUTES ====================
+
+@app.route('/api/signal-validation/bulk-validate', methods=['POST'])
 @login_required
-def get_all_adjustments():
-  """Get all signal confidence adjustments"""
-  global fact_checker
+def bulk_validate_all_signals():
+  """Optimize validation windows for all signals"""
+  global signal_validation
 
-  if fact_checker is None:
-    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
-
-  try:
-
-    adjustments = fact_checker.get_all_adjustments()
-
-    return jsonify({
-      'success': True,
-      'adjustments': adjustments,
-      'count': len(adjustments)
-    })
-  except Exception as e:
-    logging.error(f"Error getting adjustments: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/fact-check/cleanup', methods=['POST'])
-@login_required
-def cleanup_fact_checks():
-  """Clean up old fact-check records"""
-  global fact_checker
-
-  if fact_checker is None:
-    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
+  if signal_validation is None:
+    return jsonify({'success': False, 'error': 'Validator not initialized'}), 500
 
   data = request.get_json()
-  days = data.get('days', 90)
+  max_workers = data.get('max_workers', 10)
+  limit_per_signal = data.get('limit_per_signal')
 
   try:
-    deleted = fact_checker.cleanup_old_fact_checks(days)
+    start_time = time.time()
+    results = signal_validation.optimize_all_signals(
+      limit_per_signal=limit_per_signal,
+      max_workers=max_workers
+    )
+    elapsed = time.time() - start_time
 
     return jsonify({
       'success': True,
-      'deleted': deleted,
-      'message': f'Cleaned up records older than {days} days'
+      'results': results,
+      'time_elapsed': elapsed
     })
   except Exception as e:
-    logging.error(f"Error cleaning up: {e}")
+    logging.error(f"Error validating: {e}")
     return jsonify({'success': False, 'error': str(e)}), 500
-# ==================== SIGNAL-COMBO-ANALYSIS-CHECKING ROUTES ====================
 
+
+# ==================== SIGNAL COMBINATION ROUTES ====================
 
 @app.route('/api/combo-analysis/analyze', methods=['POST'])
 @login_required
