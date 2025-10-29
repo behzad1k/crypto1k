@@ -400,7 +400,7 @@ class SignalValidationOptimizer:
                                 limit: int = None, max_workers: int = 10) -> Dict:
     """
     Optimize validation window for specific signal-timeframe combination
-    Processes signals from both live_signals and position_signals
+    Processes signals from live_signals
     Skips already fact-checked signals
     """
     conn = sqlite3.connect(self.db_path)
@@ -421,32 +421,9 @@ class SignalValidationOptimizer:
             ORDER BY ls.timestamp DESC
         ''', (signal_name, timeframe))
 
-    live_signals = [dict(row) for row in cursor.fetchall()]
-
-    # Get signals from position_signals that haven't been fact-checked
-    cursor.execute('''
-            SELECT 
-                ps.*,
-                tp.symbol,
-                'position_signals' as source_table
-            FROM position_signals ps
-            INNER JOIN trading_positions tp ON ps.position_id = tp.id
-            LEFT JOIN signal_fact_checks sfc 
-                ON ps.signal_name = sfc.signal_name 
-                AND ps.timeframe = sfc.timeframe 
-                AND ps.detected_at = sfc.detected_at
-            WHERE ps.signal_name = ? 
-                AND ps.timeframe = ?
-                AND sfc.id IS NULL
-            ORDER BY ps.detected_at DESC
-        ''', (signal_name, timeframe))
-
-    position_signals = [dict(row) for row in cursor.fetchall()]
+    all_signals = [dict(row) for row in cursor.fetchall()]
 
     conn.close()
-
-    # Combine all signals
-    all_signals = live_signals + position_signals
 
     if limit:
       all_signals = all_signals[:limit]
@@ -480,12 +457,8 @@ class SignalValidationOptimizer:
     # Process in parallel
     def process_signal(signal):
       # Normalize field names
-      if signal['source_table'] == 'position_signals':
-        timestamp = datetime.fromisoformat(signal['detected_at'])
-        price = signal['price_at_detection']
-      else:
-        timestamp = datetime.fromisoformat(signal['timestamp'])
-        price = signal['price']
+      timestamp = datetime.fromisoformat(signal['timestamp'])
+      price = signal['price']
 
       result = self.find_best_validation_window(
         signal['signal_name'],
@@ -568,11 +541,7 @@ class SignalValidationOptimizer:
     # Get all signal-timeframe combinations that have data
     cursor.execute('''
             SELECT DISTINCT signal_name, timeframe
-            FROM (
-                SELECT signal_name, timeframe FROM live_signals
-                UNION
-                SELECT signal_name, timeframe FROM position_signals
-            )
+            FROM live_signals
             ORDER BY signal_name, timeframe
         ''')
 
@@ -696,5 +665,3 @@ def run_validation_window_optimization(limit_per_signal: int = None):
   print("=" * 80 + "\n")
 
   return results
-
-
