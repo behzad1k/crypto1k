@@ -890,7 +890,7 @@ class CryptoPatternMonitor:
     if paper_trading_engine is not None:
       self.paper_trading_engine = paper_trading_engine
     if self.paper_trading_engine:
-      logging.info(f"📊 Paper trading CONNECTED - Bankroll: ${self.paper_trading_engine.bankroll:,.2f}")
+      logging.info(f"📊 Paper trading CONNECTED - Bankroll: ${self.paper_trading_engine.current_bankroll:,.2f}")
     else:
       logging.warning("⚠️  Paper trading NOT connected")
 
