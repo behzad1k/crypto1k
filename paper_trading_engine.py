@@ -1049,7 +1049,7 @@ class PaperTradingEngine:
     if is_valid:
       self.add_to_buying_queue(signal)
     else:
-      logging.debug(f"Signal rejected for {signal['symbol']}: {reason}")
+      logging.warning(f"Signal rejected for {signal['symbol']}: {reason}")
 
   def start(self):
     """Start paper trading engine"""
