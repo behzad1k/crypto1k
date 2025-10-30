@@ -48,6 +48,13 @@ class PaperTradingEngine:
   MIN_PATTERNS_THRESHOLD = 2  # Minimum number of validated combinations required
   MIN_ACCURACY_THRESHOLD = 60.0  # Minimum accuracy percentage for combinations
 
+  MIN_CROSS_TF_ALIGNMENT = 3  # Minimum aligned timeframes
+  MIN_STRONG_SIGNALS_PER_HOUR = 5  # Minimum strong signals/hour
+  SIGNAL_COOLDOWN_HOURS = 6  # Hours between signals for same symbol
+  MAX_RECENT_LOSSES = 2  # Max recent losses before blacklisting
+  RECENT_LOSS_WINDOW_DAYS = 7  # Days to look back for losses
+  MIN_SCALP_AGREEMENT_PCT = 66.67  # Minimum scalp agreement percentage
+
   def __init__(self, db_path: str = 'crypto_signals.db', initial_bankroll: float = 10000.0):
     self.db_path = db_path
     self.initial_bankroll = initial_bankroll
@@ -360,44 +367,49 @@ class PaperTradingEngine:
 
     return total_count, weighted_accuracy
 
-  def evaluate_signal_for_entry(self, signal: Dict) -> Tuple[bool, str]:
-    """
-    MODIFIED: Evaluate if a signal qualifies for adding to buying queue
+  """
+  Enhanced Paper Trading Engine - Additional Buying Conditions
+  Add these methods to your PaperTradingEngine class
+  """
 
-    NEW Criteria added:
-    - 24h price change must be <= MAX_24H_CHANGE
-    - Must have >= MIN_PATTERNS_THRESHOLD validated combinations
-    - Combinations must have >= MIN_ACCURACY_THRESHOLD accuracy
-
-    Returns: (is_valid, rejection_reason)
+  def evaluate_signal_for_entry_enhanced(self, signal: Dict) -> Tuple[bool, str]:
     """
-    # Check if BUY signal
+    ENHANCED version with additional filters
+
+    New filters added:
+    1. Cross-timeframe alignment (3+ timeframes)
+    2. Strong signal density (5+ strong signals/hour)
+    3. Volume confirmation
+    4. Divergence signal priority
+    5. Recent loss prevention
+    6. Market structure confirmation
+    7. Signal cooldown (6 hours)
+    8. Enhanced scalp agreement (66%+ across short TFs)
+    """
+
+    # ===== EXISTING FILTERS =====
     if signal.get('signal') != 'BUY':
       return False, "NOT_BUY_SIGNAL"
 
-    # Check confidence and patterns
-    if signal.get('pattern_confidence', 0) < 0.75:  # 75% minimum
+    if signal.get('pattern_confidence', 0) < 0.75:
       return False, "LOW_CONFIDENCE"
 
-    if signal.get('pattern_count', 0) < 700:  # 700 patterns minimum
+    if signal.get('pattern_count', 0) < 700:
       return False, "LOW_PATTERN_COUNT"
 
     symbol = signal['symbol']
 
-    # Check if already in queue or position
     if symbol in self.buying_queue or symbol in self.active_positions:
       return False, "ALREADY_TRACKED"
 
-    # Check if we can open new positions
     if len(self.active_positions) >= self.MAX_POSITIONS:
       return False, "MAX_POSITIONS_REACHED"
 
-    # Check available bankroll for new position
     position_size = self.initial_bankroll / self.SPLIT_BANKROLL_TO
     if self.current_bankroll < position_size:
       return False, "INSUFFICIENT_BANKROLL"
 
-    # NEW: Check 24h price change
+    # 24h price change check
     price_24h_change = self.get_24h_price_change(symbol)
     if price_24h_change is None:
       logging.warning(f"⚠️  Could not fetch 24h change for {symbol}, skipping")
@@ -407,7 +419,7 @@ class PaperTradingEngine:
       logging.info(f"❌ {symbol} rejected: 24h change {price_24h_change:+.2f}% exceeds {self.MAX_24H_CHANGE}%")
       return False, f"24H_CHANGE_TOO_HIGH ({price_24h_change:+.2f}%)"
 
-    # NEW: Check validated combinations
+    # Validated combinations check
     patterns_count, avg_accuracy = self.get_validated_combinations(symbol)
 
     if patterns_count < self.MIN_PATTERNS_THRESHOLD:
@@ -418,17 +430,270 @@ class PaperTradingEngine:
       logging.info(f"❌ {symbol} rejected: Avg accuracy {avg_accuracy:.1f}% (need {self.MIN_ACCURACY_THRESHOLD}%)")
       return False, f"LOW_ACCURACY ({avg_accuracy:.1f}%)"
 
-    # All checks passed
-    logging.info(f"✅ {symbol} passed all validation checks:")
+    # ===== NEW FILTERS =====
+
+    # 1. Cross-timeframe alignment
+    is_aligned, num_tfs = self.check_cross_timeframe_alignment(symbol)
+    if not is_aligned:
+      logging.info(f"❌ {symbol} rejected: Only {num_tfs} aligned timeframes (need 3+)")
+      return False, f"INSUFFICIENT_TF_ALIGNMENT ({num_tfs})"
+
+    # 2. Strong signal density
+    passed, reason = self.check_strong_signal_density(signal)
+    if not passed:
+      logging.info(f"❌ {symbol} rejected: {reason}")
+      return False, reason
+
+    # 3. Volume confirmation
+    passed, reason = self.check_volume_confirmation(symbol)
+    if not passed:
+      logging.info(f"❌ {symbol} rejected: {reason}")
+      return False, reason
+
+    # 4. Recent loss prevention
+    passed, reason = self.check_recent_loss_history(symbol)
+    if not passed:
+      logging.info(f"❌ {symbol} rejected: {reason}")
+      return False, reason
+
+    # 5. Market structure confirmation
+    passed, reason = self.check_market_structure(symbol)
+    if not passed:
+      logging.info(f"❌ {symbol} rejected: {reason}")
+      return False, reason
+
+    # 6. Signal cooldown
+    passed, reason = self.check_signal_cooldown(symbol)
+    if not passed:
+      logging.info(f"❌ {symbol} rejected: {reason}")
+      return False, reason
+
+    # 7. Enhanced scalp agreement
+    passed, agreement_pct = self.check_scalp_signal_agreement(symbol)
+    if not passed:
+      logging.info(f"❌ {symbol} rejected: Low scalp agreement {agreement_pct:.1f}% (need 66.7%+)")
+      return False, f"LOW_SCALP_AGREEMENT ({agreement_pct:.1f}%)"
+
+    # 8. BONUS: Divergence signal priority (gives bonus points, not required)
+    has_divergence, div_count = self.check_divergence_signals(symbol)
+    if has_divergence:
+      logging.info(f"✨ {symbol} BONUS: Has {div_count} divergence signal(s)")
+
+    # ===== ALL CHECKS PASSED =====
+    logging.info(f"✅ {symbol} passed ALL validation checks:")
     logging.info(f"   24h change: {price_24h_change:+.2f}%")
     logging.info(f"   Validated patterns: {patterns_count} (accuracy: {avg_accuracy:.1f}%)")
+    logging.info(f"   Cross-TF alignment: {num_tfs} timeframes")
+    logging.info(f"   Scalp agreement: {agreement_pct:.1f}%")
+    if has_divergence:
+      logging.info(f"   🎯 Divergence signals: {div_count}")
 
-    # Store validation data for later use
+    # Store validation data
     signal['price_24h_change'] = price_24h_change
     signal['validated_patterns_count'] = patterns_count
     signal['avg_pattern_accuracy'] = avg_accuracy
+    signal['cross_tf_alignment'] = num_tfs
+    signal['scalp_agreement'] = agreement_pct
+    signal['has_divergence'] = has_divergence
 
     return True, "PASSED"
+
+  # ===== NEW HELPER METHODS =====
+
+  def check_cross_timeframe_alignment(self, symbol: str) -> Tuple[bool, int]:
+    """Check if BUY signals appear across multiple timeframes"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+          SELECT DISTINCT timeframe, COUNT(*) as buy_count
+          FROM live_signals
+          WHERE symbol = ?
+            AND signal_type = 'BUY'
+            AND timestamp >= datetime('now', '-2 hours')
+          GROUP BY timeframe
+          HAVING buy_count >= 2
+      ''', (symbol,))
+
+    aligned_tfs = cursor.fetchall()
+    conn.close()
+
+    # Require at least 3 different timeframes showing BUY signals
+    return len(aligned_tfs) >= 3, len(aligned_tfs)
+
+  def check_strong_signal_density(self, signal: Dict) -> Tuple[bool, str]:
+    """Check concentration of high-confidence signals"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+          SELECT COUNT(*) as strong_count
+          FROM live_signals
+          WHERE symbol = ?
+            AND signal_type = 'BUY'
+            AND confidence >= 75
+            AND timestamp >= datetime('now', '-1 hour')
+      ''', (signal['symbol'],))
+
+    strong_count = cursor.fetchone()[0]
+    conn.close()
+
+    # Require at least 5 strong BUY signals in last hour
+    if strong_count < 5:
+      return False, f"INSUFFICIENT_STRONG_SIGNALS ({strong_count})"
+
+    return True, "PASSED"
+
+  def check_volume_confirmation(self, symbol: str) -> Tuple[bool, str]:
+    """Verify volume supports the move"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+          SELECT COUNT(*) as volume_signals
+          FROM live_signals
+          WHERE symbol = ?
+            AND signal_name IN ('volume_spike_bullish', 'volume_climax_bullish', 
+                                'obv_bullish', 'cmf_bullish')
+            AND timestamp >= datetime('now', '-2 hours')
+      ''', (symbol,))
+
+    volume_signals = cursor.fetchone()[0]
+    conn.close()
+
+    if volume_signals < 1:
+      return False, "NO_VOLUME_CONFIRMATION"
+
+    return True, "PASSED"
+
+  def check_divergence_signals(self, symbol: str) -> Tuple[bool, int]:
+    """Check for high-confidence divergence signals"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+          SELECT COUNT(*) as div_count
+          FROM live_signals
+          WHERE symbol = ?
+            AND signal_type = 'BUY'
+            AND signal_name LIKE '%divergence%bullish%'
+            AND timestamp >= datetime('now', '-4 hours')
+      ''', (symbol,))
+
+    div_count = cursor.fetchone()[0]
+    conn.close()
+
+    return div_count > 0, div_count
+
+  def check_recent_loss_history(self, symbol: str) -> Tuple[bool, str]:
+    """Avoid symbols that recently stopped us out"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+          SELECT COUNT(*) as recent_losses
+          FROM position_history
+          WHERE symbol = ?
+            AND exit_reason IN ('STOP_LOSS', 'STRONG_SELL_SIGNALS')
+            AND closed_at >= datetime('now', '-7 days')
+      ''', (symbol,))
+
+    recent_losses = cursor.fetchone()[0]
+    conn.close()
+
+    if recent_losses >= 2:
+      return False, f"RECENT_LOSSES ({recent_losses})"
+
+    return True, "PASSED"
+
+  def check_market_structure(self, symbol: str) -> Tuple[bool, str]:
+    """Check for bullish market structure signals"""
+    structure_signals = [
+      'break_of_structure_bullish',
+      'choch_bullish',
+      'higher_high',
+      'support_bounce',
+      'resistance_break'
+    ]
+
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    placeholders = ','.join('?' * len(structure_signals))
+    cursor.execute(f'''
+          SELECT COUNT(*) as structure_count
+          FROM live_signals
+          WHERE symbol = ?
+            AND signal_name IN ({placeholders})
+            AND timestamp >= datetime('now', '-3 hours')
+      ''', [symbol] + structure_signals)
+
+    structure_count = cursor.fetchone()[0]
+    conn.close()
+
+    if structure_count < 1:
+      return False, "NO_STRUCTURE_CONFIRMATION"
+
+    return True, "PASSED"
+
+  def check_signal_cooldown(self, symbol: str) -> Tuple[bool, str]:
+    """Prevent buying same symbol too frequently"""
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+          SELECT MAX(datetime_created) as last_signal
+          FROM pattern_signals
+          WHERE symbol = ? AND signal = 'BUY'
+      ''', (symbol,))
+
+    result = cursor.fetchone()
+    conn.close()
+
+    if result and result[0]:
+      last_signal = result[0]
+      last_time = datetime.fromisoformat(last_signal)
+      hours_since = (datetime.now() - last_time).total_seconds() / 3600
+
+      if hours_since < 6:  # 6 hour cooldown
+        return False, f"SIGNAL_COOLDOWN ({hours_since:.1f}h)"
+
+    return True, "PASSED"
+
+  def check_scalp_signal_agreement(self, symbol: str) -> Tuple[bool, float]:
+    """Enhanced scalp validation - require agreement across SHORT timeframes"""
+    short_tfs = ['1m', '5m', '15m']
+
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+          SELECT 
+              timeframe,
+              SUM(CASE WHEN signal_type = 'BUY' THEN 1 ELSE 0 END) as buy_count,
+              SUM(CASE WHEN signal_type = 'SELL' THEN 1 ELSE 0 END) as sell_count
+          FROM live_signals
+          WHERE symbol = ?
+            AND timeframe IN (?, ?, ?)
+            AND timestamp >= datetime('now', '-30 minutes')
+          GROUP BY timeframe
+      ''', [symbol] + short_tfs)
+
+    results = cursor.fetchall()
+    conn.close()
+
+    if not results:
+      return False, 0.0
+
+    buy_agreement = sum(1 for r in results if r[1] > r[2])
+    agreement_pct = (buy_agreement / len(short_tfs)) * 100
+
+    if agreement_pct < 66.67:  # At least 2 of 3 timeframes agree
+      return False, agreement_pct
+
+    return True, agreement_pct
+
+  # ===== CONFIGURATION CONSTANTS (add to class) =====
 
   def add_to_buying_queue(self, signal: Dict):
     """Add qualified signal to buying queue"""
@@ -884,7 +1149,6 @@ class PaperTradingEngine:
     if not state:
       return {}
 
-    logging.info(f"   Current trading statistics: {state}")
     total_trades = state[3]
     winning_trades = state[4]
     losing_trades = state[5]
