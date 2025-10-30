@@ -19,7 +19,6 @@ import time
 from typing import Dict, List, Tuple, Optional
 from collections import deque
 
-from paper_trading_engine import PaperTradingEngine
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -332,7 +331,7 @@ class CryptoPatternMonitor:
   """Main monitoring class - thread-safe for Flask integration"""
 
   def __init__(self, db_path: str, pattern_file: str = 'patterns.json',
-               priority_coins_file: str = 'priority_coins.json'):
+               priority_coins_file: str = 'priority_coins.json', paper_trading_engine = None):
     self.db_path = db_path
     self.pattern_file = pattern_file
     self.priority_coins_file = priority_coins_file
@@ -341,7 +340,7 @@ class CryptoPatternMonitor:
     self.symbol_queue = deque()
 
     # ⭐ FIX 1: Store paper trading engine as instance variable
-    self.paper_trading_engine = None
+    self.paper_trading_engine = paper_trading_engine
 
     # Configuration
     self.min_pattern_accuracy = 0.75
