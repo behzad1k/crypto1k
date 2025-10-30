@@ -372,7 +372,7 @@ class PaperTradingEngine:
   Add these methods to your PaperTradingEngine class
   """
 
-  def evaluate_signal_for_entry_enhanced(self, signal: Dict) -> Tuple[bool, str]:
+  def evaluate_signal_for_entry(self, signal: Dict) -> Tuple[bool, str]:
     """
     ENHANCED version with additional filters
 
