@@ -1,5 +1,6 @@
 """
-Signal Fact Checker - CLEANED VERSION
+Signal Fact Checker - MODIFIED VERSION
+- ADDED: Stores accuracy in signals table after fact-checking
 - Uses validation windows from signals table
 - Updates signal accuracies after fact-checking
 - 0.5% minimum profit threshold
@@ -100,7 +101,7 @@ class SignalFactChecker:
     """
     Fact-checker with:
     - Validation windows from signals table
-    - Signal accuracy updates
+    - Signal accuracy updates IN SIGNALS TABLE
     - 0.5% minimum profit threshold
     - Fast batch processing
     - Rate limit management
@@ -155,7 +156,51 @@ class SignalFactChecker:
 
         # Cache for validation windows
         self.validation_window_cache = {}
+        self.init_fact_checking_tables()
         self._load_validation_windows()
+
+    def init_fact_checking_tables(self):
+      """Create and populate signals table with all signal definitions"""
+      conn = sqlite3.connect(self.db_path)
+      cursor = conn.cursor()
+
+      # Create signals table
+      cursor.execute('''CREATE TABLE IF NOT EXISTS signal_fact_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_name TEXT NOT NULL,
+            timeframe TEXT NOT NULL,
+            detected_at TIMESTAMP NOT NULL,
+            price_at_detection REAL NOT NULL,
+            actual_move TEXT,
+            predicted_correctly BOOLEAN,
+            price_change_pct REAL,
+            checked_at TIMESTAMP NOT NULL,
+            candles_elapsed INTEGER NOT NULL,
+            exit_reason TEXT,
+            validation_window INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+''')
+
+      conn.commit()
+      cursor.execute('''CREATE TABLE IF NOT EXISTS signal_confidence_adjustments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_name TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                original_confidence INTEGER NOT NULL,
+                adjusted_confidence INTEGER NOT NULL,
+                accuracy_rate REAL NOT NULL,
+                sample_size INTEGER NOT NULL,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(signal_name, timeframe)
+            );
+''')
+
+      conn.commit()
+
+      conn.close()
+
+      logging.info("✅ Fact-checks table populated with all signal-timeframe combinations")
 
     def _load_validation_windows(self):
         """Load all validation windows from signals table into cache"""
@@ -591,7 +636,7 @@ class SignalFactChecker:
         logging.info(
             f"   Stopped: {results['stopped_out']} ({results['stopped_out'] / max(results['total_checked'], 1) * 100:.1f}%)")
 
-        # Update signal accuracies
+        # ⭐ MODIFIED: Update signal accuracies in signals table
         self._update_signal_accuracies_from_results(results['details'])
 
         return results
@@ -676,7 +721,7 @@ class SignalFactChecker:
             else:
                 results['profit_factor'] = winning_sum if winning_sum > 0 else 0
 
-        # Update signal accuracies
+        # ⭐ MODIFIED: Update signal accuracies in signals table
         self._update_signal_accuracies_from_results(results['details'])
 
         return results
@@ -715,8 +760,10 @@ class SignalFactChecker:
 
     def _update_signal_accuracies_from_results(self, fact_check_results: List[Dict]):
         """
-        Update signal accuracies in signals table based on fact-check results
+        ⭐ MODIFIED VERSION ⭐
+        Update signal accuracies in SIGNALS TABLE based on fact-check results
         Groups by signal-timeframe and calculates accuracy
+        Also updates the signal_confidence_adjustments table if it exists
         """
         if not fact_check_results:
             return
@@ -737,11 +784,12 @@ class SignalFactChecker:
         for key, stats in signal_stats.items():
             signal_name, timeframe = key.split(':', 1)
 
-            # Get current stats from database
+            # Get current stats from database (all fact-checks, not just current batch)
             cursor.execute('''
                 SELECT 
                     COUNT(*) as total,
-                    SUM(CASE WHEN predicted_correctly = 1 THEN 1 ELSE 0 END) as correct
+                    SUM(CASE WHEN predicted_correctly = 1 THEN 1 ELSE 0 END) as correct,
+                    AVG(price_change_pct) as avg_change
                 FROM signal_fact_checks
                 WHERE signal_name = ? AND timeframe = ?
             ''', (signal_name, timeframe))
@@ -751,8 +799,9 @@ class SignalFactChecker:
                 total = db_result[0]
                 correct = db_result[1] or 0
                 accuracy = (correct / total) * 100
+                avg_price_change = db_result[2] or 0
 
-                # Update signals table
+                # ⭐ UPDATE SIGNALS TABLE WITH ACCURACY ⭐
                 cursor.execute('''
                     UPDATE signals
                     SET signal_accuracy = ?,
@@ -761,10 +810,26 @@ class SignalFactChecker:
                     WHERE signal_name = ? AND timeframe = ?
                 ''', (accuracy, total, datetime.now(), signal_name, timeframe))
 
+                # Also update signal_confidence_adjustments table if it exists
+                cursor.execute('''
+                    SELECT COUNT(*) FROM signal_confidence_adjustments
+                    WHERE signal_name = ? AND timeframe = ?
+                ''', (signal_name, timeframe))
+
+                if cursor.fetchone()[0] > 0:
+                    # Update existing record in adjustments table
+                    cursor.execute('''
+                        UPDATE signal_confidence_adjustments
+                        SET accuracy_rate = ?,
+                            sample_size = ?,
+                            last_updated = ?
+                        WHERE signal_name = ? AND timeframe = ?
+                    ''', (accuracy, total, datetime.now(), signal_name, timeframe))
+
         conn.commit()
         conn.close()
 
-        logging.info(f"✅ Updated accuracies for {len(signal_stats)} signal-timeframe combinations")
+        logging.info(f"✅ Updated accuracies for {len(signal_stats)} signal-timeframe combinations in signals table")
 
     def calculate_signal_accuracy(self, signal_name: str, timeframe: str = None,
                                   min_samples: int = 10) -> Optional[Dict]:
@@ -1052,14 +1117,14 @@ if __name__ == "__main__":
     checker = SignalFactChecker()
 
     print("\n" + "=" * 80)
-    print("CLEANED FACT-CHECKER - LIVE SIGNALS ONLY")
+    print("MODIFIED FACT-CHECKER - STORES ACCURACY IN SIGNALS TABLE")
     print("=" * 80)
     print(f"\nSettings:")
     print(f"  Min Profit: {checker.MIN_PROFIT_THRESHOLD_PCT}%")
     print(f"  Stop-Loss: {checker.STOP_LOSS_PCT}%")
     print(f"  Workers: {checker.MAX_WORKERS}")
     print(f"  Validation windows: From signals table")
-    print(f"  Signal accuracies: Auto-updated after fact-checking")
+    print(f"  Signal accuracies: Auto-updated in SIGNALS TABLE after fact-checking")
 
     print(f"\n{'=' * 80}")
     print("TEST: Fact-checking live_signals")

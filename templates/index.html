@@ -233,6 +233,38 @@
             </div>
         </div>
 
+        <!-- ⭐ NEW: Signal Combination Analysis -->
+        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+            <div class="flex items-center gap-2 mb-6">
+                <i data-lucide="git-merge" class="w-6 h-6 text-purple-400"></i>
+                <h2 class="text-2xl font-bold text-white">Signal Combination Analysis</h2>
+            </div>
+
+            <div class="space-y-3">
+                <button onclick="openSameTfComboModal()"
+                        class="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                    <i data-lucide="layers" class="w-5 h-5"></i>
+                    Analyze Same-Timeframe Combinations
+                </button>
+
+                <button onclick="openCrossTfComboModal()"
+                        class="w-full flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                    <i data-lucide="shuffle" class="w-5 h-5"></i>
+                    Analyze Cross-Timeframe Combinations
+                </button>
+
+                <button onclick="viewComboResults()"
+                        class="w-full flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-700 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                    <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
+                    View Combination Results
+                </button>
+            </div>
+
+            <div id="combo-results" class="mt-6 empty:hidden">
+                <!-- Results will appear here -->
+            </div>
+        </div>
+
         <!-- System Info -->
         <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
             <h3 class="text-lg font-semibold text-white mb-4">System Configuration</h3>
@@ -261,6 +293,140 @@
         </div>
     </div>
 </main>
+
+<!-- ⭐ MODAL: Same-Timeframe Combination Analysis -->
+<div id="same-tf-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+    <div class="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-md mx-4">
+        <div class="flex items-center justify-between p-6 border-b border-slate-700">
+            <h3 class="text-xl font-bold text-white">Same-Timeframe Analysis</h3>
+            <button onclick="closeSameTfComboModal()" class="text-slate-400 hover:text-white">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+
+        <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Timeframe</label>
+                <select id="same-tf-timeframe" class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    <option value="">All Timeframes</option>
+                    <option value="1m">1 minute</option>
+                    <option value="3m">3 minutes</option>
+                    <option value="5m">5 minutes</option>
+                    <option value="15m">15 minutes</option>
+                    <option value="30m">30 minutes</option>
+                    <option value="1h">1 hour</option>
+                    <option value="2h">2 hours</option>
+                    <option value="4h">4 hours</option>
+                    <option value="6h">6 hours</option>
+                    <option value="8h">8 hours</option>
+                    <option value="12h">12 hours</option>
+                    <option value="1d">1 day</option>
+                    <option value="3d">3 days</option>
+                    <option value="1w">1 week</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Minimum Samples</label>
+                <input type="number" id="same-tf-min-samples" value="20" min="5" max="1000"
+                       class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Minimum Combo Size</label>
+                <input type="number" id="same-tf-min-combo" value="2" min="2" max="10"
+                       class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Maximum Combo Size</label>
+                <input type="number" id="same-tf-max-combo" value="4" min="2" max="10"
+                       class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+            </div>
+
+            <button onclick="runSameTfComboAnalysis()"
+                    class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                Start Analysis
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ⭐ MODAL: Cross-Timeframe Combination Analysis -->
+<div id="cross-tf-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+    <div class="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-md mx-4">
+        <div class="flex items-center justify-between p-6 border-b border-slate-700">
+            <h3 class="text-xl font-bold text-white">Cross-Timeframe Analysis</h3>
+            <button onclick="closeCrossTfComboModal()" class="text-slate-400 hover:text-white">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+
+        <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Timeframes (select multiple)</label>
+                <div class="bg-slate-700 border border-slate-600 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2">
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="1m"> 1 minute
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="3m"> 3 minutes
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="5m" checked> 5 minutes
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="15m" checked> 15 minutes
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="30m"> 30 minutes
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="1h" checked> 1 hour
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="2h"> 2 hours
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="4h"> 4 hours
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="6h"> 6 hours
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="12h"> 12 hours
+                    </label>
+                    <label class="flex items-center gap-2 text-white">
+                        <input type="checkbox" class="cross-tf-checkbox" value="1d"> 1 day
+                    </label>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Minimum Samples</label>
+                <input type="number" id="cross-tf-min-samples" value="15" min="5" max="1000"
+                       class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Minimum Combo Size</label>
+                <input type="number" id="cross-tf-min-combo" value="2" min="2" max="10"
+                       class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-300 mb-2">Maximum Combo Size</label>
+                <input type="number" id="cross-tf-max-combo" value="3" min="2" max="10"
+                       class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+            </div>
+
+            <button onclick="runCrossTfComboAnalysis()"
+                    class="w-full bg-teal-600 hover:bg-teal-700 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                Start Analysis
+            </button>
+        </div>
+    </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

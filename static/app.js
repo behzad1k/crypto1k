@@ -23,6 +23,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     });
+
+    // Close modals on outside click
+    document.getElementById('same-tf-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'same-tf-modal') closeSameTfComboModal();
+    });
+    document.getElementById('cross-tf-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'cross-tf-modal') closeCrossTfComboModal();
+    });
 });
 
 // Page Navigation
@@ -458,6 +466,316 @@ async function viewAdjustedConfidences() {
             resultsDiv.innerHTML = html;
         } else {
             resultsDiv.innerHTML = '<p class="text-slate-400">No adjusted confidences found</p>';
+        }
+    } catch (error) {
+        resultsDiv.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+    }
+}
+
+// ⭐ NEW: Signal Combination Analysis Functions
+
+// Modal controls
+function openSameTfComboModal() {
+    const modal = document.getElementById('same-tf-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        lucide.createIcons();
+    }
+}
+
+function closeSameTfComboModal() {
+    const modal = document.getElementById('same-tf-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function openCrossTfComboModal() {
+    const modal = document.getElementById('cross-tf-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        lucide.createIcons();
+    }
+}
+
+function closeCrossTfComboModal() {
+    const modal = document.getElementById('cross-tf-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+// Same-timeframe analysis
+async function runSameTfComboAnalysis() {
+    const timeframe = document.getElementById('same-tf-timeframe')?.value;
+    const minSamples = parseInt(document.getElementById('same-tf-min-samples')?.value || 20);
+    const minCombo = parseInt(document.getElementById('same-tf-min-combo')?.value || 2);
+    const maxCombo = parseInt(document.getElementById('same-tf-max-combo')?.value || 4);
+
+    if (minCombo > maxCombo) {
+        alert('Minimum combo size cannot be greater than maximum combo size');
+        return;
+    }
+
+    if (!confirm(`This will analyze ${timeframe || 'all timeframes'} for signal combinations. This may take several minutes. Continue?`)) {
+        return;
+    }
+
+    closeSameTfComboModal();
+
+    const resultsDiv = document.getElementById('combo-results');
+    if (!resultsDiv) return;
+
+    resultsDiv.innerHTML = '<p class="text-slate-400 animate-pulse">Analyzing same-timeframe combinations...</p>';
+
+    try {
+        const response = await fetch('/api/combo-analysis/analyze', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                timeframe: timeframe || null,
+                min_samples: minSamples,
+                min_combo_size: minCombo,
+                max_combo_size: maxCombo
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            const result = data.result;
+
+            let html = `
+                <div class="bg-green-500/20 border border-green-500/50 rounded p-4 text-green-400 mb-4">
+                    <p class="font-bold">✅ Same-Timeframe Analysis Complete!</p>
+                    <p class="mt-2">Timeframe: ${result.timeframe || 'All'}</p>
+                    <p>Total combinations found: ${result.total_combinations || 0}</p>
+                    <p>Analyzed: ${result.analyzed || 0}</p>
+                    <p>Skipped (insufficient data): ${result.skipped_insufficient_samples || 0}</p>
+                </div>
+            `;
+
+            if (result.combinations && result.combinations.length > 0) {
+                html += `
+                    <h4 class="text-white font-semibold mb-3">Top Combinations (${result.combinations.length})</h4>
+                    <div class="max-h-96 overflow-y-auto space-y-2">
+                `;
+
+                result.combinations.slice(0, 20).forEach((combo, idx) => {
+                    html += `
+                        <div class="bg-slate-700/50 rounded p-3">
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1">
+                                    <p class="text-white font-semibold text-sm">#${idx + 1}: ${combo.combo_name}</p>
+                                    <p class="text-slate-400 text-xs mt-1">
+                                        ${combo.combo_size} signals | ${combo.total_samples} samples
+                                    </p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-lg font-bold ${combo.accuracy >= 60 ? 'text-green-400' : combo.accuracy >= 50 ? 'text-yellow-400' : 'text-red-400'}">
+                                        ${combo.accuracy.toFixed(1)}%
+                                    </p>
+                                    <p class="text-xs text-slate-400">
+                                        PF: ${combo.profit_factor?.toFixed(2) || 'N/A'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+            } else {
+                html += '<p class="text-slate-400 mt-4">No combinations found with sufficient data</p>';
+            }
+
+            resultsDiv.innerHTML = html;
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (error) {
+        resultsDiv.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+    }
+}
+
+// Cross-timeframe analysis
+async function runCrossTfComboAnalysis() {
+    const checkboxes = document.querySelectorAll('.cross-tf-checkbox:checked');
+    const timeframes = Array.from(checkboxes).map(cb => cb.value);
+    const minSamples = parseInt(document.getElementById('cross-tf-min-samples')?.value || 15);
+    const minCombo = parseInt(document.getElementById('cross-tf-min-combo')?.value || 2);
+    const maxCombo = parseInt(document.getElementById('cross-tf-max-combo')?.value || 3);
+
+    if (timeframes.length < 2) {
+        alert('Please select at least 2 timeframes for cross-timeframe analysis');
+        return;
+    }
+
+    if (minCombo > maxCombo) {
+        alert('Minimum combo size cannot be greater than maximum combo size');
+        return;
+    }
+
+    if (!confirm(`This will analyze ${timeframes.join(', ')} for cross-timeframe combinations. This may take several minutes. Continue?`)) {
+        return;
+    }
+
+    closeCrossTfComboModal();
+
+    const resultsDiv = document.getElementById('combo-results');
+    if (!resultsDiv) return;
+
+    resultsDiv.innerHTML = '<p class="text-slate-400 animate-pulse">Analyzing cross-timeframe combinations...</p>';
+
+    try {
+        const response = await fetch('/api/combo-analysis/analyze-cross-tf', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                timeframes: timeframes,
+                min_samples: minSamples,
+                min_combo_size: minCombo,
+                max_combo_size: maxCombo
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            const result = data.result;
+
+            let html = `
+                <div class="bg-green-500/20 border border-green-500/50 rounded p-4 text-green-400 mb-4">
+                    <p class="font-bold">✅ Cross-Timeframe Analysis Complete!</p>
+                    <p class="mt-2">Timeframes: ${result.timeframes?.join(', ') || timeframes.join(', ')}</p>
+                    <p>Total combinations found: ${result.total_combinations || 0}</p>
+                    <p>Analyzed: ${result.analyzed || 0}</p>
+                    <p>Skipped (insufficient data): ${result.skipped_insufficient_samples || 0}</p>
+                </div>
+            `;
+
+            if (result.combinations && result.combinations.length > 0) {
+                html += `
+                    <h4 class="text-white font-semibold mb-3">Top Cross-TF Combinations (${result.combinations.length})</h4>
+                    <div class="max-h-96 overflow-y-auto space-y-2">
+                `;
+
+                result.combinations.slice(0, 20).forEach((combo, idx) => {
+                    html += `
+                        <div class="bg-slate-700/50 rounded p-3">
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1">
+                                    <p class="text-white font-semibold text-sm">#${idx + 1}: ${combo.combo_signature}</p>
+                                    <p class="text-slate-400 text-xs mt-1">
+                                        ${combo.combo_size} signals across ${combo.num_timeframes} timeframes | ${combo.total_samples} samples
+                                    </p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-lg font-bold ${combo.accuracy >= 60 ? 'text-green-400' : combo.accuracy >= 50 ? 'text-yellow-400' : 'text-red-400'}">
+                                        ${combo.accuracy.toFixed(1)}%
+                                    </p>
+                                    <p class="text-xs text-slate-400">
+                                        PF: ${combo.profit_factor?.toFixed(2) || 'N/A'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+            } else {
+                html += '<p class="text-slate-400 mt-4">No combinations found with sufficient data</p>';
+            }
+
+            resultsDiv.innerHTML = html;
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (error) {
+        resultsDiv.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+    }
+}
+
+// View existing combination results
+async function viewComboResults() {
+    const resultsDiv = document.getElementById('combo-results');
+    if (!resultsDiv) return;
+
+    resultsDiv.innerHTML = '<p class="text-slate-400 animate-pulse">Loading combination results...</p>';
+
+    try {
+        const response = await fetch('/api/combo-analysis/report?min_accuracy=50');
+        const data = await response.json();
+
+        if (data.success) {
+            const report = data.report;
+
+            let html = `
+                <div class="space-y-6">
+                    <!-- Same-Timeframe Summary -->
+                    <div class="bg-slate-700/50 rounded p-4">
+                        <h4 class="text-white font-semibold mb-3">Same-Timeframe Combinations</h4>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <p class="text-slate-400">Total Combinations</p>
+                                <p class="text-white font-bold text-xl">${report.overall?.total_combinations || 0}</p>
+                            </div>
+                            <div>
+                                <p class="text-slate-400">Avg Accuracy</p>
+                                <p class="text-white font-bold text-xl">${report.overall?.avg_accuracy?.toFixed(1) || 0}%</p>
+                            </div>
+                        </div>
+                    </div>
+            `;
+
+            if (report.by_combo_size && report.by_combo_size.length > 0) {
+                html += `
+                    <div class="bg-slate-700/50 rounded p-4">
+                        <h4 class="text-white font-semibold mb-3">By Combo Size</h4>
+                        <div class="space-y-2">
+                `;
+
+                report.by_combo_size.forEach(item => {
+                    html += `
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-300">${item.combo_size} signals</span>
+                            <span class="text-white">${item.count} combos | ${item.avg_accuracy?.toFixed(1)}% avg</span>
+                        </div>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (report.top_performers && report.top_performers.length > 0) {
+                html += `
+                    <div class="bg-slate-700/50 rounded p-4">
+                        <h4 class="text-white font-semibold mb-3">Top 10 Performers</h4>
+                        <div class="space-y-2 max-h-64 overflow-y-auto">
+                `;
+
+                report.top_performers.slice(0, 10).forEach((combo, idx) => {
+                    html += `
+                        <div class="flex justify-between items-center text-sm">
+                            <div class="flex-1">
+                                <p class="text-white font-medium">#${idx + 1}: ${combo.signal_name}</p>
+                                <p class="text-slate-400 text-xs">${combo.timeframe} | ${combo.signals_count} samples</p>
+                            </div>
+                            <p class="text-green-400 font-bold">${combo.accuracy?.toFixed(1)}%</p>
+                        </div>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            resultsDiv.innerHTML = html;
+        } else {
+            throw new Error(data.error);
         }
     } catch (error) {
         resultsDiv.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
