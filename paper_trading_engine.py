@@ -394,7 +394,7 @@ class PaperTradingEngine:
     if signal.get('pattern_confidence', 0) < 0.75:
       return False, "LOW_CONFIDENCE"
 
-    if signal.get('pattern_count', 0) < 700:
+    if signal.get('pattern_count', 0) < 500:
       return False, "LOW_PATTERN_COUNT"
 
     symbol = signal['symbol']

@@ -344,7 +344,7 @@ class CryptoPatternMonitor:
 
     # Configuration
     self.min_pattern_accuracy = 0.75
-    self.min_pattern_count = 200
+    self.min_pattern_count = 500
     self.min_confidence = 0.75
 
     # Initialize scalp signal validator
