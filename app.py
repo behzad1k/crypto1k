@@ -79,7 +79,7 @@ def init_database():
 
 def initialize_app():
   """Initialize all modules - called on import for gunicorn compatibility"""
-  global live_analyzer, live_db, fact_checker, sock, combo_analyzer, signal_validation
+  global live_analyzer, live_db, fact_checker, sock, combo_analyzer, signal_validation, paper_trading_engine
 
   # Only initialize once
   if live_analyzer is not None:
@@ -107,13 +107,14 @@ def initialize_app():
       logging.info("✅ Signal validation analyzer initialized")
   except Exception as e:
       logging.error(f"❌ Failed to initialize validation analyzer: {e}")
-
-  # Initialize paper trading
   try:
-      paper_trading_engine = PaperTradingEngine(db_path=app.config['DB_PATH'])
-      logging.info("✅ Signal validation analyzer initialized")
+    paper_trading_engine = PaperTradingEngine(
+      db_path=app.config['DB_PATH'],
+      initial_bankroll=10000.0  # Starting with $10,000
+    )
+    logging.info("✅ Paper trading engine initialized")
   except Exception as e:
-      logging.error(f"❌ Failed to initialize validation analyzer: {e}")
+    logging.error(f"❌ Failed to initialize paper trading: {e}")
 
 # Initialize signal combo modules
   try:
@@ -1274,6 +1275,399 @@ def get_active_combinations_for_symbol(symbol):
     import traceback
     logging.error(traceback.format_exc())
     return jsonify({'success': False, 'error': str(e)}), 500
+
+# ==================== PAPER TRADING ROUTES ====================
+# Add these routes to app.py after the combo analysis routes
+
+@app.route('/paper-trading')
+@login_required
+def paper_trading_dashboard():
+  """Paper trading dashboard page"""
+  return render_template('paper_trading.html')
+
+@app.route('/paper-trading/position/<symbol>')
+@login_required
+def paper_trading_position_details(symbol):
+  """Position details page"""
+  return render_template('position_details.html', symbol=symbol.upper())
+
+@app.route('/api/paper-trading/status')
+@login_required
+def get_paper_trading_status():
+  """Get paper trading engine status"""
+  global paper_trading_engine
+
+  if paper_trading_engine is None:
+    return jsonify({
+      'success': False,
+      'error': 'Paper trading engine not initialized'
+    }), 500
+
+  try:
+    stats = paper_trading_engine.get_stats()
+    return jsonify({
+      'success': True,
+      'stats': stats
+    })
+  except Exception as e:
+    logging.error(f"Error getting status: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+@app.route('/api/paper-trading/start', methods=['POST'])
+@login_required
+def start_paper_trading():
+  """Start paper trading engine"""
+  global paper_trading_engine
+
+  if paper_trading_engine is None:
+    return jsonify({
+      'success': False,
+      'error': 'Paper trading engine not initialized'
+    }), 500
+
+  try:
+    paper_trading_engine.start()
+    return jsonify({
+      'success': True,
+      'message': 'Paper trading started'
+    })
+  except Exception as e:
+    logging.error(f"Error starting paper trading: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+@app.route('/api/paper-trading/stop', methods=['POST'])
+@login_required
+def stop_paper_trading():
+  """Stop paper trading engine"""
+  global paper_trading_engine
+
+  if paper_trading_engine is None:
+    return jsonify({
+      'success': False,
+      'error': 'Paper trading engine not initialized'
+    }), 500
+
+  try:
+    paper_trading_engine.stop()
+    return jsonify({
+      'success': True,
+      'message': 'Paper trading stopped'
+    })
+  except Exception as e:
+    logging.error(f"Error stopping paper trading: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+@app.route('/api/paper-trading/reset', methods=['POST'])
+@login_required
+def reset_paper_trading():
+  """Reset paper trading engine"""
+  global paper_trading_engine
+
+  if paper_trading_engine is None:
+    return jsonify({
+      'success': False,
+      'error': 'Paper trading engine not initialized'
+    }), 500
+
+  try:
+    data = request.get_json() or {}
+    new_bankroll = data.get('initial_bankroll')
+
+    success = paper_trading_engine.reset(new_bankroll)
+
+    if success:
+      return jsonify({
+        'success': True,
+        'message': 'Paper trading reset successfully'
+      })
+    else:
+      return jsonify({
+        'success': False,
+        'error': 'Failed to reset (make sure engine is stopped)'
+      }), 400
+
+  except Exception as e:
+    logging.error(f"Error resetting paper trading: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+@app.route('/api/paper-trading/positions')
+@login_required
+def get_paper_trading_positions():
+  """Get all active positions with current prices"""
+  global paper_trading_engine
+
+  if paper_trading_engine is None:
+    return jsonify({
+      'success': False,
+      'error': 'Paper trading engine not initialized'
+    }), 500
+
+  try:
+    positions = []
+
+    for symbol, pos_data in paper_trading_engine.active_positions.items():
+      # Get current price
+      current_price = paper_trading_engine.get_current_price(symbol)
+
+      if current_price:
+        entry_price = pos_data['entry_price']
+        quantity = pos_data['quantity']
+        entry_fee = pos_data['entry_fee']
+
+        # Calculate current P/L
+        gross_value = quantity * current_price
+        exit_fee = gross_value * (paper_trading_engine.EXCHANGE_FEE / 100)
+        net_value = gross_value - exit_fee
+
+        position_size = pos_data['position_size']
+        profit_loss = net_value - (position_size - entry_fee)
+        profit_loss_pct = ((current_price - entry_price) / entry_price) * 100
+
+        positions.append({
+          **pos_data,
+          'current_price': current_price,
+          'current_profit_loss': profit_loss,
+          'current_profit_loss_pct': profit_loss_pct
+        })
+
+    return jsonify({
+      'success': True,
+      'positions': positions
+    })
+
+  except Exception as e:
+    logging.error(f"Error getting positions: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+@app.route('/api/paper-trading/buying-queue')
+@login_required
+def get_buying_queue():
+  """Get buying queue with current prices"""
+  global paper_trading_engine
+
+  if paper_trading_engine is None:
+    return jsonify({
+      'success': False,
+      'error': 'Paper trading engine not initialized'
+    }), 500
+
+  try:
+    queue_items = []
+
+    for symbol, queue_data in paper_trading_engine.buying_queue.items():
+      # Get current price
+      current_price = paper_trading_engine.get_current_price(symbol)
+
+      item = {**queue_data}
+
+      if current_price:
+        item['current_price'] = current_price
+        item['distance_to_target_pct'] = (
+          ((current_price - queue_data['target_price']) / queue_data['target_price']) * 100
+        )
+
+      queue_items.append(item)
+
+    return jsonify({
+      'success': True,
+      'queue': queue_items
+    })
+
+  except Exception as e:
+    logging.error(f"Error getting buying queue: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+@app.route('/api/paper-trading/history')
+@login_required
+def get_position_history():
+  """Get closed position history"""
+  try:
+    limit = int(request.args.get('limit', 50))
+
+    conn = sqlite3.connect(app.config['DB_PATH'])
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute('''
+            SELECT * FROM position_history 
+            ORDER BY closed_at DESC 
+            LIMIT ?
+        ''', (limit,))
+
+    history = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify({
+      'success': True,
+      'history': history
+    })
+
+  except Exception as e:
+    logging.error(f"Error getting history: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+@app.route('/api/paper-trading/position/<symbol>')
+@login_required
+def get_position_details(symbol):
+  """Get detailed position information"""
+  global paper_trading_engine
+
+  if paper_trading_engine is None:
+    return jsonify({
+      'success': False,
+      'error': 'Paper trading engine not initialized'
+    }), 500
+
+  try:
+    symbol = symbol.upper()
+
+    # Check active positions
+    if symbol in paper_trading_engine.active_positions:
+      pos_data = paper_trading_engine.active_positions[symbol]
+
+      # Get current price and P/L
+      current_price = paper_trading_engine.get_current_price(symbol)
+
+      if current_price:
+        entry_price = pos_data['entry_price']
+        quantity = pos_data['quantity']
+        entry_fee = pos_data['entry_fee']
+
+        gross_value = quantity * current_price
+        exit_fee = gross_value * (paper_trading_engine.EXCHANGE_FEE / 100)
+        net_value = gross_value - exit_fee
+
+        position_size = pos_data['position_size']
+        profit_loss = net_value - (position_size - entry_fee)
+        profit_loss_pct = ((current_price - entry_price) / entry_price) * 100
+
+        return jsonify({
+          'success': True,
+          'position': {
+            **pos_data,
+            'current_price': current_price,
+            'current_profit_loss': profit_loss,
+            'current_profit_loss_pct': profit_loss_pct,
+            'is_closed': False
+          }
+        })
+
+    # Check closed positions
+    conn = sqlite3.connect(app.config['DB_PATH'])
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute('''
+            SELECT * FROM position_history 
+            WHERE symbol = ? 
+            ORDER BY closed_at DESC 
+            LIMIT 1
+        ''', (symbol,))
+
+    result = cursor.fetchone()
+    conn.close()
+
+    if result:
+      return jsonify({
+        'success': True,
+        'position': {
+          **dict(result),
+          'is_closed': True
+        }
+      })
+
+    return jsonify({
+      'success': False,
+      'error': 'Position not found'
+    }), 404
+
+  except Exception as e:
+    logging.error(f"Error getting position details: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+@app.route('/api/paper-trading/position/<symbol>/monitoring')
+@login_required
+def get_position_monitoring(symbol):
+  """Get position monitoring history"""
+  try:
+    symbol = symbol.upper()
+    limit = int(request.args.get('limit', 100))
+
+    conn = sqlite3.connect(app.config['DB_PATH'])
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Get position ID
+    cursor.execute('''
+            SELECT id FROM active_positions WHERE symbol = ?
+            UNION
+            SELECT id FROM (
+                SELECT DISTINCT position_id as id 
+                FROM position_monitoring 
+                WHERE symbol = ?
+                ORDER BY checked_at DESC
+                LIMIT 1
+            )
+        ''', (symbol, symbol))
+
+    pos_id_result = cursor.fetchone()
+
+    if not pos_id_result:
+      conn.close()
+      return jsonify({
+        'success': True,
+        'monitoring': []
+      })
+
+    position_id = pos_id_result[0]
+
+    # Get monitoring history
+    cursor.execute('''
+            SELECT * FROM position_monitoring 
+            WHERE position_id = ? 
+            ORDER BY checked_at DESC 
+            LIMIT ?
+        ''', (position_id, limit))
+
+    monitoring = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify({
+      'success': True,
+      'monitoring': monitoring
+    })
+
+  except Exception as e:
+    logging.error(f"Error getting monitoring history: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
 # ==================== HELPER FUNCTIONS ====================
 
 def calculate_validity_hours(confidence, pattern_count):

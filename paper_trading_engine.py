@@ -1,6 +1,7 @@
 """
 Paper Trading Engine - Complete Trading Simulation System
 Manages buying queue, position monitoring, and profit/loss tracking
+UPDATED: Uses SPLIT_BANKROLL_TO for position sizing (bankroll / 5)
 """
 
 import sqlite3
@@ -33,8 +34,8 @@ class PaperTradingEngine:
   STOP_LOSS_PCT = 2.0  # Stop loss at 2%
   EXCHANGE_FEE = 0.1  # 0.1% exchange fee
   WATCH_BOUGHT_COIN_SLEEP_TIME = 60  # Check positions every 60 seconds
-  POSITION_SIZE_PCT = 10.0  # Use 10% of bankroll per position
-  MAX_POSITIONS = 5  # Maximum concurrent positions
+  SPLIT_BANKROLL_TO = 5  # Split bankroll into 5 positions
+  MAX_POSITIONS = 5  # Maximum concurrent positions (should match SPLIT_BANKROLL_TO)
 
   def __init__(self, db_path: str = 'crypto_signals.db', initial_bankroll: float = 10000.0):
     self.db_path = db_path
@@ -54,10 +55,14 @@ class PaperTradingEngine:
     self.init_database()
     self.load_state()
 
+    # Calculate position size based on SPLIT_BANKROLL_TO
+    position_size = initial_bankroll / self.SPLIT_BANKROLL_TO
+
     logging.info(f"✅ Paper Trading Engine initialized")
     logging.info(f"   Initial Bankroll: ${initial_bankroll:,.2f}")
-    logging.info(
-      f"   Position Size: {self.POSITION_SIZE_PCT}% (${initial_bankroll * self.POSITION_SIZE_PCT / 100:,.2f})")
+    logging.info(f"   Split into: {self.SPLIT_BANKROLL_TO} positions")
+    logging.info(f"   Position Size: ${position_size:,.2f} each")
+    logging.info(f"   Max Concurrent Positions: {self.MAX_POSITIONS}")
 
   def init_database(self):
     """Initialize database tables for paper trading"""
@@ -253,7 +258,7 @@ class PaperTradingEngine:
     - Minimum confidence threshold
     - Minimum pattern count
     - Not already in queue or positions
-    - Available bankroll for new position
+    - Available slots for new position
     """
     # Check if BUY signal
     if signal.get('signal') != 'BUY':
@@ -263,7 +268,7 @@ class PaperTradingEngine:
     if signal.get('pattern_confidence', 0) < 0.75:  # 75% minimum
       return False
 
-    if signal.get('pattern_count', 0) < 100:  # 100 patterns minimum
+    if signal.get('pattern_count', 0) < 700:  # 100 patterns minimum
       return False
 
     symbol = signal['symbol']
@@ -277,10 +282,10 @@ class PaperTradingEngine:
       logging.info(f"⏸️  Max positions reached ({self.MAX_POSITIONS}), skipping {symbol}")
       return False
 
-    # Check available bankroll
-    position_size = self.current_bankroll * (self.POSITION_SIZE_PCT / 100)
-    if position_size < 10:  # Minimum $10 position
-      logging.info(f"⏸️  Insufficient bankroll for new position")
+    # Check available bankroll for new position
+    position_size = self.initial_bankroll / self.SPLIT_BANKROLL_TO
+    if self.current_bankroll < position_size:
+      logging.info(f"⏸️  Insufficient bankroll for new position (need ${position_size:.2f}, have ${self.current_bankroll:.2f})")
       return False
 
     return True
@@ -369,8 +374,8 @@ class PaperTradingEngine:
 
   def execute_entry(self, symbol: str, entry_price: float, queue_data: Dict):
     """Execute simulated buy order"""
-    # Calculate position size
-    position_size = self.current_bankroll * (self.POSITION_SIZE_PCT / 100)
+    # Calculate position size using SPLIT_BANKROLL_TO
+    position_size = self.initial_bankroll / self.SPLIT_BANKROLL_TO
 
     # Calculate fees
     entry_fee = position_size * (self.EXCHANGE_FEE / 100)
@@ -422,12 +427,13 @@ class PaperTradingEngine:
 
     logging.info(f"🟢 POSITION OPENED: {symbol}")
     logging.info(f"   Entry Price: ${entry_price:.6f}")
-    logging.info(f"   Position Size: ${position_size:.2f}")
+    logging.info(f"   Position Size: ${position_size:.2f} ({100/self.SPLIT_BANKROLL_TO:.1f}% of initial bankroll)")
     logging.info(f"   Quantity: {quantity:.6f}")
     logging.info(f"   Entry Fee: ${entry_fee:.2f}")
     logging.info(f"   Target Profit: ${target_profit_price:.6f} (+{self.MAX_PROFIT_THRESHOLD_PCT}%)")
     logging.info(f"   Stop Loss: ${stop_loss_price:.6f} (-{self.STOP_LOSS_PCT}%)")
     logging.info(f"   Remaining Bankroll: ${self.current_bankroll:.2f}")
+    logging.info(f"   Active Positions: {len(self.active_positions)}/{self.MAX_POSITIONS}")
 
   def remove_from_queue(self, symbol: str, status: str):
     """Remove symbol from buying queue"""
@@ -604,6 +610,7 @@ class PaperTradingEngine:
     logging.info(f"   Duration: {duration_seconds // 60} minutes")
     logging.info(f"   Total Fees: ${total_fees:.2f}")
     logging.info(f"   New Bankroll: ${self.current_bankroll:.2f}")
+    logging.info(f"   Active Positions: {len(self.active_positions)}/{self.MAX_POSITIONS}")
 
   def process_new_signal(self, signal: Dict):
     """Process a new signal from the monitoring system"""
@@ -629,6 +636,8 @@ class PaperTradingEngine:
     self.position_monitor_thread.start()
 
     logging.info("🚀 Paper Trading Engine STARTED")
+    logging.info(f"   Monitoring {self.MAX_POSITIONS} position slots")
+    logging.info(f"   Position size: ${self.initial_bankroll / self.SPLIT_BANKROLL_TO:.2f} each")
 
   def stop(self):
     """Stop paper trading engine"""
@@ -644,6 +653,58 @@ class PaperTradingEngine:
 
     logging.info("⏸️  Paper Trading Engine STOPPED")
 
+  def reset(self, new_bankroll: float = None):
+    """Reset trading engine (close all positions, reset bankroll)"""
+    if self.running:
+      logging.warning("⚠️  Stop the engine before resetting")
+      return False
+
+    conn = sqlite3.connect(self.db_path)
+    cursor = conn.cursor()
+
+    try:
+      # Close all active positions at current price
+      for symbol, position in list(self.active_positions.items()):
+        current_price = self.get_current_price(symbol)
+        if current_price:
+          self.execute_exit(symbol, current_price, 'RESET', position)
+
+      # Clear buying queue
+      cursor.execute('UPDATE buying_queue SET status = "CANCELLED" WHERE status = "WAITING"')
+
+      # Reset state
+      if new_bankroll is not None:
+        self.initial_bankroll = new_bankroll
+
+      cursor.execute('''
+                UPDATE trading_state 
+                SET current_bankroll = ?,
+                    initial_bankroll = ?,
+                    total_trades = 0,
+                    winning_trades = 0,
+                    losing_trades = 0,
+                    total_profit_loss = 0
+                WHERE id = 1
+            ''', (self.initial_bankroll, self.initial_bankroll))
+
+      conn.commit()
+
+      # Clear memory
+      self.buying_queue.clear()
+      self.active_positions.clear()
+      self.current_bankroll = self.initial_bankroll
+
+      logging.info(f"✅ Paper trading reset complete")
+      logging.info(f"   New bankroll: ${self.initial_bankroll:,.2f}")
+      return True
+
+    except Exception as e:
+      logging.error(f"Error resetting: {e}")
+      conn.rollback()
+      return False
+    finally:
+      conn.close()
+
   def get_stats(self) -> Dict:
     """Get current trading statistics"""
     conn = sqlite3.connect(self.db_path)
@@ -656,11 +717,11 @@ class PaperTradingEngine:
 
     if not state:
       return {}
-
-    total_trades = state[2]
-    winning_trades = state[3]
-    losing_trades = state[4]
-    total_profit_loss = state[5]
+    logging.info(f"   Current trading statistics: {state}")
+    total_trades = state[3]
+    winning_trades = state[4]
+    losing_trades = state[5]
+    total_profit_loss = state[6]
 
     win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
     roi = ((self.current_bankroll - self.initial_bankroll) / self.initial_bankroll * 100)
@@ -677,5 +738,6 @@ class PaperTradingEngine:
       'win_rate': win_rate,
       'active_positions': len(self.active_positions),
       'buying_queue': len(self.buying_queue),
-      'position_limit': self.MAX_POSITIONS
+      'position_limit': self.MAX_POSITIONS,
+      'position_size': self.initial_bankroll / self.SPLIT_BANKROLL_TO
     }

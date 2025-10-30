@@ -52,7 +52,6 @@ async function loadStatus() {
     try {
         const response = await fetch('/api/paper-trading/status');
         const data = await response.json();
-
         if (data.success) {
             const stats = data.stats;
 
