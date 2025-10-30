@@ -16,6 +16,7 @@ import time
 from typing import Dict, List, Tuple, Optional
 from collections import deque
 
+from paper_trading_engine import PaperTradingEngine
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -752,35 +753,48 @@ class CryptoPatternMonitor:
   def save_signal_to_db(self, symbol: str, signal: str, confidence: float,
                         pattern_count: int, best_pattern: str, best_accuracy: float,
                         all_patterns: List[Dict], price: float, stop_loss: float,
-                        scalp_validation: Dict):
-    """Save signal to database with scalp validation data"""
+                        scalp_validation: Dict, paper_trading_engine=None):
+    """Save signal to database and optionally send to paper trading engine"""
     try:
-      conn = sqlite3.connect(self.db_path)
-      cursor = conn.cursor()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
 
-      cursor.execute('''
-                INSERT INTO pattern_signals (
-                    symbol, signal, pattern_confidence, pattern_count,
-                    best_pattern, best_pattern_accuracy, all_patterns,
-                    price, stop_loss, scalp_validation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-        symbol, signal, confidence, pattern_count,
-        best_pattern, best_accuracy,
-        json.dumps(all_patterns, indent=2),
-        price, stop_loss,
-        json.dumps(scalp_validation, indent=2)
-      ))
+        cursor.execute('''
+            INSERT INTO pattern_signals (
+                symbol, signal, pattern_confidence, pattern_count,
+                best_pattern, best_pattern_accuracy, all_patterns,
+                price, stop_loss, scalp_validation
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            symbol, signal, confidence, pattern_count,
+            best_pattern, best_accuracy,
+            json.dumps(all_patterns, indent=2),
+            price, stop_loss,
+            json.dumps(scalp_validation, indent=2)
+        ))
 
-      conn.commit()
-      conn.close()
+        conn.commit()
+        conn.close()
 
-      self.stats['alerts_triggered'] += 1
-      logging.info(f"✅ Signal saved: {symbol} {signal}")
+        self.stats['alerts_triggered'] += 1
+        logging.info(f"✅ Signal saved: {symbol} {signal}")
+
+        # NEW: Send to paper trading engine if provided
+        if paper_trading_engine:
+            signal_data = {
+                'symbol': symbol,
+                'signal': signal,
+                'pattern_confidence': confidence,
+                'pattern_count': pattern_count,
+                'price': price
+            }
+            paper_trading_engine.process_new_signal(signal_data)
+            logging.info(f"📊 Signal forwarded to paper trading engine")
+
     except Exception as e:
-      logging.error(f"Failed to save signal: {e}")
+        logging.error(f"Failed to save signal: {e}")
 
-  def monitor_symbol(self, symbol: str):
+  def monitor_symbol(self, symbol: str, paper_trading_engine=None):
     """Monitor single symbol for pattern matches with scalp validation"""
     try:
       self.stats['current_symbol'] = symbol
@@ -841,8 +855,11 @@ class CryptoPatternMonitor:
       self.save_signal_to_db(
         symbol, analysis_result['signal'], confidence,
         pattern_count, best_pattern['pattern'], best_pattern['accuracy'],
-        matching_patterns, current_price, stop_loss, scalp_validation
+        matching_patterns, current_price, stop_loss, scalp_validation,
+        paper_trading_engine=paper_trading_engine  # NEW parameter
       )
+
+
 
     except Exception as e:
       logging.error(f"Error monitoring {symbol}: {e}")
@@ -861,12 +878,16 @@ class CryptoPatternMonitor:
     else:
       return price * (1 + stop_pct)
 
-  def run(self, top_coins: int = 100):
+  def run(self, top_coins: int = 100, paper_trading_engine=None):
+    """Main monitoring loop with paper trading integration"""
+
     """Main monitoring loop"""
     self.running = True
     logging.info("🚀 Starting crypto pattern monitoring with scalp validation")
     logging.info(f"Loaded {len(self.indicator_patterns)} patterns")
     logging.info(f"Thresholds: {self.min_pattern_count}+ patterns, {self.min_confidence:.0%}+ confidence, strong short-term signals required")
+    if paper_trading_engine:
+      logging.info("📊 Paper trading engine connected")
 
     while self.running:
       try:
@@ -888,7 +909,7 @@ class CryptoPatternMonitor:
           if not self.running:
             break
 
-          self.monitor_symbol(symbol)
+          self.monitor_symbol(symbol, paper_trading_engine=paper_trading_engine)
           self.stats['symbols_processed'] += 1
           self.stats['last_update'] = datetime.now().isoformat()
 

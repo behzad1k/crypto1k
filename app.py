@@ -14,6 +14,7 @@ from io import BytesIO
 import threading
 import logging
 from monitor import CryptoPatternMonitor
+from paper_trading_engine import PaperTradingEngine
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 from live_analysis_handler import LiveAnalysisDB
 from signal_combination_analyzer import SignalCombinationAnalyzer
@@ -38,7 +39,7 @@ live_db = None
 fact_checker = None
 signal_validation= None
 combo_analyzer = None
-
+paper_trading_engine = None
 sock = None
 
 
@@ -103,6 +104,13 @@ def initialize_app():
   # Initialize signal validation modules
   try:
       signal_validation = SignalValidationOptimizer(db_path=app.config['DB_PATH'])
+      logging.info("✅ Signal validation analyzer initialized")
+  except Exception as e:
+      logging.error(f"❌ Failed to initialize validation analyzer: {e}")
+
+  # Initialize paper trading
+  try:
+      paper_trading_engine = PaperTradingEngine(db_path=app.config['DB_PATH'])
       logging.info("✅ Signal validation analyzer initialized")
   except Exception as e:
       logging.error(f"❌ Failed to initialize validation analyzer: {e}")
@@ -325,8 +333,8 @@ def monitor_status():
 @app.route('/api/monitor/start')
 @login_required
 def start_monitor():
-  """Start pattern monitoring"""
-  global monitor, monitor_thread
+  """Start pattern monitoring with paper trading integration"""
+  global monitor, monitor_thread, paper_trading_engine
 
   # Check if already running
   if monitor is not None and monitor.running:
@@ -349,10 +357,11 @@ def start_monitor():
       priority_coins_file=app.config['PRIORITY_COINS_FILE']
     )
 
-    # Start monitoring in background thread
+    # Start monitoring in background thread WITH paper trading engine
     monitor_thread = threading.Thread(
       target=monitor.run,
       args=(100,),
+      kwargs={'paper_trading_engine': paper_trading_engine},  # NEW
       daemon=True
     )
     monitor_thread.start()
@@ -360,10 +369,10 @@ def start_monitor():
     # Give it a moment to start
     time.sleep(0.5)
 
-    logging.info("✅ Monitoring started successfully")
+    logging.info("✅ Monitoring started successfully with paper trading integration")
     return jsonify({
       'success': True,
-      'message': 'Monitoring started'
+      'message': 'Monitoring started with paper trading'
     })
 
   except Exception as e:
@@ -372,6 +381,7 @@ def start_monitor():
       'success': False,
       'message': f'Failed to start: {str(e)}'
     }), 500
+
 
 
 # REPLACE your stop_monitor route with this:

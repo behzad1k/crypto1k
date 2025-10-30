@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Position: {{ symbol }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/jalali-moment/dist/jalali-moment.browser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-900 min-h-screen">
+<!-- Header -->
+<header class="bg-slate-800 border-b border-slate-700">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16">
+            <div class="flex items-center gap-4">
+                <a href="/paper-trading" class="text-slate-300 hover:text-white">
+                    <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                </a>
+                <h1 class="text-2xl font-bold text-white">{{ symbol }}</h1>
+                <span id="position-status" class="px-3 py-1 rounded-full text-xs font-medium"></span>
+            </div>
+            <div class="flex items-center gap-4">
+                <a href="/paper-trading" class="text-slate-300 hover:text-white transition-colors">Dashboard</a>
+                <a href="/logout" class="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
+                    <i data-lucide="log-out" class="w-5 h-5"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- Main Content -->
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Position Info -->
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Price & P/L Card -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h2 class="text-lg font-semibold text-white mb-4">Position Overview</h2>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div>
+                        <p class="text-slate-400 text-sm">Entry Price</p>
+                        <p id="entry-price" class="text-xl font-bold text-white">-</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400 text-sm">Current Price</p>
+                        <p id="current-price" class="text-xl font-bold text-white">-</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400 text-sm">P/L</p>
+                        <p id="profit-loss" class="text-xl font-bold">-</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400 text-sm">P/L %</p>
+                        <p id="profit-loss-pct" class="text-xl font-bold">-</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                        <p class="text-green-400 text-sm font-medium mb-1">Take Profit</p>
+                        <p id="target-price" class="text-xl font-bold text-green-400">-</p>
+                        <p id="target-distance" class="text-sm text-slate-400 mt-1">-</p>
+                    </div>
+                    <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                        <p class="text-red-400 text-sm font-medium mb-1">Stop Loss</p>
+                        <p id="stop-price" class="text-xl font-bold text-red-400">-</p>
+                        <p id="stop-distance" class="text-sm text-slate-400 mt-1">-</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Position Details Card -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h2 class="text-lg font-semibold text-white mb-4">Position Details</h2>
+
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                        <p class="text-slate-400">Position Size</p>
+                        <p id="position-size" class="text-white font-medium">-</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400">Quantity</p>
+                        <p id="quantity" class="text-white font-medium">-</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400">Entry Fee</p>
+                        <p id="entry-fee" class="text-white font-medium">-</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400">Opened At</p>
+                        <p id="opened-at" class="text-white font-medium">-</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400">Signal Confidence</p>
+                        <p id="signal-confidence" class="text-white font-medium">-</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-400">Signal Patterns</p>
+                        <p id="signal-patterns" class="text-white font-medium">-</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- P/L Chart -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h2 class="text-lg font-semibold text-white mb-4">P/L History</h2>
+                <canvas id="pl-chart"></canvas>
+            </div>
+
+            <!-- Monitoring History -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h2 class="text-lg font-semibold text-white mb-4">Monitoring Checks</h2>
+                <div id="monitoring-container" class="space-y-3 max-h-96 overflow-y-auto">
+                    <!-- Monitoring history will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="space-y-6">
+            <!-- Quick Stats -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h3 class="text-lg font-semibold text-white mb-4">Quick Stats</h3>
+                <div class="space-y-3">
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Duration</span>
+                        <span id="duration" class="text-white font-medium">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Max Gain</span>
+                        <span id="max-gain" class="text-green-400 font-medium">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Max Drawdown</span>
+                        <span id="max-drawdown" class="text-red-400 font-medium">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Latest Signals -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h3 class="text-lg font-semibold text-white mb-4">Latest Signals</h3>
+                <div id="latest-signals" class="space-y-2">
+                    <!-- Latest signals will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Exit Conditions -->
+            <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <h3 class="text-lg font-semibold text-white mb-4">Exit Conditions</h3>
+                <div class="space-y-3 text-sm">
+                    <div class="flex items-start gap-2">
+                        <i data-lucide="target" class="w-4 h-4 text-green-400 mt-0.5"></i>
+                        <div>
+                            <p class="text-white font-medium">Take Profit: +5%</p>
+                            <p class="text-slate-400 text-xs">Automatically exit when target reached</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <i data-lucide="shield" class="w-4 h-4 text-red-400 mt-0.5"></i>
+                        <div>
+                            <p class="text-white font-medium">Stop Loss: -2%</p>
+                            <p class="text-slate-400 text-xs">Automatically exit to limit losses</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <i data-lucide="trending-down" class="w-4 h-4 text-orange-400 mt-0.5"></i>
+                        <div>
+                            <p class="text-white font-medium">Strong Sell Signals: 3+</p>
+                            <p class="text-slate-400 text-xs">Exit when multiple strong sell signals detected</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    const symbol = '{{ symbol }}';
+</script>
+<script src="/static/position_details.js"></script>
+</body>
+</html>
