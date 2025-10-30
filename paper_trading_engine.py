@@ -1,7 +1,11 @@
 """
-Paper Trading Engine - Complete Trading Simulation System
+Paper Trading Engine - MODIFIED with Combination Validation
 Manages buying queue, position monitoring, and profit/loss tracking
-UPDATED: Uses SPLIT_BANKROLL_TO for position sizing (bankroll / 5)
+NEW FEATURES:
+- 24h price change filter (MAX_24H_CHANGE)
+- Validates same-timeframe and cross-timeframe combinations
+- MIN_PATTERNS_THRESHOLD: minimum number of validated combinations
+- MIN_ACCURACY_THRESHOLD: minimum accuracy for combinations
 """
 
 import sqlite3
@@ -19,8 +23,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 class PaperTradingEngine:
   """
-  Complete paper trading simulation system
+  Complete paper trading simulation system with combination validation
   - Monitors signals and adds qualified coins to buying queue
+  - Validates 24h price change
+  - Checks same-timeframe and cross-timeframe combinations
   - Waits for optimal entry (price drop)
   - Executes simulated trades
   - Monitors positions for exit conditions
@@ -36,6 +42,11 @@ class PaperTradingEngine:
   WATCH_BOUGHT_COIN_SLEEP_TIME = 60  # Check positions every 60 seconds
   SPLIT_BANKROLL_TO = 5  # Split bankroll into 5 positions
   MAX_POSITIONS = 5  # Maximum concurrent positions (should match SPLIT_BANKROLL_TO)
+
+  # NEW: Signal combination validation thresholds
+  MAX_24H_CHANGE = 15.0  # Maximum 24h price change percentage (avoid FOMO coins)
+  MIN_PATTERNS_THRESHOLD = 2  # Minimum number of validated combinations required
+  MIN_ACCURACY_THRESHOLD = 60.0  # Minimum accuracy percentage for combinations
 
   def __init__(self, db_path: str = 'crypto_signals.db', initial_bankroll: float = 10000.0):
     self.db_path = db_path
@@ -58,11 +69,15 @@ class PaperTradingEngine:
     # Calculate position size based on SPLIT_BANKROLL_TO
     position_size = initial_bankroll / self.SPLIT_BANKROLL_TO
 
-    logging.info(f"✅ Paper Trading Engine initialized")
+    logging.info(f"✅ Paper Trading Engine initialized (with combination validation)")
     logging.info(f"   Initial Bankroll: ${initial_bankroll:,.2f}")
     logging.info(f"   Split into: {self.SPLIT_BANKROLL_TO} positions")
     logging.info(f"   Position Size: ${position_size:,.2f} each")
     logging.info(f"   Max Concurrent Positions: {self.MAX_POSITIONS}")
+    logging.info(f"   NEW FILTERS:")
+    logging.info(f"     Max 24h Change: {self.MAX_24H_CHANGE}%")
+    logging.info(f"     Min Patterns: {self.MIN_PATTERNS_THRESHOLD}")
+    logging.info(f"     Min Accuracy: {self.MIN_ACCURACY_THRESHOLD}%")
 
   def init_database(self):
     """Initialize database tables for paper trading"""
@@ -94,7 +109,10 @@ class PaperTradingEngine:
                 signal_patterns INTEGER NOT NULL,
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 expires_at TIMESTAMP NOT NULL,
-                status TEXT DEFAULT 'WAITING'
+                status TEXT DEFAULT 'WAITING',
+                price_24h_change REAL,
+                validated_patterns_count INTEGER,
+                avg_pattern_accuracy REAL
             )
         ''')
 
@@ -112,7 +130,10 @@ class PaperTradingEngine:
                 opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 signal_confidence REAL NOT NULL,
                 signal_patterns INTEGER NOT NULL,
-                status TEXT DEFAULT 'OPEN'
+                status TEXT DEFAULT 'OPEN',
+                price_24h_change REAL,
+                validated_patterns_count INTEGER,
+                avg_pattern_accuracy REAL
             )
         ''')
 
@@ -134,7 +155,10 @@ class PaperTradingEngine:
                 duration_seconds INTEGER,
                 exit_reason TEXT NOT NULL,
                 signal_confidence REAL NOT NULL,
-                signal_patterns INTEGER NOT NULL
+                signal_patterns INTEGER NOT NULL,
+                price_24h_change REAL,
+                validated_patterns_count INTEGER,
+                avg_pattern_accuracy REAL
             )
         ''')
 
@@ -199,7 +223,10 @@ class PaperTradingEngine:
         'opened_at': row[8],
         'signal_confidence': row[9],
         'signal_patterns': row[10],
-        'status': row[11]
+        'status': row[11],
+        'price_24h_change': row[12] if len(row) > 12 else None,
+        'validated_patterns_count': row[13] if len(row) > 13 else None,
+        'avg_pattern_accuracy': row[14] if len(row) > 14 else None
       }
 
     # Load buying queue
@@ -214,7 +241,10 @@ class PaperTradingEngine:
         'signal_patterns': row[5],
         'added_at': row[6],
         'expires_at': row[7],
-        'status': row[8]
+        'status': row[8],
+        'price_24h_change': row[9] if len(row) > 9 else None,
+        'validated_patterns_count': row[10] if len(row) > 10 else None,
+        'avg_pattern_accuracy': row[11] if len(row) > 11 else None
       }
 
     conn.close()
@@ -249,46 +279,156 @@ class PaperTradingEngine:
 
     return None
 
-  def evaluate_signal_for_entry(self, signal: Dict) -> bool:
+  def get_24h_price_change(self, symbol: str) -> Optional[float]:
     """
-    Evaluate if a signal qualifies for adding to buying queue
+    NEW: Fetch 24h price change percentage from KuCoin API
+    """
+    try:
+      url = f"https://api.kucoin.com/api/v1/market/stats?symbol={symbol}-USDT"
+      response = requests.get(url, timeout=5)
+      response.raise_for_status()
+      data = response.json()
 
-    Criteria:
-    - BUY signal only
-    - Minimum confidence threshold
-    - Minimum pattern count
-    - Not already in queue or positions
-    - Available slots for new position
+      if data.get('code') == '200000' and data.get('data'):
+        change_rate = float(data['data'].get('changeRate', 0))
+        return change_rate * 100  # Convert to percentage
+    except Exception as e:
+      logging.error(f"Failed to fetch 24h change for {symbol}: {e}")
+
+    return None
+
+  def get_validated_combinations(self, symbol: str) -> Tuple[int, float]:
+    """
+    NEW: Get validated same-timeframe and cross-timeframe combinations
+    Returns: (pattern_count, avg_accuracy)
+    """
+    conn = sqlite3.connect(self.db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Get same-timeframe combinations from live_tf_combos
+    cursor.execute('''
+        SELECT COUNT(*) as count, AVG(accuracy) as avg_acc
+        FROM live_tf_combos
+        WHERE symbol = ? AND accuracy >= ?
+        AND timestamp >= datetime('now', '-2 hours')
+    ''', (symbol, self.MIN_ACCURACY_THRESHOLD))
+
+    same_tf_result = cursor.fetchone()
+    same_tf_count = same_tf_result['count'] if same_tf_result else 0
+    same_tf_accuracy = same_tf_result['avg_acc'] if same_tf_result and same_tf_result['avg_acc'] else 0
+
+    # Get cross-timeframe combinations (if they exist)
+    # Check if we have any cross-tf combos for this symbol
+    cursor.execute('''
+        SELECT COUNT(*) FROM sqlite_master 
+        WHERE type='table' AND name='cross_tf_live_combos'
+    ''')
+
+    has_cross_tf_table = cursor.fetchone()[0] > 0
+
+    cross_tf_count = 0
+    cross_tf_accuracy = 0
+
+    if has_cross_tf_table:
+      cursor.execute('''
+          SELECT COUNT(*) as count, AVG(accuracy) as avg_acc
+          FROM cross_tf_live_combos
+          WHERE symbol = ? AND accuracy >= ?
+          AND timestamp >= datetime('now', '-2 hours')
+      ''', (symbol, self.MIN_ACCURACY_THRESHOLD))
+
+      cross_tf_result = cursor.fetchone()
+      cross_tf_count = cross_tf_result['count'] if cross_tf_result else 0
+      cross_tf_accuracy = cross_tf_result['avg_acc'] if cross_tf_result and cross_tf_result['avg_acc'] else 0
+
+    conn.close()
+
+    # Combine results
+    total_count = same_tf_count + cross_tf_count
+
+    if total_count > 0:
+      # Weighted average of accuracies
+      total_weight = same_tf_count + cross_tf_count
+      weighted_accuracy = (
+        (same_tf_accuracy * same_tf_count + cross_tf_accuracy * cross_tf_count) / total_weight
+      )
+    else:
+      weighted_accuracy = 0
+
+    logging.debug(f"   {symbol} combinations: Same-TF={same_tf_count}, Cross-TF={cross_tf_count}, Avg={weighted_accuracy:.1f}%")
+
+    return total_count, weighted_accuracy
+
+  def evaluate_signal_for_entry(self, signal: Dict) -> Tuple[bool, str]:
+    """
+    MODIFIED: Evaluate if a signal qualifies for adding to buying queue
+
+    NEW Criteria added:
+    - 24h price change must be <= MAX_24H_CHANGE
+    - Must have >= MIN_PATTERNS_THRESHOLD validated combinations
+    - Combinations must have >= MIN_ACCURACY_THRESHOLD accuracy
+
+    Returns: (is_valid, rejection_reason)
     """
     # Check if BUY signal
     if signal.get('signal') != 'BUY':
-      return False
+      return False, "NOT_BUY_SIGNAL"
 
     # Check confidence and patterns
     if signal.get('pattern_confidence', 0) < 0.75:  # 75% minimum
-      return False
+      return False, "LOW_CONFIDENCE"
 
-    if signal.get('pattern_count', 0) < 700:  # 100 patterns minimum
-      return False
+    if signal.get('pattern_count', 0) < 700:  # 700 patterns minimum
+      return False, "LOW_PATTERN_COUNT"
 
     symbol = signal['symbol']
 
     # Check if already in queue or position
     if symbol in self.buying_queue or symbol in self.active_positions:
-      return False
+      return False, "ALREADY_TRACKED"
 
     # Check if we can open new positions
     if len(self.active_positions) >= self.MAX_POSITIONS:
-      logging.info(f"⏸️  Max positions reached ({self.MAX_POSITIONS}), skipping {symbol}")
-      return False
+      return False, "MAX_POSITIONS_REACHED"
 
     # Check available bankroll for new position
     position_size = self.initial_bankroll / self.SPLIT_BANKROLL_TO
     if self.current_bankroll < position_size:
-      logging.info(f"⏸️  Insufficient bankroll for new position (need ${position_size:.2f}, have ${self.current_bankroll:.2f})")
-      return False
+      return False, "INSUFFICIENT_BANKROLL"
 
-    return True
+    # NEW: Check 24h price change
+    price_24h_change = self.get_24h_price_change(symbol)
+    if price_24h_change is None:
+      logging.warning(f"⚠️  Could not fetch 24h change for {symbol}, skipping")
+      return False, "PRICE_DATA_UNAVAILABLE"
+
+    if abs(price_24h_change) > self.MAX_24H_CHANGE:
+      logging.info(f"❌ {symbol} rejected: 24h change {price_24h_change:+.2f}% exceeds {self.MAX_24H_CHANGE}%")
+      return False, f"24H_CHANGE_TOO_HIGH ({price_24h_change:+.2f}%)"
+
+    # NEW: Check validated combinations
+    patterns_count, avg_accuracy = self.get_validated_combinations(symbol)
+
+    if patterns_count < self.MIN_PATTERNS_THRESHOLD:
+      logging.info(f"❌ {symbol} rejected: Only {patterns_count} patterns (need {self.MIN_PATTERNS_THRESHOLD})")
+      return False, f"INSUFFICIENT_PATTERNS ({patterns_count})"
+
+    if avg_accuracy < self.MIN_ACCURACY_THRESHOLD:
+      logging.info(f"❌ {symbol} rejected: Avg accuracy {avg_accuracy:.1f}% (need {self.MIN_ACCURACY_THRESHOLD}%)")
+      return False, f"LOW_ACCURACY ({avg_accuracy:.1f}%)"
+
+    # All checks passed
+    logging.info(f"✅ {symbol} passed all validation checks:")
+    logging.info(f"   24h change: {price_24h_change:+.2f}%")
+    logging.info(f"   Validated patterns: {patterns_count} (accuracy: {avg_accuracy:.1f}%)")
+
+    # Store validation data for later use
+    signal['price_24h_change'] = price_24h_change
+    signal['validated_patterns_count'] = patterns_count
+    signal['avg_pattern_accuracy'] = avg_accuracy
+
+    return True, "PASSED"
 
   def add_to_buying_queue(self, signal: Dict):
     """Add qualified signal to buying queue"""
@@ -309,7 +449,10 @@ class PaperTradingEngine:
       'signal_patterns': signal['pattern_count'],
       'added_at': datetime.now().isoformat(),
       'expires_at': expires_at.isoformat(),
-      'status': 'WAITING'
+      'status': 'WAITING',
+      'price_24h_change': signal.get('price_24h_change'),
+      'validated_patterns_count': signal.get('validated_patterns_count'),
+      'avg_pattern_accuracy': signal.get('avg_pattern_accuracy')
     }
 
     # Save to database
@@ -318,10 +461,14 @@ class PaperTradingEngine:
 
     cursor.execute('''
             INSERT INTO buying_queue 
-            (symbol, detected_price, target_price, signal_confidence, signal_patterns, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (symbol, detected_price, target_price, signal_confidence, signal_patterns, 
+             expires_at, price_24h_change, validated_patterns_count, avg_pattern_accuracy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (symbol, detected_price, target_price, signal['pattern_confidence'],
-              signal['pattern_count'], expires_at))
+              signal['pattern_count'], expires_at,
+              queue_data['price_24h_change'],
+              queue_data['validated_patterns_count'],
+              queue_data['avg_pattern_accuracy']))
 
     queue_data['id'] = cursor.lastrowid
     conn.commit()
@@ -331,6 +478,8 @@ class PaperTradingEngine:
 
     logging.info(f"📋 Added to buying queue: {symbol}")
     logging.info(f"   Detected: ${detected_price:.6f} → Target: ${target_price:.6f} (-{self.MIN_BUYING_WINDOW_PCT}%)")
+    logging.info(f"   24h change: {queue_data['price_24h_change']:+.2f}%")
+    logging.info(f"   Patterns: {queue_data['validated_patterns_count']} (avg: {queue_data['avg_pattern_accuracy']:.1f}%)")
     logging.info(f"   Expires in {self.MAX_BUYING_WINDOW_TIME // 60} minutes")
 
   def monitor_buying_queue(self):
@@ -399,7 +548,10 @@ class PaperTradingEngine:
       'opened_at': datetime.now().isoformat(),
       'signal_confidence': queue_data['signal_confidence'],
       'signal_patterns': queue_data['signal_patterns'],
-      'status': 'OPEN'
+      'status': 'OPEN',
+      'price_24h_change': queue_data.get('price_24h_change'),
+      'validated_patterns_count': queue_data.get('validated_patterns_count'),
+      'avg_pattern_accuracy': queue_data.get('avg_pattern_accuracy')
     }
 
     # Save to database
@@ -409,11 +561,15 @@ class PaperTradingEngine:
     cursor.execute('''
             INSERT INTO active_positions 
             (symbol, entry_price, entry_fee, position_size, quantity, 
-             target_profit_price, stop_loss_price, signal_confidence, signal_patterns)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             target_profit_price, stop_loss_price, signal_confidence, signal_patterns,
+             price_24h_change, validated_patterns_count, avg_pattern_accuracy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (symbol, entry_price, entry_fee, position_size, quantity,
               target_profit_price, stop_loss_price, queue_data['signal_confidence'],
-              queue_data['signal_patterns']))
+              queue_data['signal_patterns'],
+              position_data['price_24h_change'],
+              position_data['validated_patterns_count'],
+              position_data['avg_pattern_accuracy']))
 
     position_data['id'] = cursor.lastrowid
     conn.commit()
@@ -432,6 +588,8 @@ class PaperTradingEngine:
     logging.info(f"   Entry Fee: ${entry_fee:.2f}")
     logging.info(f"   Target Profit: ${target_profit_price:.6f} (+{self.MAX_PROFIT_THRESHOLD_PCT}%)")
     logging.info(f"   Stop Loss: ${stop_loss_price:.6f} (-{self.STOP_LOSS_PCT}%)")
+    logging.info(f"   24h change: {position_data['price_24h_change']:+.2f}%")
+    logging.info(f"   Validated patterns: {position_data['validated_patterns_count']} (avg: {position_data['avg_pattern_accuracy']:.1f}%)")
     logging.info(f"   Remaining Bankroll: ${self.current_bankroll:.2f}")
     logging.info(f"   Active Positions: {len(self.active_positions)}/{self.MAX_POSITIONS}")
 
@@ -572,11 +730,14 @@ class PaperTradingEngine:
             INSERT INTO position_history 
             (symbol, entry_price, exit_price, entry_fee, exit_fee, position_size, quantity,
              profit_loss, profit_loss_pct, opened_at, duration_seconds, exit_reason,
-             signal_confidence, signal_patterns)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             signal_confidence, signal_patterns, price_24h_change, validated_patterns_count, avg_pattern_accuracy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (symbol, entry_price, exit_price, entry_fee, exit_fee, position_size, quantity,
               profit_loss, profit_loss_pct, position['opened_at'], duration_seconds, exit_reason,
-              position['signal_confidence'], position['signal_patterns']))
+              position['signal_confidence'], position['signal_patterns'],
+              position.get('price_24h_change'),
+              position.get('validated_patterns_count'),
+              position.get('avg_pattern_accuracy')))
 
     # Update stats
     cursor.execute('''
@@ -617,8 +778,12 @@ class PaperTradingEngine:
     if not self.running:
       return
 
-    if self.evaluate_signal_for_entry(signal):
+    is_valid, reason = self.evaluate_signal_for_entry(signal)
+
+    if is_valid:
       self.add_to_buying_queue(signal)
+    else:
+      logging.debug(f"Signal rejected for {signal['symbol']}: {reason}")
 
   def start(self):
     """Start paper trading engine"""
@@ -635,9 +800,10 @@ class PaperTradingEngine:
     self.buying_monitor_thread.start()
     self.position_monitor_thread.start()
 
-    logging.info("🚀 Paper Trading Engine STARTED")
+    logging.info("🚀 Paper Trading Engine STARTED (with combination validation)")
     logging.info(f"   Monitoring {self.MAX_POSITIONS} position slots")
     logging.info(f"   Position size: ${self.initial_bankroll / self.SPLIT_BANKROLL_TO:.2f} each")
+    logging.info(f"   Filters: 24h<{self.MAX_24H_CHANGE}%, patterns>={self.MIN_PATTERNS_THRESHOLD}, accuracy>={self.MIN_ACCURACY_THRESHOLD}%")
 
   def stop(self):
     """Stop paper trading engine"""
@@ -717,6 +883,7 @@ class PaperTradingEngine:
 
     if not state:
       return {}
+
     logging.info(f"   Current trading statistics: {state}")
     total_trades = state[3]
     winning_trades = state[4]
@@ -739,5 +906,10 @@ class PaperTradingEngine:
       'active_positions': len(self.active_positions),
       'buying_queue': len(self.buying_queue),
       'position_limit': self.MAX_POSITIONS,
-      'position_size': self.initial_bankroll / self.SPLIT_BANKROLL_TO
+      'position_size': self.initial_bankroll / self.SPLIT_BANKROLL_TO,
+      'filters': {
+        'max_24h_change': self.MAX_24H_CHANGE,
+        'min_patterns': self.MIN_PATTERNS_THRESHOLD,
+        'min_accuracy': self.MIN_ACCURACY_THRESHOLD
+      }
     }

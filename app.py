@@ -2,6 +2,7 @@
 Complete Flask Application with Integrated Crypto Pattern Monitoring
 """
 import time
+from collections import defaultdict
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file
 import sqlite3
@@ -932,6 +933,148 @@ def analyze_cross_tf_signal_combinations():
       'error': str(e)
     }), 500
 
+
+# ADD THIS NEW ROUTE TO app.py AFTER THE get_active_combinations_for_symbol() function
+# Around line 880 (after the existing active-combos endpoint)
+
+@app.route('/api/combo-analysis/active-cross-tf/<symbol>')
+@login_required
+def get_active_cross_tf_combinations_for_symbol(symbol):
+  """
+  Get active cross-timeframe signal combinations for a specific symbol
+  This checks which cross-TF combinations are currently active based on live_signals
+  Returns top 50 combinations sorted by accuracy
+  """
+  global combo_analyzer
+
+  if combo_analyzer is None:
+    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+
+  try:
+    conn = sqlite3.connect(app.config['DB_PATH'])
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Get recent signals across all timeframes (last 2 hours)
+    cursor.execute('''
+      SELECT 
+        timeframe,
+        signal_name,
+        timestamp,
+        signal_type,
+        price
+      FROM live_signals
+      WHERE symbol = ?
+        AND timestamp >= datetime('now', '-2 hours')
+      ORDER BY timestamp DESC
+    ''', (symbol.upper(),))
+
+    signals = [dict(row) for row in cursor.fetchall()]
+
+    if not signals:
+      conn.close()
+      return jsonify({
+        'success': True,
+        'symbol': symbol,
+        'combinations': [],
+        'total_combos': 0,
+        'debug_info': {
+          'total_signals': 0,
+          'message': 'No recent signals found'
+        }
+      })
+
+    logging.info(f"🔍 Found {len(signals)} recent signals for {symbol}")
+
+    # Group signals by timeframe and time window
+    timeframe_signals = defaultdict(lambda: defaultdict(list))
+
+    for signal in signals:
+      timestamp = datetime.fromisoformat(signal['timestamp'])
+      # Group by hour for cross-TF matching
+      window = timestamp.replace(minute=0, second=0, microsecond=0)
+      timeframe_signals[signal['timeframe']][window].append(signal)
+
+    # Find matching cross-TF combinations
+    matched_combos = []
+
+    # Get all cross-TF combinations from database
+    cursor.execute('''
+      SELECT * FROM cross_tf_combos
+      WHERE accuracy >= 60
+      ORDER BY accuracy DESC, profit_factor DESC
+      LIMIT 100
+    ''')
+
+    all_cross_combos = [dict(row) for row in cursor.fetchall()]
+
+    logging.info(f"📊 Checking against {len(all_cross_combos)} cross-TF combinations")
+
+    for combo in all_cross_combos:
+      combo_signature = combo['combo_signature']
+      required_timeframes = combo['timeframes'].split(',')
+
+      # Parse signal@timeframe pairs
+      signal_tf_pairs = []
+      for part in combo_signature.split('+'):
+        sig_name, tf = part.rsplit('@', 1)
+        signal_tf_pairs.append((sig_name, tf))
+
+      # Check if all required signals are present in their respective timeframes
+      # within the same time window
+      for window in set(w for tf_dict in timeframe_signals.values() for w in tf_dict.keys()):
+        match_count = 0
+        matched_signals = []
+
+        for sig_name, tf in signal_tf_pairs:
+          # Check if this signal exists in this timeframe at this window
+          if tf in timeframe_signals and window in timeframe_signals[tf]:
+            window_signals = timeframe_signals[tf][window]
+            if any(s['signal_name'] == sig_name for s in window_signals):
+              match_count += 1
+              matched_signal = next(s for s in window_signals if s['signal_name'] == sig_name)
+              matched_signals.append(matched_signal)
+
+        # If all signals matched, add this combo
+        if match_count == len(signal_tf_pairs):
+          matched_combos.append({
+            **combo,
+            'matched_at': window.isoformat(),
+            'matched_signals': matched_signals,
+            'current_price': matched_signals[0]['price'] if matched_signals else None
+          })
+          logging.info(f"✅ MATCH: {combo_signature} at {window}")
+          break  # Only count each combo once
+
+    conn.close()
+
+    # Sort by accuracy
+    matched_combos.sort(key=lambda x: x['accuracy'], reverse=True)
+
+    # Limit to top 50
+    matched_combos = matched_combos[:50]
+
+    logging.info(f"📊 SUMMARY:")
+    logging.info(f"   Total signals: {len(signals)}")
+    logging.info(f"   Matched cross-TF combos: {len(matched_combos)}")
+
+    return jsonify({
+      'success': True,
+      'symbol': symbol,
+      'combinations': matched_combos,
+      'total_combos': len(matched_combos),
+      'debug_info': {
+        'total_signals': len(signals),
+        'timeframes_active': list(timeframe_signals.keys()),
+        'checked_combinations': len(all_cross_combos)
+      }
+    })
+
+  except Exception as e:
+    logging.error(f"❌ Failed to get cross-TF combinations: {e}")
+    import traceback
+    logging.error(traceback.format_exc())
+    return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/combo-analysis/top')
 @login_required

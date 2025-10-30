@@ -144,6 +144,8 @@
                 lastAnalyze = data
                 // Render results
                 renderAnalysisResults(resultsDiv, data, data.combinations);
+
+                await fetchAndDisplayCrossTFCombos();
             } catch (error) {
                 resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
                 lucide.createIcons();
@@ -535,3 +537,207 @@ function disconnectPositionWebSocket() {
         positionWebSocket = null;
     }
 }
+// ADD THESE FUNCTIONS TO static/symbol.js
+
+// Fetch and display cross-timeframe combinations
+async function fetchAndDisplayCrossTFCombos() {
+    const crossTFContainer = document.getElementById('cross-tf-combos-container');
+
+    if (!crossTFContainer) {
+        console.error('Cross-TF container not found');
+        return;
+    }
+
+    try {
+        crossTFContainer.innerHTML = `
+            <div class="text-center py-4">
+                <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div>
+                <p class="text-slate-400 text-sm mt-2">Loading cross-timeframe combinations...</p>
+            </div>
+        `;
+
+        const response = await fetch(`/api/combo-analysis/active-cross-tf/${symbol}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to fetch cross-TF combinations');
+        }
+
+        renderCrossTFCombinations(crossTFContainer, data);
+
+    } catch (error) {
+        console.error('Failed to fetch cross-TF combinations:', error);
+        crossTFContainer.innerHTML = `
+            <div class="text-red-400 text-center py-4">
+                <i data-lucide="alert-circle" class="w-6 h-6 mx-auto mb-2"></i>
+                <p class="text-sm">${error.message}</p>
+            </div>
+        `;
+        lucide.createIcons();
+    }
+}
+
+// Render cross-timeframe combinations
+function renderCrossTFCombinations(container, data) {
+    const { symbol, combinations, total_combos, debug_info } = data;
+
+    if (!combinations || combinations.length === 0) {
+        container.innerHTML = `
+            <div class="text-slate-400 text-center py-8">
+                <i data-lucide="inbox" class="w-12 h-12 mx-auto mb-3 opacity-50"></i>
+                <p class="text-lg font-semibold">No Active Cross-Timeframe Combinations</p>
+                <p class="text-sm mt-2">No combinations detected in recent signals</p>
+                <p class="text-xs mt-4">Total signals analyzed: ${debug_info.total_signals}</p>
+            </div>
+        `;
+        lucide.createIcons();
+        return;
+    }
+
+    let html = `
+        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 rounded-t-lg">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-white font-bold text-lg flex items-center gap-2">
+                        <i data-lucide="layers" class="w-5 h-5"></i>
+                        Cross-Timeframe Signal Combinations
+                    </h3>
+                    <p class="text-white/80 text-sm mt-1">
+                        Signals across multiple timeframes working together
+                    </p>
+                </div>
+                <div class="text-right">
+                    <p class="text-white font-bold text-2xl">${total_combos}</p>
+                    <p class="text-white/80 text-xs">Active Combos</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 space-y-3 max-h-[600px] overflow-y-auto">
+    `;
+
+    combinations.forEach((combo, index) => {
+        const accuracy = Math.round(combo.accuracy * 100) / 100;
+        const accuracyColor = getConfidenceColor(accuracy);
+        const priceChange = combo.avg_price_change || 0;
+        const priceChangeColor = priceChange > 0 ? 'bg-green-500' : 'bg-red-500';
+        const profitFactor = combo.profit_factor ? combo.profit_factor.toFixed(2) : 'N/A';
+
+        // Parse signal@timeframe pairs
+        const signalParts = combo.combo_signature.split('+');
+        const timeframes = combo.timeframes.split(',');
+
+        // Get signal types from matched signals
+        const signalTypes = combo.matched_signals?.map(s => s.signal_type) || [];
+        const buyCount = signalTypes.filter(t => t === 'BUY').length;
+        const sellCount = signalTypes.filter(t => t === 'SELL').length;
+
+        let sentimentClass = 'bg-slate-600';
+        let sentimentIcon = 'minus';
+        let sentimentText = 'MIXED';
+
+        if (buyCount > sellCount) {
+            sentimentClass = 'bg-green-600';
+            sentimentIcon = 'trending-up';
+            sentimentText = 'BULLISH';
+        } else if (sellCount > buyCount) {
+            sentimentClass = 'bg-red-600';
+            sentimentIcon = 'trending-down';
+            sentimentText = 'BEARISH';
+        }
+
+        html += `
+            <div class="bg-slate-700/50 rounded-lg border border-slate-600 hover:border-purple-500/50 transition-all">
+                <div class="p-3">
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-white font-bold text-lg">#${index + 1}</span>
+                            <span class="${accuracyColor} text-white text-xs px-2 py-1 rounded font-bold">
+                                ${accuracy}%
+                            </span>
+                            <span class="${sentimentClass} text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+                                <i data-lucide="${sentimentIcon}" class="w-3 h-3"></i>
+                                ${sentimentText}
+                            </span>
+                        </div>
+                        <div class="text-right text-xs">
+                            <p class="text-slate-400">Samples: <span class="text-white font-semibold">${combo.signals_count}</span></p>
+                            <p class="text-slate-400">PF: <span class="text-white font-semibold">${profitFactor}</span></p>
+                        </div>
+                    </div>
+
+                    <!-- Stats Row -->
+                    <div class="grid grid-cols-3 gap-2 mb-3">
+                        <div class="bg-slate-800/50 rounded p-2 text-center">
+                            <p class="text-slate-400 text-[10px]">Avg Move</p>
+                            <p class="${priceChangeColor} text-white text-xs font-bold px-1 py-0.5 rounded inline-block">
+                                ${priceChange.toFixed(3)}%
+                            </p>
+                        </div>
+                        <div class="bg-slate-800/50 rounded p-2 text-center">
+                            <p class="text-slate-400 text-[10px]">Timeframes</p>
+                            <p class="text-white text-xs font-bold">${combo.num_timeframes}</p>
+                        </div>
+                        <div class="bg-slate-800/50 rounded p-2 text-center">
+                            <p class="text-slate-400 text-[10px]">Signals</p>
+                            <p class="text-white text-xs font-bold">${combo.combo_size}</p>
+                        </div>
+                    </div>
+
+                    <!-- Timeframe Tags -->
+                    <div class="flex flex-wrap gap-1 mb-3">
+                        ${timeframes.map(tf => `
+                            <span class="bg-purple-500/20 text-purple-300 text-[10px] px-2 py-0.5 rounded border border-purple-500/30">
+                                ${tf}
+                            </span>
+                        `).join('')}
+                    </div>
+
+                    <!-- Signal Breakdown -->
+                    <div class="space-y-1">
+                        <p class="text-slate-400 text-xs font-semibold mb-1">Signal Breakdown:</p>
+                        ${signalParts.map(part => {
+                            const [sigName, sigTf] = part.rsplit('@', 1);
+                            const matchedSig = combo.matched_signals?.find(s =>
+                                s.signal_name === sigName && s.timeframe === sigTf
+                            );
+                            const sigType = matchedSig?.signal_type || 'UNKNOWN';
+                            const sigTypeColor = sigType === 'BUY' ? 'text-green-400' :
+                                                sigType === 'SELL' ? 'text-red-400' : 'text-slate-400';
+
+                            return `
+                                <div class="flex items-center justify-between bg-slate-800/50 rounded px-2 py-1">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-slate-400 text-[10px] font-mono">${sigTf}</span>
+                                        <span class="text-slate-300 text-xs">${formatSignalName(sigName)}</span>
+                                    </div>
+                                    <span class="${sigTypeColor} text-xs font-semibold">${sigType}</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <!-- Match Info -->
+                    ${combo.matched_at ? `
+                        <div class="mt-2 pt-2 border-t border-slate-600">
+                            <p class="text-slate-400 text-[10px]">
+                                Detected: ${moment(combo.matched_at).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm')}
+                            </p>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+
+    container.innerHTML = html;
+    lucide.createIcons();
+}
+
+// Helper function for splitting by last occurrence
+String.prototype.rsplit = function(sep, maxsplit) {
+    const split = this.split(sep);
+    return maxsplit ? [split.slice(0, -maxsplit).join(sep)].concat(split.slice(-maxsplit)) : split;
+};
