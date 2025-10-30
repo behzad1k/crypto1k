@@ -1041,8 +1041,8 @@ class PaperTradingEngine:
   def process_new_signal(self, signal: Dict):
     """Process a new signal from the monitoring system"""
     logging.info(f"paper is Running: {self.running}")
-    # if not self.running:
-    #   return
+    if not self.running:
+      return
 
     is_valid, reason = self.evaluate_signal_for_entry(signal)
 
