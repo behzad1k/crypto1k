@@ -1045,7 +1045,7 @@ class PaperTradingEngine:
       return
 
     is_valid, reason = self.evaluate_signal_for_entry(signal)
-    logging.info(is_valid, reason)
+    logging.info(reason)
     if is_valid:
       self.add_to_buying_queue(signal)
     else:
