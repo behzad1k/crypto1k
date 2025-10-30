@@ -92,6 +92,15 @@ def initialize_app():
   init_database()
   # Initialize live analysis
   try:
+    paper_trading_engine = PaperTradingEngine(
+      db_path=app.config['DB_PATH'],
+      initial_bankroll=10000.0  # Starting with $10,000
+    )
+    logging.info("✅ Paper trading engine initialized")
+  except Exception as e:
+    logging.error(f"❌ Failed to initialize paper trading: {e}")
+
+  try:
     live_analyzer = ScalpSignalAnalyzer()
     live_db = LiveAnalysisDB()
     fact_checker = SignalFactChecker()
@@ -108,14 +117,6 @@ def initialize_app():
       logging.info("✅ Signal validation analyzer initialized")
   except Exception as e:
       logging.error(f"❌ Failed to initialize validation analyzer: {e}")
-  try:
-    paper_trading_engine = PaperTradingEngine(
-      db_path=app.config['DB_PATH'],
-      initial_bankroll=10000.0  # Starting with $10,000
-    )
-    logging.info("✅ Paper trading engine initialized")
-  except Exception as e:
-    logging.error(f"❌ Failed to initialize paper trading: {e}")
 
 # Initialize signal combo modules
   try:
