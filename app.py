@@ -358,6 +358,7 @@ def start_monitor():
       pattern_file=app.config['PATTERNS_FILE'],
       priority_coins_file=app.config['PRIORITY_COINS_FILE']
     )
+    monitor.paper_trading_engine = paper_trading_engine
 
     # Start monitoring in background thread WITH paper trading engine
     monitor_thread = threading.Thread(

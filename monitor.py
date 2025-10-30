@@ -887,10 +887,12 @@ class CryptoPatternMonitor:
     logging.info(f"Loaded {len(self.indicator_patterns)} patterns")
     logging.info(f"Thresholds: {self.min_pattern_count}+ patterns, {self.min_confidence:.0%}+ confidence")
 
+    if paper_trading_engine is not None:
+      self.paper_trading_engine = paper_trading_engine
     if self.paper_trading_engine:
-      logging.info("📊 Paper trading engine CONNECTED")
+      logging.info(f"📊 Paper trading CONNECTED - Bankroll: ${self.paper_trading_engine.bankroll:,.2f}")
     else:
-      logging.warning("⚠️  Paper trading engine NOT connected")
+      logging.warning("⚠️  Paper trading NOT connected")
 
     while self.running:
       try:
