@@ -1,6 +1,9 @@
 """
-Integrated Crypto Pattern Monitoring Module with Scalp Signal Analysis
-Designed to run as background thread in Flask app
+FIXED: Crypto Pattern Monitoring Module with Paper Trading Integration
+KEY CHANGES:
+1. Store paper_trading_engine as instance variable
+2. Ensure it's passed to monitor_symbol correctly
+3. Add debug logging to verify signal forwarding
 """
 
 import random
@@ -337,10 +340,13 @@ class CryptoPatternMonitor:
     self.current_symbols = []
     self.symbol_queue = deque()
 
+    # ⭐ FIX 1: Store paper trading engine as instance variable
+    self.paper_trading_engine = None
+
     # Configuration
-    self.min_pattern_accuracy = 0.75  # Changed to 75%
+    self.min_pattern_accuracy = 0.75
     self.min_pattern_count = 200
-    self.min_confidence = 0.75  # Changed to 75%
+    self.min_confidence = 0.75
 
     # Initialize scalp signal validator
     self.scalp_validator = ScalpSignalValidator()
@@ -753,8 +759,8 @@ class CryptoPatternMonitor:
   def save_signal_to_db(self, symbol: str, signal: str, confidence: float,
                         pattern_count: int, best_pattern: str, best_accuracy: float,
                         all_patterns: List[Dict], price: float, stop_loss: float,
-                        scalp_validation: Dict, paper_trading_engine=None):
-    """Save signal to database and optionally send to paper trading engine"""
+                        scalp_validation: Dict):
+    """Save signal to database"""
     try:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -779,8 +785,8 @@ class CryptoPatternMonitor:
         self.stats['alerts_triggered'] += 1
         logging.info(f"✅ Signal saved: {symbol} {signal}")
 
-        # NEW: Send to paper trading engine if provided
-        if paper_trading_engine:
+        # ⭐ FIX 2: Forward signal to paper trading if engine is connected
+        if self.paper_trading_engine:
             signal_data = {
                 'symbol': symbol,
                 'signal': signal,
@@ -788,13 +794,16 @@ class CryptoPatternMonitor:
                 'pattern_count': pattern_count,
                 'price': price
             }
-            paper_trading_engine.process_new_signal(signal_data)
-            logging.info(f"📊 Signal forwarded to paper trading engine")
+
+            logging.info(f"📊 Forwarding signal to paper trading: {symbol} {signal}")
+            self.paper_trading_engine.process_new_signal(signal_data)
+        else:
+            logging.warning(f"⚠️  Paper trading engine not connected - signal not forwarded")
 
     except Exception as e:
         logging.error(f"Failed to save signal: {e}")
 
-  def monitor_symbol(self, symbol: str, paper_trading_engine=None):
+  def monitor_symbol(self, symbol: str):
     """Monitor single symbol for pattern matches with scalp validation"""
     try:
       self.stats['current_symbol'] = symbol
@@ -813,7 +822,7 @@ class CryptoPatternMonitor:
       scalp_analysis = self.scalp_signal_analyzer.analyze_symbol_all_timeframes(symbol, SHORT_TIMEFRAMES)
       self.scalp_signal_analyzer.save_analysis_result(scalp_analysis)
 
-      # Check pattern count threshold (minimum 100)
+      # Check pattern count threshold (minimum 200)
       if pattern_count < self.min_pattern_count:
         logging.info(f"{symbol}: {pattern_count} patterns - below minimum threshold of {self.min_pattern_count}")
         return
@@ -827,15 +836,6 @@ class CryptoPatternMonitor:
 
       logging.info(f"🎯 {symbol}: {pattern_count} patterns, {confidence:.1%} confidence - Validating with scalp signals...")
 
-      # if len(scalp_analysis['combinations']) > 0:
-      #   if len([x in ])
-      #
-      # if not scalp_validation['validated']:
-      #   logging.info(f"❌ {symbol}: No strong short-term signals found - REJECTED")
-      #   self.stats['signals_rejected'] += 1
-      #   return
-
-      # logging.info(f"✅ {symbol}: VALIDATED with {scalp_validation['total_strong_signals']} strong signal(s)!")
       self.stats['signals_validated'] += 1
 
       best_pattern = max(matching_patterns, key=lambda x: x['accuracy'])
@@ -851,15 +851,12 @@ class CryptoPatternMonitor:
       current_price = float(current_data['close'].iloc[-1])
       stop_loss = self.calculate_stop_loss(analysis_result['signal'], confidence, current_price)
 
-      # Save to database with scalp validation info
+      # Save to database (this will forward to paper trading)
       self.save_signal_to_db(
         symbol, analysis_result['signal'], confidence,
         pattern_count, best_pattern['pattern'], best_pattern['accuracy'],
-        matching_patterns, current_price, stop_loss, scalp_validation,
-        paper_trading_engine=paper_trading_engine  # NEW parameter
+        matching_patterns, current_price, stop_loss, scalp_validation
       )
-
-
 
     except Exception as e:
       logging.error(f"Error monitoring {symbol}: {e}")
@@ -879,15 +876,21 @@ class CryptoPatternMonitor:
       return price * (1 + stop_pct)
 
   def run(self, top_coins: int = 100, paper_trading_engine=None):
-    """Main monitoring loop with paper trading integration"""
+    """
+    ⭐ FIX 3: Main monitoring loop - STORE paper_trading_engine as instance variable
+    """
+    # Store the engine reference
+    self.paper_trading_engine = paper_trading_engine
 
-    """Main monitoring loop"""
     self.running = True
     logging.info("🚀 Starting crypto pattern monitoring with scalp validation")
     logging.info(f"Loaded {len(self.indicator_patterns)} patterns")
-    logging.info(f"Thresholds: {self.min_pattern_count}+ patterns, {self.min_confidence:.0%}+ confidence, strong short-term signals required")
-    if paper_trading_engine:
-      logging.info("📊 Paper trading engine connected")
+    logging.info(f"Thresholds: {self.min_pattern_count}+ patterns, {self.min_confidence:.0%}+ confidence")
+
+    if self.paper_trading_engine:
+      logging.info("📊 Paper trading engine CONNECTED")
+    else:
+      logging.warning("⚠️  Paper trading engine NOT connected")
 
     while self.running:
       try:
@@ -909,7 +912,7 @@ class CryptoPatternMonitor:
           if not self.running:
             break
 
-          self.monitor_symbol(symbol, paper_trading_engine=paper_trading_engine)
+          self.monitor_symbol(symbol)
           self.stats['symbols_processed'] += 1
           self.stats['last_update'] = datetime.now().isoformat()
 
@@ -926,6 +929,7 @@ class CryptoPatternMonitor:
   def stop(self):
     """Stop monitoring"""
     self.running = False
+    self.paper_trading_engine = None
     logging.info("⏸️ Monitoring stopped")
 
   def get_stats(self) -> Dict:
@@ -935,6 +939,7 @@ class CryptoPatternMonitor:
       'running': self.running,
       'patterns_loaded': len(self.indicator_patterns),
       'current_symbols_count': len(self.current_symbols),
+      'paper_trading_connected': self.paper_trading_engine is not None,
       'validation_rate': (
         f"{(self.stats['signals_validated'] / (self.stats['signals_validated'] + self.stats['signals_rejected']) * 100):.1f}%"
         if (self.stats['signals_validated'] + self.stats['signals_rejected']) > 0 else "N/A"
