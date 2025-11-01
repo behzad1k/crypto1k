@@ -36,8 +36,8 @@ class PaperTradingEngine:
   # Configuration
   MIN_BUYING_WINDOW_PCT = 0  # Wait for 1% price drop before buying
   MAX_BUYING_WINDOW_TIME = 600  # 10 minutes max wait time (seconds)
-  MAX_PROFIT_THRESHOLD_PCT = 5.0  # Take profit at 5%
-  STOP_LOSS_PCT = 2.0  # Stop loss at 2%
+  MAX_PROFIT_THRESHOLD_PCT = 2.5  # Take profit at 5%
+  STOP_LOSS_PCT = 70.0  # Stop loss at 2%
   EXCHANGE_FEE = 0.1  # 0.1% exchange fee
   WATCH_BOUGHT_COIN_SLEEP_TIME = 60  # Check positions every 60 seconds
   SPLIT_BANKROLL_TO = 5  # Split bankroll into 5 positions

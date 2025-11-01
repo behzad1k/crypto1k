@@ -133,8 +133,8 @@ async function loadPositions() {
                                     </span>
                                 </div>
                                 <div class="text-right">
-                                    <p class="text-2xl font-bold ${plClass}">${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}</p>
-                                    <p class="text-sm ${plClass}">${plPct >= 0 ? '+' : ''}${plPct.toFixed(2)}%</p>
+                                    <p class="text-2xl font-bold ${plClass}">${plPct >= 0 ? '+' : ''}${plPct.toFixed(2)}%</p>
+                                    <p class="text-sm ${plClass}">${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}</p>
                                 </div>
                             </div>
 
