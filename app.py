@@ -1525,6 +1525,58 @@ def reset_paper_trading():
       'error': str(e)
     }), 500
 
+@app.route('/api/paper-trading/positions')
+@login_required
+def get_paper_trading_positions():
+  """Get all active positions with current prices"""
+  global paper_trading_engine
+
+  if paper_trading_engine is None:
+    return jsonify({
+      'success': False,
+      'error': 'Paper trading engine not initialized'
+    }), 500
+
+  try:
+    positions = []
+
+    for symbol, pos_data in paper_trading_engine.active_positions.items():
+      # Get current price
+      current_price = paper_trading_engine.get_current_price(symbol)
+
+      if current_price:
+        entry_price = pos_data['entry_price']
+        quantity = pos_data['quantity']
+        entry_fee = pos_data['entry_fee']
+
+        # Calculate current P/L
+        gross_value = quantity * current_price
+        exit_fee = gross_value * (paper_trading_engine.EXCHANGE_FEE / 100)
+        net_value = gross_value - exit_fee
+
+        position_size = pos_data['position_size']
+        profit_loss = net_value - (position_size - entry_fee)
+        profit_loss_pct = ((current_price - entry_price) / entry_price) * 100
+
+        positions.append({
+          **pos_data,
+          'current_price': current_price,
+          'current_profit_loss': profit_loss,
+          'current_profit_loss_pct': profit_loss_pct
+        })
+
+    return jsonify({
+      'success': True,
+      'positions': positions
+    })
+
+  except Exception as e:
+    logging.error(f"Error getting positions: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
 @app.route('/api/paper-trading/buying-queue')
 @login_required
 def get_buying_queue():
@@ -1769,44 +1821,6 @@ def get_paper_trading_status():
       'error': str(e)
     }), 500
 
-
-@app.route('/api/paper-trading/positions')
-@login_required
-def get_paper_trading_positions():
-  """Get all active positions DIRECTLY FROM DATABASE"""
-  try:
-    conn = sqlite3.connect(app.config['DB_PATH'])
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    cursor.execute('''
-            SELECT * FROM active_positions WHERE status = 'OPEN'
-        ''')
-
-    positions = []
-    global paper_trading_engine
-    for row in cursor.fetchall():
-      pos = dict(row)
-
-      # Get current price
-      symbol = pos['symbol']
-      # Use your existing price fetching logic
-      current_price = paper_trading_engine.get_current_price(symbol)
-      pos['current_price'] = current_price
-      positions.append(pos)
-
-    conn.close()
-
-    return jsonify({
-      'success': True,
-      'positions': positions
-    })
-  except Exception as e:
-    logging.error(f"Error getting positions: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
 
 # ==================== HELPER FUNCTIONS ====================
 
