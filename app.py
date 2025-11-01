@@ -1439,31 +1439,6 @@ def paper_trading_position_details(symbol):
   """Position details page"""
   return render_template('position_details.html', symbol=symbol.upper())
 
-@app.route('/api/paper-trading/status')
-@login_required
-def get_paper_trading_status():
-  """Get paper trading engine status"""
-  global paper_trading_engine
-
-  if paper_trading_engine is None:
-    return jsonify({
-      'success': False,
-      'error': 'Paper trading engine not initialized'
-    }), 500
-
-  try:
-    stats = paper_trading_engine.get_stats()
-    return jsonify({
-      'success': True,
-      'stats': stats
-    })
-  except Exception as e:
-    logging.error(f"Error getting status: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
 @app.route('/api/paper-trading/start', methods=['POST'])
 @login_required
 def start_paper_trading():
@@ -1545,58 +1520,6 @@ def reset_paper_trading():
 
   except Exception as e:
     logging.error(f"Error resetting paper trading: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-@app.route('/api/paper-trading/positions')
-@login_required
-def get_paper_trading_positions():
-  """Get all active positions with current prices"""
-  global paper_trading_engine
-
-  if paper_trading_engine is None:
-    return jsonify({
-      'success': False,
-      'error': 'Paper trading engine not initialized'
-    }), 500
-
-  try:
-    positions = []
-
-    for symbol, pos_data in paper_trading_engine.active_positions.items():
-      # Get current price
-      current_price = paper_trading_engine.get_current_price(symbol)
-
-      if current_price:
-        entry_price = pos_data['entry_price']
-        quantity = pos_data['quantity']
-        entry_fee = pos_data['entry_fee']
-
-        # Calculate current P/L
-        gross_value = quantity * current_price
-        exit_fee = gross_value * (paper_trading_engine.EXCHANGE_FEE / 100)
-        net_value = gross_value - exit_fee
-
-        position_size = pos_data['position_size']
-        profit_loss = net_value - (position_size - entry_fee)
-        profit_loss_pct = ((current_price - entry_price) / entry_price) * 100
-
-        positions.append({
-          **pos_data,
-          'current_price': current_price,
-          'current_profit_loss': profit_loss,
-          'current_profit_loss_pct': profit_loss_pct
-        })
-
-    return jsonify({
-      'success': True,
-      'positions': positions
-    })
-
-  except Exception as e:
-    logging.error(f"Error getting positions: {e}")
     return jsonify({
       'success': False,
       'error': str(e)
