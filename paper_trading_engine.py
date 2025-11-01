@@ -470,13 +470,12 @@ class PaperTradingEngine:
 
     # 7. Enhanced scalp agreement
     passed, agreement_pct = self.check_scalp_signal_agreement(symbol)
-    if not passed:
-      logging.info(f"❌ {symbol} rejected: Low scalp agreement {agreement_pct:.1f}% (need 66.7%+)")
-      return False, f"LOW_SCALP_AGREEMENT ({agreement_pct:.1f}%)"
+    # if not passed:
+    #   logging.info(f"❌ {symbol} rejected: Low scalp agreement {agreement_pct:.1f}% (need 66.7%+)")
+    #   return False, f"LOW_SCALP_AGREEMENT ({agreement_pct:.1f}%)"
 
     # 8. BONUS: Divergence signal priority (gives bonus points, not required)
-    has_divergence = False
-    # has_divergence, div_count = self.check_divergence_signals(symbol)
+    has_divergence, div_count = self.check_divergence_signals(symbol)
     # if has_divergence:
     #   logging.info(f"✨ {symbol} BONUS: Has {div_count} divergence signal(s)")
 
