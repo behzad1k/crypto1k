@@ -1784,14 +1784,15 @@ def get_paper_trading_positions():
         ''')
 
     positions = []
+    global paper_trading_engine
     for row in cursor.fetchall():
       pos = dict(row)
 
       # Get current price
       symbol = pos['symbol']
       # Use your existing price fetching logic
-      # current_price = fetch_current_price(symbol)
-
+      current_price = paper_trading_engine.get_current_price(symbol)
+      pos['current_price'] = current_price
       positions.append(pos)
 
     conn.close()
