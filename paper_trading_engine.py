@@ -44,7 +44,7 @@ class PaperTradingEngine:
   MAX_POSITIONS = 5  # Maximum concurrent positions (should match SPLIT_BANKROLL_TO)
 
   # NEW: Signal combination validation thresholds
-  MAX_24H_CHANGE = 15.0  # Maximum 24h price change percentage (avoid FOMO coins)
+  MAX_24H_CHANGE = 20.0  # Maximum 24h price change percentage (avoid FOMO coins)
   MIN_PATTERNS_THRESHOLD = 2  # Minimum number of validated combinations required
   MIN_ACCURACY_THRESHOLD = 60.0  # Minimum accuracy percentage for combinations
 
@@ -415,7 +415,7 @@ class PaperTradingEngine:
       logging.warning(f"⚠️  Could not fetch 24h change for {symbol}, skipping")
       return False, "PRICE_DATA_UNAVAILABLE"
 
-    if abs(price_24h_change) > self.MAX_24H_CHANGE:
+    if price_24h_change > self.MAX_24H_CHANGE:
       logging.info(f"❌ {symbol} rejected: 24h change {price_24h_change:+.2f}% exceeds {self.MAX_24H_CHANGE}%")
       return False, f"24H_CHANGE_TOO_HIGH ({price_24h_change:+.2f}%)"
 
@@ -457,16 +457,16 @@ class PaperTradingEngine:
       return False, reason
 
     # 5. Market structure confirmation
-    passed, reason = self.check_market_structure(symbol)
-    if not passed:
-      logging.info(f"❌ {symbol} rejected: {reason}")
-      return False, reason
+    # passed, reason = self.check_market_structure(symbol)
+    # if not passed:
+    #   logging.info(f"❌ {symbol} rejected: {reason}")
+    #   return False, reason
 
     # 6. Signal cooldown
-    passed, reason = self.check_signal_cooldown(symbol)
-    if not passed:
-      logging.info(f"❌ {symbol} rejected: {reason}")
-      return False, reason
+    # passed, reason = self.check_signal_cooldown(symbol)
+    # if not passed:
+    #   logging.info(f"❌ {symbol} rejected: {reason}")
+    #   return False, reason
 
     # 7. Enhanced scalp agreement
     passed, agreement_pct = self.check_scalp_signal_agreement(symbol)
@@ -475,9 +475,10 @@ class PaperTradingEngine:
       return False, f"LOW_SCALP_AGREEMENT ({agreement_pct:.1f}%)"
 
     # 8. BONUS: Divergence signal priority (gives bonus points, not required)
-    has_divergence, div_count = self.check_divergence_signals(symbol)
-    if has_divergence:
-      logging.info(f"✨ {symbol} BONUS: Has {div_count} divergence signal(s)")
+    has_divergence = False
+    # has_divergence, div_count = self.check_divergence_signals(symbol)
+    # if has_divergence:
+    #   logging.info(f"✨ {symbol} BONUS: Has {div_count} divergence signal(s)")
 
     # ===== ALL CHECKS PASSED =====
     logging.info(f"✅ {symbol} passed ALL validation checks:")
@@ -485,8 +486,8 @@ class PaperTradingEngine:
     logging.info(f"   Validated patterns: {patterns_count} (accuracy: {avg_accuracy:.1f}%)")
     logging.info(f"   Cross-TF alignment: {num_tfs} timeframes")
     logging.info(f"   Scalp agreement: {agreement_pct:.1f}%")
-    if has_divergence:
-      logging.info(f"   🎯 Divergence signals: {div_count}")
+    # if has_divergence:
+    #   logging.info(f"   🎯 Divergence signals: {div_count}")
 
     # Store validation data
     signal['price_24h_change'] = price_24h_change
