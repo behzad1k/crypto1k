@@ -34,7 +34,7 @@ class PaperTradingEngine:
   """
 
   # Configuration
-  MIN_BUYING_WINDOW_PCT = 1.0  # Wait for 1% price drop before buying
+  MIN_BUYING_WINDOW_PCT = 0  # Wait for 1% price drop before buying
   MAX_BUYING_WINDOW_TIME = 600  # 10 minutes max wait time (seconds)
   MAX_PROFIT_THRESHOLD_PCT = 5.0  # Take profit at 5%
   STOP_LOSS_PCT = 2.0  # Stop loss at 2%
