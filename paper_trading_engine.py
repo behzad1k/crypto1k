@@ -16,6 +16,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from collections import deque
 import logging
+
+from paper_trading_manager import PaperTradingManager
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -72,7 +74,8 @@ class PaperTradingEngine:
 
     self.init_database()
     self.load_state()
-
+    self.pt_manager = PaperTradingManager(db_path=self.db_path)
+    self.signal_check_thread = None
     # Calculate position size based on SPLIT_BANKROLL_TO
     position_size = initial_bankroll / self.SPLIT_BANKROLL_TO
 
@@ -270,6 +273,27 @@ class PaperTradingEngine:
 
     conn.commit()
     conn.close()
+
+  def check_pending_signals(self):
+    """Check for new signals from monitor"""
+    logging.info("🔍 Signal checker started")
+
+    while self.running:
+      try:
+        signals = self.pt_manager.get_pending_signals()
+
+        for signal in signals:
+          logging.info(f"📥 Processing signal: {signal['symbol']}")
+          self.process_new_signal(signal)
+
+        # Update state for UI
+        stats = self.get_stats()
+        self.pt_manager.update_state(stats)
+
+        time.sleep(5)  # Check every 5 seconds
+      except Exception as e:
+        logging.error(f"Error checking signals: {e}")
+        time.sleep(10)
 
   def get_current_price(self, symbol: str) -> Optional[float]:
     """Fetch current price from KuCoin API"""
@@ -1062,17 +1086,27 @@ class PaperTradingEngine:
     self.running = True
 
     # Start monitoring threads
-    self.buying_monitor_thread = threading.Thread(target=self.monitor_buying_queue, daemon=True)
-    self.position_monitor_thread = threading.Thread(target=self.monitor_positions, daemon=True)
+    self.buying_monitor_thread = threading.Thread(
+      target=self.monitor_buying_queue,
+      daemon=True
+    )
+    self.position_monitor_thread = threading.Thread(
+      target=self.monitor_positions,
+      daemon=True
+    )
+
+    # NEW: Start signal checker thread
+    self.signal_check_thread = threading.Thread(
+      target=self.check_pending_signals,
+      daemon=True
+    )
 
     self.buying_monitor_thread.start()
     self.position_monitor_thread.start()
+    self.signal_check_thread.start()
 
-    logging.info("🚀 Paper Trading Engine STARTED (with combination validation)")
-    logging.info(f"   Monitoring {self.MAX_POSITIONS} position slots")
-    logging.info(f"   Position size: ${self.initial_bankroll / self.SPLIT_BANKROLL_TO:.2f} each")
-    logging.info(f"   Filters: 24h<{self.MAX_24H_CHANGE}%, patterns>={self.MIN_PATTERNS_THRESHOLD}, accuracy>={self.MIN_ACCURACY_THRESHOLD}%")
-
+    logging.info("🚀 Paper Trading Engine STARTED with signal polling")
+    
   def stop(self):
     """Stop paper trading engine"""
     if not self.running:

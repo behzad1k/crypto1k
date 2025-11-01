@@ -16,6 +16,7 @@ import threading
 import logging
 from monitor import CryptoPatternMonitor
 from paper_trading_engine import PaperTradingEngine
+from paper_trading_manager import PaperTradingManager
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 from live_analysis_handler import LiveAnalysisDB
 from signal_combination_analyzer import SignalCombinationAnalyzer
@@ -41,6 +42,7 @@ fact_checker = None
 signal_validation= None
 combo_analyzer = None
 paper_trading_engine = None
+pt_manager = None
 sock = None
 
 
@@ -80,7 +82,7 @@ def init_database():
 
 def initialize_app():
   """Initialize all modules - called on import for gunicorn compatibility"""
-  global live_analyzer, live_db, fact_checker, sock, combo_analyzer, signal_validation, paper_trading_engine
+  global live_analyzer, live_db, fact_checker, sock, combo_analyzer, signal_validation, paper_trading_engine, pt_manager
 
   # Only initialize once
   if live_analyzer is not None:
@@ -96,6 +98,7 @@ def initialize_app():
       db_path=app.config['DB_PATH'],
       initial_bankroll=10000.0  # Starting with $10,000
     )
+    pt_manager = PaperTradingManager();
     logging.info("✅ Paper trading engine initialized")
   except Exception as e:
     logging.error(f"❌ Failed to initialize paper trading: {e}")
@@ -1808,6 +1811,74 @@ def get_position_monitoring(symbol):
 
   except Exception as e:
     logging.error(f"Error getting monitoring history: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+
+@app.route('/api/paper-trading/status')
+@login_required
+def get_paper_trading_status():
+  """Get paper trading engine status from DATABASE"""
+  try:
+    # Get fresh stats from database, not memory
+    stats = pt_manager.get_stats_from_db()
+
+    if not stats:
+      return jsonify({
+        'success': False,
+        'error': 'No trading data available'
+      }), 404
+
+    # Add running status from state file
+    state = pt_manager.get_state()
+    stats['running'] = state.get('running', False)
+
+    return jsonify({
+      'success': True,
+      'stats': stats
+    })
+  except Exception as e:
+    logging.error(f"Error getting status: {e}")
+    return jsonify({
+      'success': False,
+      'error': str(e)
+    }), 500
+
+
+@app.route('/api/paper-trading/positions')
+@login_required
+def get_paper_trading_positions():
+  """Get all active positions DIRECTLY FROM DATABASE"""
+  try:
+    conn = sqlite3.connect(app.config['DB_PATH'])
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute('''
+            SELECT * FROM active_positions WHERE status = 'OPEN'
+        ''')
+
+    positions = []
+    for row in cursor.fetchall():
+      pos = dict(row)
+
+      # Get current price
+      symbol = pos['symbol']
+      # Use your existing price fetching logic
+      # current_price = fetch_current_price(symbol)
+
+      positions.append(pos)
+
+    conn.close()
+
+    return jsonify({
+      'success': True,
+      'positions': positions
+    })
+  except Exception as e:
+    logging.error(f"Error getting positions: {e}")
     return jsonify({
       'success': False,
       'error': str(e)

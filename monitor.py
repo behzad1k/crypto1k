@@ -19,6 +19,7 @@ import time
 from typing import Dict, List, Tuple, Optional
 from collections import deque
 
+from paper_trading_manager import PaperTradingManager
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -338,8 +339,8 @@ class CryptoPatternMonitor:
     self.running = False
     self.current_symbols = []
     self.symbol_queue = deque()
+    self.pt_manager = PaperTradingManager(db_path=self.db_path)
 
-    # ⭐ FIX 1: Store paper trading engine as instance variable
     self.paper_trading_engine = paper_trading_engine
 
     # Configuration
@@ -835,19 +836,16 @@ class CryptoPatternMonitor:
       current_price = float(current_data['close'].iloc[-1])
       stop_loss = self.calculate_stop_loss(analysis_result['signal'], confidence, current_price)
 
-      if self.paper_trading_engine:
-        signal_data = {
-          'symbol': symbol,
-          'signal': analysis_result['signal'],
-          'pattern_confidence': confidence,
-          'pattern_count': pattern_count,
-          'price': current_price
-        }
+      signal_data = {
+        'symbol': symbol,
+        'signal': analysis_result['signal'],
+        'pattern_confidence': confidence,
+        'pattern_count': pattern_count,
+        'price': current_price
+      }
 
-        logging.info(f"📊 Forwarding signal to paper trading: {symbol} {analysis_result['signal']}")
-        self.paper_trading_engine.process_new_signal(signal_data)
-      else:
-        logging.warning(f"⚠️  Paper trading engine not connected - signal not forwarded")
+      self.pt_manager.send_signal(signal_data)
+      logging.info(f"📊 Signal forwarded to paper trading queue: {symbol}")
 
       # Save to database (this will forward to paper trading)
       self.save_signal_to_db(
