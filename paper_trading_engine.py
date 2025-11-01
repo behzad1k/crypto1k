@@ -931,12 +931,12 @@ class PaperTradingEngine:
             logging.info(f"🎯 Take profit triggered for {symbol}")
 
           # 2. Stop loss
-          elif current_price <= position['stop_loss_price']:
-            exit_reason = 'STOP_LOSS'
-            logging.info(f"🛑 Stop loss triggered for {symbol}")
+          # elif current_price <= position['stop_loss_price']:
+            # exit_reason = 'STOP_LOSS'
+            # logging.info(f"🛑 Stop loss triggered for {symbol}")
 
           # 3. Strong sell signals
-          elif len(strong_sell_signals) >= 3:
+          elif len(strong_sell_signals) >= 100:
             exit_reason = 'STRONG_SELL_SIGNALS'
             logging.info(f"📉 Strong sell signals detected for {symbol}: {', '.join(strong_sell_signals[:5])}")
 
