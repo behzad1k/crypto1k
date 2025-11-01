@@ -752,6 +752,7 @@ class PaperTradingEngine:
     logging.info("🔍 Buying queue monitor started")
 
     while self.running:
+      logging.info(f"buying_queue: {self.buying_queue}")
       try:
         expired_symbols = []
 
@@ -766,6 +767,7 @@ class PaperTradingEngine:
           # Check current price
           current_price = self.get_current_price(symbol)
           if current_price is None:
+            logging.warning(f"No current price for symbol {symbol}")
             continue
 
           target_price = queue_data['target_price']
