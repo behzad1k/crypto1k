@@ -759,10 +759,10 @@ class PaperTradingEngine:
         for symbol, queue_data in list(self.buying_queue.items()):
           # Check expiry
           expires_at = datetime.fromisoformat(queue_data['expires_at'])
-          if datetime.now() > expires_at:
-            logging.info(f"⏱️  {symbol} expired from queue (no entry opportunity)")
-            expired_symbols.append(symbol)
-            continue
+          # if datetime.now() > expires_at:
+            # logging.info(f"⏱️  {symbol} expired from queue (no entry opportunity)")
+            # expired_symbols.append(symbol)
+            # continue
 
           # Check current price
           current_price = self.get_current_price(symbol)
@@ -773,10 +773,10 @@ class PaperTradingEngine:
           target_price = queue_data['target_price']
 
           # If price dropped to target or below, execute entry
-          if current_price <= target_price:
-            logging.info(f"✅ Entry opportunity: {symbol} @ ${current_price:.6f} (target ${target_price:.6f})")
-            self.execute_entry(symbol, current_price, queue_data)
-            expired_symbols.append(symbol)
+          # if current_price <= target_price:
+          logging.info(f"✅ Entry opportunity: {symbol} @ ${current_price:.6f} (target ${target_price:.6f})")
+          self.execute_entry(symbol, current_price, queue_data)
+          expired_symbols.append(symbol)
 
         # Clean up expired/executed entries
         for symbol in expired_symbols:
