@@ -784,21 +784,6 @@ class CryptoPatternMonitor:
         self.stats['alerts_triggered'] += 1
         logging.info(f"✅ Signal saved: {symbol} {signal}")
 
-        # ⭐ FIX 2: Forward signal to paper trading if engine is connected
-        if self.paper_trading_engine:
-            signal_data = {
-                'symbol': symbol,
-                'signal': signal,
-                'pattern_confidence': confidence,
-                'pattern_count': pattern_count,
-                'price': price
-            }
-
-            logging.info(f"📊 Forwarding signal to paper trading: {symbol} {signal}")
-            self.paper_trading_engine.process_new_signal(signal_data)
-        else:
-            logging.warning(f"⚠️  Paper trading engine not connected - signal not forwarded")
-
     except Exception as e:
         logging.error(f"Failed to save signal: {e}")
 
@@ -839,8 +824,8 @@ class CryptoPatternMonitor:
 
       best_pattern = max(matching_patterns, key=lambda x: x['accuracy'])
 
-      if not self.should_send_alert(symbol, analysis_result['signal'], best_pattern['pattern']):
-        return
+      # if not self.should_send_alert(symbol, analysis_result['signal'], best_pattern['pattern']):
+      #   return
 
       # Get current price
       current_data = self.get_historical_data_optimized(symbol, 1)
@@ -849,6 +834,20 @@ class CryptoPatternMonitor:
 
       current_price = float(current_data['close'].iloc[-1])
       stop_loss = self.calculate_stop_loss(analysis_result['signal'], confidence, current_price)
+
+      if self.paper_trading_engine:
+        signal_data = {
+          'symbol': symbol,
+          'signal': analysis_result['signal'],
+          'pattern_confidence': confidence,
+          'pattern_count': pattern_count,
+          'price': current_price
+        }
+
+        logging.info(f"📊 Forwarding signal to paper trading: {symbol} {analysis_result['signal']}")
+        self.paper_trading_engine.process_new_signal(signal_data)
+      else:
+        logging.warning(f"⚠️  Paper trading engine not connected - signal not forwarded")
 
       # Save to database (this will forward to paper trading)
       self.save_signal_to_db(
