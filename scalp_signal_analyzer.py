@@ -1085,6 +1085,24 @@ class ScalpSignalAnalyzer:
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
+    # The validated-combinations dataset (tf_combos) is produced offline by the
+    # backtest/validation pipeline. If it hasn't been loaded into this database,
+    # there's nothing to match against — skip quietly instead of erroring on
+    # every analysis. Warn only once so the logs stay clean.
+    cursor.execute(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='tf_combos'"
+    )
+    if cursor.fetchone() is None:
+      conn.close()
+      if not getattr(self, "_tf_combos_warned", False):
+        logging.warning(
+          "tf_combos table not found in %s — skipping validated combination "
+          "analysis (run the validation pipeline to populate it)",
+          self.db_path,
+        )
+        self._tf_combos_warned = True
+      return {}
+
     saved_count = 0
     combos_by_tf = {}
 

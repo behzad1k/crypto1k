@@ -1,197 +1,542 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Volume Scanner — Signal Analyzer</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg:#0d0f14; --surface:#161a23; --surface2:#1b212c; --border:#2a3040;
-      --text:#e2e8f0; --muted:#64748b; --accent:#6366f1;
-      --green:#16a34a; --red:#dc2626; --amber:#f59e0b; --blue:#38bdf8;
-    }
-    body { background:var(--bg); color:var(--text);
-           font-family:'Inter',system-ui,sans-serif; font-size:14px; padding-bottom:60px; }
-    a { color:inherit; }
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Volume Scanner — Signal Analyzer</title>
+        <style>
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            :root {
+                --bg: #0d0f14;
+                --surface: #161a23;
+                --surface2: #1b212c;
+                --border: #2a3040;
+                --text: #e2e8f0;
+                --muted: #64748b;
+                --accent: #6366f1;
+                --green: #16a34a;
+                --red: #dc2626;
+                --amber: #f59e0b;
+                --blue: #38bdf8;
+            }
+            body {
+                background: var(--bg);
+                color: var(--text);
+                font-family: "Inter", system-ui, sans-serif;
+                font-size: 14px;
+                padding-bottom: 60px;
+            }
+            a {
+                color: inherit;
+            }
 
-    header { display:flex; align-items:center; justify-content:space-between;
-             padding:14px 22px; border-bottom:1px solid var(--border); background:var(--surface); }
-    header h1 { font-size:17px; font-weight:700; }
-    header .links { display:flex; gap:18px; font-size:13px; }
-    header .links a { color:var(--muted); text-decoration:none; }
-    header .links a:hover { color:var(--text); }
+            header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 22px;
+                border-bottom: 1px solid var(--border);
+                background: var(--surface);
+            }
+            header h1 {
+                font-size: 17px;
+                font-weight: 700;
+            }
+            header .links {
+                display: flex;
+                gap: 18px;
+                font-size: 13px;
+            }
+            header .links a {
+                color: var(--muted);
+                text-decoration: none;
+            }
+            header .links a:hover {
+                color: var(--text);
+            }
 
-    .wrap { max-width:1180px; margin:0 auto; padding:22px; }
-    .panel { background:var(--surface); border:1px solid var(--border);
-             border-radius:12px; padding:18px; margin-bottom:18px; }
-    .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.5px;
-                color:var(--muted); margin-bottom:14px; }
+            .wrap {
+                max-width: 1180px;
+                margin: 0 auto;
+                padding: 22px;
+            }
+            .panel {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 18px;
+                margin-bottom: 18px;
+            }
+            .panel h2 {
+                font-size: 13px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: var(--muted);
+                margin-bottom: 14px;
+            }
 
-    /* monitor bar */
-    .monitor { display:flex; flex-wrap:wrap; align-items:center; gap:22px; }
-    .mstat { display:flex; flex-direction:column; gap:2px; }
-    .mstat .label { font-size:11px; color:var(--muted); text-transform:uppercase; }
-    .mstat .value { font-size:14px; font-weight:600; }
-    .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
-    .dot.on { background:var(--green); box-shadow:0 0 8px var(--green); }
-    .dot.off { background:var(--muted); }
-    .spacer { flex:1; }
+            /* monitor bar */
+            .monitor {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 22px;
+            }
+            .mstat {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .mstat .label {
+                font-size: 11px;
+                color: var(--muted);
+                text-transform: uppercase;
+            }
+            .mstat .value {
+                font-size: 14px;
+                font-weight: 600;
+            }
+            .dot {
+                display: inline-block;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                margin-right: 6px;
+            }
+            .dot.on {
+                background: var(--green);
+                box-shadow: 0 0 8px var(--green);
+            }
+            .dot.off {
+                background: var(--muted);
+            }
+            .spacer {
+                flex: 1;
+            }
 
-    button { font-family:inherit; cursor:pointer; border:none; border-radius:7px;
-             font-size:13px; font-weight:600; padding:8px 14px; transition:opacity .15s; }
-    button:hover { opacity:.85; }
-    button:disabled { opacity:.4; cursor:not-allowed; }
-    .btn-primary { background:var(--accent); color:#fff; }
-    .btn-ghost { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
-    .btn-green { background:var(--green); color:#fff; }
-    .btn-red { background:var(--red); color:#fff; }
+            button {
+                font-family: inherit;
+                cursor: pointer;
+                border: none;
+                border-radius: 7px;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 8px 14px;
+                transition: opacity 0.15s;
+            }
+            button:hover {
+                opacity: 0.85;
+            }
+            button:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+            }
+            .btn-primary {
+                background: var(--accent);
+                color: #fff;
+            }
+            .btn-ghost {
+                background: var(--surface2);
+                color: var(--text);
+                border: 1px solid var(--border);
+            }
+            .btn-green {
+                background: var(--green);
+                color: #fff;
+            }
+            .btn-red {
+                background: var(--red);
+                color: #fff;
+            }
 
-    /* watchlist */
-    .wl-input { display:flex; gap:10px; margin-bottom:14px; }
-    .wl-input input { flex:1; padding:9px 12px; background:#0d0f14; border:1px solid var(--border);
-                      border-radius:7px; color:var(--text); font-size:14px; }
-    .wl-input input:focus { outline:none; border-color:var(--accent); }
-    .chips { display:flex; flex-wrap:wrap; gap:8px; }
-    .chip { display:flex; align-items:center; gap:7px; background:var(--surface2);
-            border:1px solid var(--border); border-radius:20px; padding:5px 8px 5px 13px; font-size:13px; }
-    .chip b { font-weight:600; }
-    .chip .x { cursor:pointer; color:var(--muted); font-size:15px; line-height:1;
-               width:18px; height:18px; display:grid; place-items:center; border-radius:50%; }
-    .chip .x:hover { background:var(--red); color:#fff; }
-    .empty { color:var(--muted); font-size:13px; }
+            /* watchlist */
+            .wl-input {
+                display: flex;
+                gap: 10px;
+                margin-bottom: 14px;
+            }
+            .wl-input input {
+                flex: 1;
+                padding: 9px 12px;
+                background: #0d0f14;
+                border: 1px solid var(--border);
+                border-radius: 7px;
+                color: var(--text);
+                font-size: 14px;
+            }
+            .wl-input input:focus {
+                outline: none;
+                border-color: var(--accent);
+            }
+            .chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .chip {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                background: var(--surface2);
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                padding: 5px 8px 5px 13px;
+                font-size: 13px;
+            }
+            .chip b {
+                font-weight: 600;
+            }
+            .chip .x {
+                cursor: pointer;
+                color: var(--muted);
+                font-size: 15px;
+                line-height: 1;
+                width: 18px;
+                height: 18px;
+                display: grid;
+                place-items: center;
+                border-radius: 50%;
+            }
+            .chip .x:hover {
+                background: var(--red);
+                color: #fff;
+            }
+            .empty {
+                color: var(--muted);
+                font-size: 13px;
+            }
 
-    .toolbar { display:flex; align-items:center; gap:14px; margin-bottom:16px; }
-    .toolbar label { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+            .toolbar {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                margin-bottom: 16px;
+            }
+            .toolbar label {
+                font-size: 13px;
+                color: var(--muted);
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
 
-    .live-badge { display:inline-flex; align-items:center; font-size:12px; font-weight:600;
-                  padding:4px 11px; border-radius:20px; }
-    .live-badge.live { background:rgba(22,163,74,.14); color:#4ade80; }
-    .live-badge.idle { background:var(--surface2); color:var(--muted); }
-    .live-badge .dot.on { animation:pulse 1.6s ease-in-out infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
-    .analyze-link { color:var(--blue); text-decoration:none; }
-    .analyze-link:hover { text-decoration:underline; }
+            .live-badge {
+                display: inline-flex;
+                align-items: center;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 4px 11px;
+                border-radius: 20px;
+            }
+            .live-badge.live {
+                background: rgba(22, 163, 74, 0.14);
+                color: #4ade80;
+            }
+            .live-badge.idle {
+                background: var(--surface2);
+                color: var(--muted);
+            }
+            .live-badge .dot.on {
+                animation: pulse 1.6s ease-in-out infinite;
+            }
+            @keyframes pulse {
+                0%,
+                100% {
+                    opacity: 1;
+                }
+                50% {
+                    opacity: 0.35;
+                }
+            }
+            .analyze-link {
+                color: var(--blue);
+                text-decoration: none;
+            }
+            .analyze-link:hover {
+                text-decoration: underline;
+            }
 
-    /* results table */
-    table { width:100%; border-collapse:collapse; font-size:13px; }
-    th { text-align:left; color:var(--muted); font-weight:500; font-size:11px;
-         text-transform:uppercase; letter-spacing:.4px; padding:8px 10px; border-bottom:1px solid var(--border); }
-    td { padding:10px; border-bottom:1px solid var(--border); vertical-align:middle; }
-    tr.row:hover { background:var(--surface2); }
-    .sym { font-weight:700; font-size:14px; }
-    .sub { color:var(--muted); font-size:11px; }
-    .num { font-variant-numeric:tabular-nums; }
-    .pos { color:var(--green); } .neg { color:var(--red); }
+            /* results table */
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 13px;
+            }
+            th {
+                text-align: left;
+                color: var(--muted);
+                font-weight: 500;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+                padding: 8px 10px;
+                border-bottom: 1px solid var(--border);
+            }
+            td {
+                padding: 10px;
+                border-bottom: 1px solid var(--border);
+                vertical-align: middle;
+            }
+            tr.row:hover {
+                background: var(--surface2);
+            }
+            .sym {
+                font-weight: 700;
+                font-size: 14px;
+            }
+            .sub {
+                color: var(--muted);
+                font-size: 11px;
+            }
+            .num {
+                font-variant-numeric: tabular-nums;
+            }
+            .pos {
+                color: var(--green);
+            }
+            .neg {
+                color: var(--red);
+            }
 
-    .badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700; }
-    .badge.STRONG { background:rgba(22,163,74,.18); color:#4ade80; }
-    .badge.GOOD   { background:rgba(56,189,248,.16); color:#7dd3fc; }
-    .badge.FAIR   { background:rgba(245,158,11,.16); color:#fbbf24; }
-    .badge.WEAK   { background:rgba(100,116,139,.18); color:#94a3b8; }
-    .alert-tag { background:var(--red); color:#fff; padding:2px 7px; border-radius:5px; font-size:10px; font-weight:700; }
-    .wash-tag { background:rgba(245,158,11,.16); color:#fbbf24; padding:2px 7px; border-radius:5px; font-size:10px; }
+            .badge {
+                display: inline-block;
+                padding: 2px 8px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            .badge.STRONG {
+                background: rgba(22, 163, 74, 0.18);
+                color: #4ade80;
+            }
+            .badge.GOOD {
+                background: rgba(56, 189, 248, 0.16);
+                color: #7dd3fc;
+            }
+            .badge.FAIR {
+                background: rgba(245, 158, 11, 0.16);
+                color: #fbbf24;
+            }
+            .badge.WEAK {
+                background: rgba(100, 116, 139, 0.18);
+                color: #94a3b8;
+            }
+            .alert-tag {
+                background: var(--red);
+                color: #fff;
+                padding: 2px 7px;
+                border-radius: 5px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            .wash-tag {
+                background: rgba(245, 158, 11, 0.16);
+                color: #fbbf24;
+                padding: 2px 7px;
+                border-radius: 5px;
+                font-size: 10px;
+            }
 
-    .signals { display:none; }
-    .signals.open { display:table-row; }
-    .signals td { background:#10141c; padding:14px 16px; }
-    .signals .summary { margin-bottom:10px; line-height:1.55; color:#cbd5e1; }
-    .signals ul { list-style:none; display:flex; flex-direction:column; gap:6px; }
-    .signals li { padding-left:14px; position:relative; }
-    .signals li::before { content:'▸'; position:absolute; left:0; color:var(--muted); }
-    .dir-bullish { color:var(--green); } .dir-bearish { color:var(--red); } .dir-neutral { color:var(--muted); }
-    .caret { cursor:pointer; color:var(--muted); user-select:none; }
+            .signals {
+                display: none;
+            }
+            .signals.open {
+                display: table-row;
+            }
+            .signals td {
+                background: #10141c;
+                padding: 14px 16px;
+            }
+            .signals .summary {
+                margin-bottom: 10px;
+                line-height: 1.55;
+                color: #cbd5e1;
+            }
+            .signals ul {
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+            .signals li {
+                padding-left: 14px;
+                position: relative;
+            }
+            .signals li::before {
+                content: "▸";
+                position: absolute;
+                left: 0;
+                color: var(--muted);
+            }
+            .dir-bullish {
+                color: var(--green);
+            }
+            .dir-bearish {
+                color: var(--red);
+            }
+            .dir-neutral {
+                color: var(--muted);
+            }
+            .caret {
+                cursor: pointer;
+                color: var(--muted);
+                user-select: none;
+            }
 
-    .alert-card { display:flex; align-items:center; gap:14px; padding:12px 14px;
-                  border:1px solid var(--border); border-radius:9px; margin-bottom:9px; background:var(--surface2); }
-    .alert-card .meta { flex:1; }
-    .alert-card .when { color:var(--muted); font-size:11px; }
-    #msg { font-size:13px; color:var(--muted); margin-left:6px; }
-    .loading { color:var(--amber); }
-  </style>
-</head>
-<body>
-<header>
-  <h1>📡 Volume Scanner</h1>
-  <div class="links">
-    <a href="/symbol/BTC-USDT">Analyzer</a>
-    <a href="/scanner">Scanner</a>
-    <a href="/logout">Logout</a>
-  </div>
-</header>
+            .alert-card {
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                padding: 12px 14px;
+                border: 1px solid var(--border);
+                border-radius: 9px;
+                margin-bottom: 9px;
+                background: var(--surface2);
+            }
+            .alert-card .meta {
+                flex: 1;
+            }
+            .alert-card .when {
+                color: var(--muted);
+                font-size: 11px;
+            }
+            #msg {
+                font-size: 13px;
+                color: var(--muted);
+                margin-left: 6px;
+            }
+            .loading {
+                color: var(--amber);
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>📡 Volume Scanner</h1>
+            <div class="links">
+                <a href="/symbol/BTC">Analyzer</a>
+                <a href="/scanner">Scanner</a>
+                <a href="/logout">Logout</a>
+            </div>
+        </header>
 
-<div class="wrap">
+        <div class="wrap">
+            <!-- Monitor status -->
+            <div class="panel">
+                <h2>Background Monitor</h2>
+                <div class="monitor">
+                    <div class="mstat">
+                        <span class="label">Status</span>
+                        <span class="value" id="monStatus"
+                            ><span class="dot off"></span>—</span
+                        >
+                    </div>
+                    <div class="mstat">
+                        <span class="label">Interval</span>
+                        <span class="value" id="monInterval">—</span>
+                    </div>
+                    <div class="mstat">
+                        <span class="label">Last run</span>
+                        <span class="value" id="monLastRun">—</span>
+                    </div>
+                    <div class="mstat">
+                        <span class="label">Email alerts</span>
+                        <span class="value" id="monEmail">—</span>
+                    </div>
+                    <div class="spacer"></div>
+                    <button class="btn-ghost" id="testEmailBtn">
+                        Send test email
+                    </button>
+                    <button class="btn-green" id="monToggle">
+                        Start monitor
+                    </button>
+                </div>
+                <div style="margin-top: 10px"><span id="msg"></span></div>
+            </div>
 
-  <!-- Monitor status -->
-  <div class="panel">
-    <h2>Background Monitor</h2>
-    <div class="monitor">
-      <div class="mstat">
-        <span class="label">Status</span>
-        <span class="value" id="monStatus"><span class="dot off"></span>—</span>
-      </div>
-      <div class="mstat">
-        <span class="label">Interval</span>
-        <span class="value" id="monInterval">—</span>
-      </div>
-      <div class="mstat">
-        <span class="label">Last run</span>
-        <span class="value" id="monLastRun">—</span>
-      </div>
-      <div class="mstat">
-        <span class="label">Email alerts</span>
-        <span class="value" id="monEmail">—</span>
-      </div>
-      <div class="spacer"></div>
-      <button class="btn-ghost" id="testEmailBtn">Send test email</button>
-      <button class="btn-green" id="monToggle">Start monitor</button>
-    </div>
-    <div style="margin-top:10px"><span id="msg"></span></div>
-  </div>
+            <!-- Watchlist -->
+            <div class="panel">
+                <h2>Watchlist — coins to monitor</h2>
+                <div class="wl-input">
+                    <input
+                        id="wlInput"
+                        placeholder="Add symbols or token addresses (e.g. PEPE, WIF, BONK or 0x… / Sol address)"
+                    />
+                    <button class="btn-primary" id="wlAdd">Add</button>
+                </div>
+                <div class="chips" id="chips">
+                    <span class="empty">No coins yet — add some above.</span>
+                </div>
+            </div>
 
-  <!-- Watchlist -->
-  <div class="panel">
-    <h2>Watchlist — coins to monitor</h2>
-    <div class="wl-input">
-      <input id="wlInput" placeholder="Add symbols or token addresses (e.g. PEPE, WIF, BONK or 0x… / Sol address)" />
-      <button class="btn-primary" id="wlAdd">Add</button>
-    </div>
-    <div class="chips" id="chips"><span class="empty">No coins yet — add some above.</span></div>
-  </div>
+            <!-- Results -->
+            <div class="panel">
+                <div
+                    style="
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        margin-bottom: 14px;
+                    "
+                >
+                    <h2 style="margin: 0">Live Results</h2>
+                    <span id="liveBadge" class="live-badge idle"
+                        ><span class="dot off"></span>idle</span
+                    >
+                </div>
+                <div class="toolbar">
+                    <button class="btn-primary" id="scanBtn">Scan now</button>
+                    <label
+                        ><input type="checkbox" id="autoRefresh" /> Auto-refresh
+                        this view every 20s</label
+                    >
+                    <span id="scanMsg" class="sub"></span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Coin</th>
+                            <th>Price</th>
+                            <th>Score</th>
+                            <th>Vol pace 1h</th>
+                            <th>Vol pace 5m</th>
+                            <th>1h Δ</th>
+                            <th>Buy/Sell</th>
+                            <th>Liquidity</th>
+                            <th>Flags</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody">
+                        <tr>
+                            <td
+                                colspan="11"
+                                class="empty"
+                                style="padding: 20px; text-align: center"
+                            >
+                                Run a scan to see results.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
 
-  <!-- Results -->
-  <div class="panel">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-      <h2 style="margin:0;">Live Results</h2>
-      <span id="liveBadge" class="live-badge idle"><span class="dot off"></span>idle</span>
-    </div>
-    <div class="toolbar">
-      <button class="btn-primary" id="scanBtn">Scan now</button>
-      <label><input type="checkbox" id="autoRefresh" /> Auto-refresh this view every 20s</label>
-      <span id="scanMsg" class="sub"></span>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th></th><th>Coin</th><th>Price</th><th>Score</th>
-          <th>Vol pace 1h</th><th>Vol pace 5m</th><th>1h Δ</th>
-          <th>Buy/Sell</th><th>Liquidity</th><th>Flags</th><th></th>
-        </tr>
-      </thead>
-      <tbody id="resultsBody">
-        <tr><td colspan="11" class="empty" style="padding:20px;text-align:center">Run a scan to see results.</td></tr>
-      </tbody>
-    </table>
-  </div>
+            <!-- Recent alerts -->
+            <div class="panel">
+                <h2>Recent Alerts (fired)</h2>
+                <div id="alertsBox">
+                    <span class="empty">No alerts yet.</span>
+                </div>
+            </div>
+        </div>
 
-  <!-- Recent alerts -->
-  <div class="panel">
-    <h2>Recent Alerts (fired)</h2>
-    <div id="alertsBox"><span class="empty">No alerts yet.</span></div>
-  </div>
-
-</div>
-
-<script src="/static/scanner.js"></script>
-</body>
+        <script src="/static/scanner.js"></script>
+    </body>
 </html>
