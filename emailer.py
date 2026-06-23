@@ -12,6 +12,7 @@ Public surface:
 """
 
 import ssl
+import socket
 import smtplib
 import logging
 from email.mime.text import MIMEText
@@ -20,6 +21,28 @@ from email.mime.multipart import MIMEMultipart
 from scanner_config import EMAIL, RECIPIENTS
 
 logger = logging.getLogger(__name__)
+
+
+# Many cloud hosts hand out an IPv6 address but have no working IPv6 route, so
+# Python tries the SMTP server's IPv6 address first and fails immediately with
+# "[Errno 101] Network is unreachable". These subclasses force the connection
+# over IPv4 while still verifying TLS against the real hostname (so the cert
+# check stays valid — we connect by IP but validate by name).
+
+def _ipv4_socket(host, port, timeout, source_address):
+    ip = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)[0][4]
+    return socket.create_connection(ip, timeout, source_address)
+
+
+class _IPv4SMTP(smtplib.SMTP):
+    def _get_socket(self, host, port, timeout):
+        return _ipv4_socket(host, port, timeout, self.source_address)
+
+
+class _IPv4SMTP_SSL(smtplib.SMTP_SSL):
+    def _get_socket(self, host, port, timeout):
+        sock = _ipv4_socket(host, port, timeout, self.source_address)
+        return self.context.wrap_socket(sock, server_hostname=self._host)
 
 
 def is_configured() -> bool:
@@ -54,11 +77,11 @@ def _send(subject: str, html_body: str, text_body: str) -> bool:
     try:
         if EMAIL.get('use_ssl'):
             ctx = ssl.create_default_context()
-            with smtplib.SMTP_SSL(host, port, context=ctx, timeout=15) as s:
+            with _IPv4SMTP_SSL(host, port, context=ctx, timeout=15) as s:
                 s.login(EMAIL['username'], EMAIL['password'])
                 s.sendmail(EMAIL['from_address'], RECIPIENTS, msg.as_string())
         else:
-            with smtplib.SMTP(host, port, timeout=15) as s:
+            with _IPv4SMTP(host, port, timeout=15) as s:
                 s.starttls(context=ssl.create_default_context())
                 s.login(EMAIL['username'], EMAIL['password'])
                 s.sendmail(EMAIL['from_address'], RECIPIENTS, msg.as_string())
