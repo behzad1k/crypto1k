@@ -1,743 +1,1231 @@
-    let currentPage = 1;
-    let totalPages = 1;
-    let currentSymbol = null;
-    let statusInterval = null;
-    const symbol = window.location.pathname.split('/')[2].toUpperCase()
-    let allSignalData = {}
-    let fullSignals = {}
-    let lastAnalyze = {}
-    // Initialize
-    document.addEventListener('DOMContentLoaded', async () => {
-        lucide.createIcons();
-        showSymbolDetail(symbol)
-        analyzeCoin()
-        allSignalData = await getAllSignals()
-        fullSignals = await getFullSignals();
-    });
-
-
-    async function showSymbolDetail(symbol) {
-        currentSymbol = symbol;
-        const response = await fetch(`/api/symbols/${symbol}`);
-        const history = await response.json();
-
-
-//        signalAnalysisInputs = document.querySelectorAll("input[id^=symbol]");
-//
-//        for(input of signalAnalysisInputs){
-//            if(input.value){
-//                input.value = symbol;
-//                break;
-//            }
-//        }
-
-//        document.querySelector('#page-signals > .bg-slate-800').classList.add('hidden');
-//        document.getElementById('symbol-detail').classList.remove('hidden');
-
-        document.getElementById('symbol-title').textContent = `${symbol} Signal History`;
-        document.getElementById('symbol-total').textContent = history.length;
-
-        if (history.length > 0) {
-            const avgConf = history.reduce((a, b) => a + b.pattern_confidence, 0) / history.length;
-            document.getElementById('symbol-avg-conf').textContent = `${(avgConf * 100).toFixed(1)}%`;
-
-            const avgPatterns = Math.round(history.reduce((a, b) => a + b.pattern_count, 0) / history.length);
-            document.getElementById('symbol-avg-patterns').textContent = avgPatterns;
-        }
-
-        const tbody = document.getElementById('symbol-history-tbody');
-        tbody.innerHTML = '';
-
-        history.forEach(signal => {
-            const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-700/50';
-            tr.innerHTML = `
-                <td class="px-4 py-3">
-                    <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-                        signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                    }">
-                        <i data-lucide="${signal.signal === 'BUY' ? 'trending-up' : 'trending-down'}" class="w-3 h-3"></i>
-                        ${signal.signal}
-                    </span>
-                </td>
-                <td class="px-4 py-3 text-slate-300">${(signal.pattern_confidence * 100).toFixed(1)}%</td>
-                <td class="px-4 py-3 text-slate-300">${signal.pattern_count}</td>
-                <td class="px-4 py-3 text-slate-300">$${signal.price.toFixed(5)}</td>
-                <td class="px-4 py-3 text-slate-300">${signal.validity_hours}h</td>
-                <td class="px-4 py-3 text-slate-400 text-sm">${moment(signal.datetime_created).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm:ss')}</td>
-            `;
-            tbody.appendChild(tr);
-        });
-
-        lucide.createIcons();
-    }
-
-
-
-
-// Timeframe selection helpers
-        function selectAllTimeframes(checked) {
-            document.querySelectorAll('.tf-checkbox').forEach(cb => cb.checked = checked);
-        }
-
-        function selectShortTerm() {
-            document.querySelectorAll('.tf-checkbox').forEach(cb => cb.checked = false);
-            ['1m', '3m', '5m', '15m'].forEach(tf => {
-                const cb = document.querySelector(`.tf-checkbox[value="${tf}"]`);
-                if (cb) cb.checked = true;
-            });
-        }
-
-        function selectMidTerm() {
-            document.querySelectorAll('.tf-checkbox').forEach(cb => cb.checked = false);
-            ['30m', '1h', '2h', '4h', '6h', '8h'].forEach(tf => {
-                const cb = document.querySelector(`.tf-checkbox[value="${tf}"]`);
-                if (cb) cb.checked = true;
-            });
-        }
-
-        function selectLongTerm() {
-            document.querySelectorAll('.tf-checkbox').forEach(cb => cb.checked = false);
-            ['12h', '1d', '3d', '1w'].forEach(tf => {
-                const cb = document.querySelector(`.tf-checkbox[value="${tf}"]`);
-                if (cb) cb.checked = true;
-            });
-        }
-
-        function getSelectedTimeframes() {
-            const checkboxes = document.querySelectorAll('.tf-checkbox:checked');
-            return Array.from(checkboxes).map(cb => cb.value);
-        }
-
-        async function analyzeCoin() {
-            if (!symbol) {
-                alert('Please enter a symbol');
-                return;
-            }
-
-            const timeframes = getSelectedTimeframes();
-
-            if (timeframes.length === 0) {
-                alert('Please select at least one timeframe');
-                return;
-            }
-
-            const statusDiv = document.getElementById('analyzing-status');
-            const resultsDiv = document.getElementById('analyzing-results');
-
-            // Show loading
-            statusDiv.classList.remove('hidden');
-            resultsDiv.innerHTML = '<div class="text-center py-8"><div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div><p class="text-slate-400 mt-2">Analyzing...</p></div>';
-
-            try {
-                const response = await fetch('/api/live-analysis/analyze', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ symbol, timeframes })
-                });
-
-                const data = await response.json();
-
-                if (!data.success) {
-                    throw new Error(data.error || 'Analysis failed');
-                }
-                lastAnalyze = data
-                // Render results
-                renderAnalysisResults(resultsDiv, data, data.combinations);
-
-                await fetchAndDisplayCrossTFCombos();
-            } catch (error) {
-                resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
-                lucide.createIcons();
-            } finally {
-                statusDiv.classList.add('hidden');
-            }
-        }
-        function renderCombinations(timeframe, combinations) {
-    if (!combinations || combinations.length === 0) {
-        return '<p class="text-slate-500 text-xs mt-2">No combinations detected</p>';
-    }
-
-    // Take top 3
-    const topCombos = combinations.sort((a, b) => b.signals_count - a.signals_count).sort((a, b) => b.accuracy - a.accuracy).slice(0, 7);
-
-    let html = '<div class="mt-3 pt-3 border-t border-slate-600">';
-    html += '<p class="text-slate-400 text-xs font-semibold mb-2">🎯 Top Signal Combinations:</p>';
-    html += '<div class="space-y-1">';
-
-    topCombos.forEach(combo => {
-        const signals = combo.combo_signal_name.split('+');
-        const accuracies = combo.signal_accuracies.split('+');
-        const samples = combo.signal_samples.split('+');
-        const accuracy = Math.round(combo.accuracy * 100) / 100;
-        const signalColor = getSignalColor(combo.combo_price_change)
-        const accuracyColor = getConfidenceColor(accuracy);
-
-        html += `
-            <div class="bg-slate-500 rounded p-2">
-                <div class="flex items-center justify-between mb-1">
-                    <div class="flex items-center gap-1">
-                        <span class="${accuracyColor} text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
-                            ${accuracy}%
-                        </span>
-                        <span class="${signalColor} text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
-                            ${Math.round(combo.combo_price_change * 10000) / 10000}%
-                        </span>
-                        <span class="text-slate-400 text-[10px]">
-                            ${combo.signals_count || '-'} samples
-                        </span>
-                        <span class="text-slate-400 text-[10px]">
-                            ${combo.min_window}-${combo.max_window} candles
-                        </span>
-                    </div>
-                </div>
-                <div class="flex flex-wrap gap-1">
-        `;
-
-        signals.forEach((signal, idx) => {
-            const sigAccuracy = accuracies[idx] || 0;
-            const sigSamples = samples[idx] || '0'
-            html += `
-                <span class="text-slate-300 text-[10px] bg-slate-700/50 px-1.5 py-0.5 rounded">
-                    ${formatSignalName(signal)}
-                    <span class="text-slate-400">${Math.round(sigAccuracy * 100) / 100}%/${sigSamples}</span>
-                </span>
-            `;
-        });
-
-        html += `
-                </div>
-            </div>
-        `;
-    });
-
-    html += '</div></div>';
-    return html;
-}
-
-        function renderAnalysisResults(container, data, combinations = {}) {
-            const { symbol, timeframes } = data;
-
-            let html = `
-            <div class="bg-slate-700/50 rounded-lg p-3">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-white font-bold text-xl">${symbol}</h3>
-                                <p class="text-slate-400 text-xs">${moment(data.timestamp).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm:ss')}</p>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-slate-400 text-xs">Timeframes</p>
-                                <p class="text-white font-semibold">${Object.keys(timeframes).length}</p>
-                            </div>
-                        </div>
-                    </div>
-                <div class="grid grid-cols-2 gap-4 mt-4">
-            `;
-
-            // Sort timeframes
-            const sortedTFs = Object.keys(timeframes).sort((a, b) => {
-                const order = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w'];
-                return order.indexOf(a) - order.indexOf(b);
-            });
-
-            sortedTFs.forEach(tf => {
-                const tfData = timeframes[tf];
-
-                if (tfData.error) {
-                    html += `
-                        <div class="bg-slate-700/30 rounded-lg p-3 border-l-4 border-red-500">
-                            <div class="flex items-center justify-between">
-                                <span class="text-white font-semibold">${tf}</span>
-                                <span class="text-red-400 text-sm">${tfData.error}</span>
-                            </div>
-                        </div>
-                    `;
-                    return;
-                }
-
-                const buyCount = tfData.buy_signals || 0;
-                const sellCount = tfData.sell_signals || 0;
-                const totalSignals = tfData.signal_count || 0;
-
-                // Determine overall sentiment
-                let sentimentClass = 'bg-slate-600';
-                let sentimentIcon = 'minus';
-                let sentimentText = 'NEUTRAL';
-
-                if (buyCount > sellCount * 1.5) {
-                    sentimentClass = 'bg-green-600';
-                    sentimentIcon = 'trending-up';
-                    sentimentText = 'BULLISH';
-                } else if (sellCount > buyCount * 1.5) {
-                    sentimentClass = 'bg-red-600';
-                    sentimentIcon = 'trending-down';
-                    sentimentText = 'BEARISH';
-                }
-
-                html += `
-                    <div class="bg-slate-700/30 rounded-lg border border-slate-600 hover:border-purple-500/50 transition-colors">
-                        <div class="p-3 border-b border-slate-600">
-                        <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-3">
-                                    <span class="text-white font-bold">${tf}</span>
-                                    <span class="${sentimentClass} text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                                        <i data-lucide="${sentimentIcon}" class="w-3 h-3"></i>
-                                        ${sentimentText}
-                                    </span>
-                                </div>
-                                <div class="text-right">
-                                    <p class="text-white font-semibold">$${tfData.price.toFixed(5)}</p>
-                                    <p class="text-slate-400 text-xs">${totalSignals} signals</p>
-                                </div>
-                            </div>
-                            <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
-                                <div class="bg-green-500/20 rounded px-2 py-1">
-                                    <span class="text-green-400">BUY: ${buyCount}</span>
-                                </div>
-                                <div class="bg-red-500/20 rounded px-2 py-1">
-                                    <span class="text-red-400">SELL: ${sellCount}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex flex-col p-3 space-y-1 max-h-[500px] overflow-y-auto">
-                        `
-                        const tfCombos = combinations[tf] || [];
-        html += renderCombinations(tf, tfCombos);
-
-                if (totalSignals === 0) {
-                    html += '<p class="text-slate-500 text-sm text-center py-2">No signals detected</p>';
-                } else {
-                    const signals = Object.entries(tfData.signals);
-
-                    // Sort by signal type (BUY first, then SELL)
-                    signals.sort((a, b) => {
-                        const aDetail = getSignalDetail(a[0]) || {}
-                        const bDetail = getSignalDetail(b[0]) || {}
-                        return (bDetail[tf] || bDetail['all'])?.accuracy_rate - (aDetail[tf] || aDetail['all'])?.accuracy_rate
-                    });
-
-                    signals.forEach(([signalName, signalData]) => {
-                        let signalInfo = getSignalDetail(signalName);
-                        let signalIsOriginal = true;
-                        if (!signalInfo || !signalInfo[tf]){
-                            signalIsOriginal = false
-                            if(signalInfo && signalInfo['all']){
-                                signalInfo = signalInfo['all']
-                            } else {
-                                signalInfo = {
-                                    original_confidence: 0,
-                                    confidence: 0,
-                                }
-                            }
-                        } else {
-                            signalInfo = signalInfo[tf];
-                        }
-                        const conf = signalInfo?.original_confidence || getSignalConfidence(signalName);
-                        const adjusted_confidence = signalInfo?.confidence || 0
-                        const accuracy = Math.round((signalInfo?.accuracy_rate || 0) * 100)/100
-                        const confColor = getConfidenceColor(conf);
-                        const adjustedConfColor = getConfidenceColor(adjusted_confidence);
-                        const accuracyColor = getConfidenceColor(accuracy);
-                        const sample_size = signalInfo?.sample_size || 0
-                        const signalType = signalData.signal;
-                        const strength = signalData.strength || '';
-
-                        let signalIcon = 'circle';
-                        let signalClass = 'text-slate-400';
-
-                        if (signalType === 'BUY') {
-                            signalIcon = 'arrow-up-circle';
-                            signalClass = 'text-green-400';
-                        } else if (signalType === 'SELL') {
-                            signalIcon = 'arrow-down-circle';
-                            signalClass = 'text-red-400';
-                        }
-
-                        html += `
-                            <div class="flex items-center justify-between py-1 px-2 rounded hover:bg-slate-600/30 text-xs">
-                                <div class="flex items-center gap-2 flex-1">
-                                    <i data-lucide="${signalIcon}" class="w-3 h-3 ${signalClass}"></i>
-                                    <span class="text-slate-300">${formatSignalName(signalName)}</span>
-                                    ${strength ? `<span class="text-slate-500 text-[10px]">(${strength})</span>` : ''}
-                                </div>
-                                <div class="w-6 h-6 ${confColor} flex items-center justify-center text-sm rounded-full ml-2 opacity-50"> ${conf}</div>
-                                <div class="w-6 h-6 ${adjustedConfColor} flex items-center justify-center text-sm rounded-full ml-2"> ${adjusted_confidence}</div>
-                                <div class="w-10 h-6 ${accuracyColor} flex items-center justify-center text-sm rounded ml-2"> ${accuracy}</div>
-                                <div class="w-10 h-6 flex items-center justify-center text-sm rounded ml-2 text-white">${sample_size}</div>
-                                <div class="w-1 h-1 flex items-center justify-center text-sm rounded ml-2 text-white">${!signalIsOriginal ? '~' : ''}</div>
-                            </div>
-                        `;
-                    });
-                }
-
-
-                html += `
-                        </div>
-                    </div>
-                `;
-            });
-
-            html += '</div>';
-
-            container.innerHTML = html;
-            lucide.createIcons();
-        }
-
-        async function getAllSignals() {
-            try {
-                const response = await fetch('/api/live-analysis/all-signals', {
-                    method: 'GET',
-                    headers: {'Content-Type': 'application/json'},
-                });
-//                if (!data.success) {
-//                    throw new Error(data.error || 'Signal Fetch Failed');
-//                }
-                const data = await response.json();
-
-                const formatted = {}
-
-                data.signals?.map(e => {
-                    formatted[e.name] = { confidence: e.confidence }
-                })
-
-                return formatted
-            } catch (error) {
-                resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
-                lucide.createIcons();
-            }
-        }
-
-        async function getFullSignals() {
-            try {
-                const response = await fetch('/api/live-analysis/full-signals', {
-                    method: 'GET',
-                    headers: {'Content-Type': 'application/json'},
-                });
-//                if (!data.success) {
-//                    throw new Error(data.error || 'Signal Fetch Failed');
-//                }
-                const data = await response.json();
-
-                return data.signals
-            } catch (error) {
-                resultsDiv.innerHTML = `<div class="text-red-400 text-center py-8"><i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2"></i><p>${error.message}</p></div>`;
-                lucide.createIcons();
-            }
-        }
-
-        function getSignalDetail(signalName){
-            return fullSignals[signalName]
-        }
-
-        function getSignalConfidence(signalName) {
-            return allSignalData[signalName]?.confidence || 0;
-        }
-
-        function getConfidenceColor(confidence) {
-            if (confidence >= 85) return 'bg-red-500';
-            if (confidence >= 75) return 'bg-orange-500';
-            if (confidence >= 65) return 'bg-yellow-500';
-            return 'bg-slate-500';
-        }
-
-        function getSignalColor(value) {
-            if (value > 0.5) return 'bg-green-500';
-            if (value < 0) return 'bg-red-500';
-            return 'bg-slate-500';
-        }
-
-        function formatSignalName(name) {
-            return name
-                .replace(/_/g, ' ')
-                .replace(/\b\w/g, l => l.toUpperCase());
-        }
-
-        // Add keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && e.target.id.startsWith('symbol-')) {
-                const num = e.target.id.split('-')[1];
-                analyzeCoin(parseInt(num));
-            }
-        });
-let currentAnalysisData
-
-async function fetchAndDisplayCombos() {
-    try {
-        const response = await fetch(`/api/live-analysis/combos/${symbol}`);
-        const data = await response.json();
-        console.log(data)
-        if (data.success) {
-            // Group by timeframe
-            const combosByTf = {};
-            data.combinations.forEach(combo => {
-                if (!combosByTf[combo.timeframe]) {
-                    combosByTf[combo.timeframe] = [];
-                }
-                combosByTf[combo.timeframe].push(combo);
-            });
-
-            // Update display (re-render with combos)
-            const container = document.getElementById('analyzing-results');
-            renderAnalysisResults(container, lastAnalyze, combosByTf);
-        }
-    } catch (error) {
-        console.error('Failed to fetch combinations:', error);
-    }
-}
-
-let currentPositionId = null;
-let positionWebSocket = null;
-
-// WebSocket connection
-function connectPositionWebSocket() {
-    if (positionWebSocket) {
-        positionWebSocket.close();
-    }
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/live-analysis/${symbol}`;
-
-    positionWebSocket = new WebSocket(wsUrl);
-
-    positionWebSocket.onopen = () => {
-        document.getElementById('ws-connect-btn').innerHTML = `
-            <i data-lucide="pause" class="w-3 h-3"></i>
-            Stop Live Feed
-        `;
-        document.getElementById('ws-connect-btn').onclick = disconnectPositionWebSocket;
-        lucide.createIcons();
-    };
-
-    positionWebSocket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    const container = document.getElementById('analyzing-results');
-
-    // Pass combinations to render function
-    renderAnalysisResults(container, data.analysis, data.analysis.combinations || {});
+/**
+ * Symbol analysis page — v2
+ * Handles horizon selection, analysis, chart, market data, and result rendering.
+ */
+
+const HORIZON_DESCRIPTIONS = {
+  short: "Scalping / intraday  ·  5m, 15m, 30m",
+  mid: "Intraday swing / day trading  ·  1h, 2h, 4h",
+  long: "Swing / position trading  ·  6h, 12h, 1d, 1w",
 };
 
-    positionWebSocket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-    };
+const CATEGORY_LABELS = {
+  momentum: "Momentum",
+  trend: "Trend",
+  volume: "Volume",
+  volatility: "Volatility",
+  structure: "Market Structure",
+  smc: "Smart Money (SMC)",
+  pattern: "Price Patterns",
+};
 
-    positionWebSocket.onclose = () => {
-        document.getElementById('ws-connect-btn').innerHTML = `
-            <i data-lucide="play" class="w-3 h-3"></i>
-            Start Live Feed
-        `;
-        document.getElementById('ws-connect-btn').onclick = connectPositionWebSocket;
-        lucide.createIcons();
-    };
+// Level line colors per direction/grade
+const LEVEL_COLORS = {
+  bullish: { A: "#22c55e", B: "#16a34a", C: "#166534" },
+  bearish: { A: "#ef4444", B: "#dc2626", C: "#991b1b" },
+  neutral: { A: "#94a3b8", B: "#64748b", C: "#475569" },
+};
+
+let chartInstance = null;
+let candleSeries = null;
+let currentSymbol = "";
+let currentChartTf = "1h";
+let lastResult = null;
+let lastCandles = [];
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", () => {
+  currentSymbol = document.getElementById("symbolInput").value.trim().toUpperCase();
+
+  document.getElementById("symbolInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") analyze();
+  });
+
+  document.getElementById("analyzeBtn").addEventListener("click", analyze);
+
+  document.getElementById("chartTfSelect").addEventListener("change", (e) => {
+    currentChartTf = e.target.value;
+    loadChart(currentSymbol, currentChartTf);
+  });
+
+  fetchMarketData(currentSymbol);
+});
+
+// ── Analyze ───────────────────────────────────────────────────────────────────
+
+async function fetchHorizon(symbol, horizon) {
+  const res = await fetch("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol, horizon }),
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || `${horizon} analysis failed`);
+  return data;
 }
 
-function disconnectPositionWebSocket() {
-    if (positionWebSocket) {
-        positionWebSocket.close();
-        positionWebSocket = null;
-    }
+async function analyze() {
+  const symbol = document.getElementById("symbolInput").value.trim().toUpperCase();
+  if (!symbol) return;
+
+  currentSymbol = symbol;
+  setLoading(true);
+  clearError();
+  fetchMarketData(symbol);
+
+  try {
+    const [short, mid, long] = await Promise.all([
+      fetchHorizon(symbol, "short"),
+      fetchHorizon(symbol, "mid"),
+      fetchHorizon(symbol, "long"),
+    ]);
+
+    lastResult = { symbol, short, mid, long };
+    renderAllResults(short, mid, long);
+    fetchPersistence(symbol);
+    fetchLiquidations(symbol);
+  } catch (err) {
+    showError(err.message || "Network error — could not reach server");
+    console.error(err);
+  } finally {
+    setLoading(false);
+  }
 }
-// ADD THESE FUNCTIONS TO static/symbol.js
 
-// Fetch and display cross-timeframe combinations
-async function fetchAndDisplayCrossTFCombos() {
-    const crossTFContainer = document.getElementById('cross-tf-combos-container');
+// ── Market data ───────────────────────────────────────────────────────────────
 
-    if (!crossTFContainer) {
-        console.error('Cross-TF container not found');
-        return;
+async function fetchMarketData(symbol) {
+  setMarketLoading();
+  try {
+    const res = await fetch(
+      `/api/market-data/${encodeURIComponent(symbol + "-usdt")}`,
+    );
+    const data = await res.json();
+    if (data.success) renderMarketData(data);
+  } catch (err) {
+    console.warn("Market data fetch failed:", err);
+    setMarketUnavailable();
+  }
+}
+
+function setMarketLoading() {
+  ["mdFundingRate", "mdOI", "mdImbalance"].forEach((id) => {
+    const el = document.getElementById(id);
+    el.textContent = "loading…";
+    el.className = "market-item-value loading";
+  });
+  document.getElementById("mdNextFunding").textContent = "";
+  document.getElementById("mdOIChange").textContent = "";
+  document.getElementById("mdImbalanceSub").textContent = "";
+}
+
+function setMarketUnavailable() {
+  ["mdFundingRate", "mdOI", "mdImbalance"].forEach((id) => {
+    const el = document.getElementById(id);
+    el.textContent = "N/A";
+    el.className = "market-item-value neutral";
+  });
+}
+
+function renderMarketData(data) {
+  // ── Funding rate ───────────────────────────────────────────────────────────
+  const frEl = document.getElementById("mdFundingRate");
+  const frSub = document.getElementById("mdNextFunding");
+
+  if (data.funding_rate !== null) {
+    const fr = data.funding_rate;
+    const pct = (fr * 100).toFixed(4) + "%";
+    frEl.textContent = pct;
+
+    // Color: neutral if |fr| < 0.01%, elevated if < 0.05%, extreme otherwise
+    const abs = Math.abs(fr * 100);
+    if (abs < 0.01) {
+      frEl.className = "market-item-value neutral";
+    } else if (fr > 0) {
+      frEl.className =
+        abs < 0.05 ? "market-item-value" : "market-item-value bear";
+      // Positive funding = longs paying = crowded long = slightly bearish signal
+    } else {
+      frEl.className =
+        abs < 0.05 ? "market-item-value" : "market-item-value bull";
     }
 
+    if (data.next_funding_in !== null) {
+      frSub.textContent = `Next in ${data.next_funding_in}m`;
+    }
+  } else {
+    frEl.textContent = "No perp";
+    frEl.className = "market-item-value neutral";
+    frSub.textContent = "Spot only";
+  }
+
+  // ── Open interest ──────────────────────────────────────────────────────────
+  const oiEl = document.getElementById("mdOI");
+  const oiSub = document.getElementById("mdOIChange");
+
+  if (data.open_interest !== null) {
+    oiEl.textContent = formatLargeNumber(data.open_interest);
+    oiEl.className = "market-item-value";
+
+    if (data.oi_change_pct !== null) {
+      const chg = data.oi_change_pct;
+      const arrow = chg >= 0 ? "↑" : "↓";
+      const cls = chg >= 0 ? "bull" : "bear";
+      oiSub.innerHTML = `<span style="color:var(--${cls})">${arrow} ${Math.abs(chg).toFixed(2)}% (1h)</span>`;
+    }
+  } else {
+    oiEl.textContent = "No perp";
+    oiEl.className = "market-item-value neutral";
+    oiSub.textContent = "Spot only";
+  }
+
+  // ── Order book imbalance ───────────────────────────────────────────────────
+  const imEl = document.getElementById("mdImbalance");
+  const imSub = document.getElementById("mdImbalanceSub");
+
+  if (data.imbalance_ratio !== null) {
+    const ratio = data.imbalance_ratio;
+    const side = data.imbalance_side;
+    imEl.textContent = `${ratio}:1`;
+    imEl.className = `market-item-value ${side === "bullish" ? "bull" : side === "bearish" ? "bear" : "neutral"}`;
+
+    const bidK = formatLargeNumber(data.bid_depth);
+    const askK = formatLargeNumber(data.ask_depth);
+    imSub.textContent = `Bid $${bidK}  /  Ask $${askK}`;
+  } else {
+    imEl.textContent = "N/A";
+    imEl.className = "market-item-value neutral";
+    imSub.textContent = "";
+  }
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+
+function initChart() {
+  const container = document.getElementById("chartContainer");
+  container.innerHTML = "";
+
+  chartInstance = LightweightCharts.createChart(container, {
+    width: container.clientWidth,
+    height: 320,
+    layout: {
+      background: { color: "#161a23" },
+      textColor: "#64748b",
+    },
+    grid: {
+      vertLines: { color: "#1e2330" },
+      horzLines: { color: "#1e2330" },
+    },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: "#2a3040" },
+    timeScale: {
+      borderColor: "#2a3040",
+      timeVisible: true,
+      secondsVisible: false,
+    },
+  });
+
+  candleSeries = chartInstance.addCandlestickSeries({
+    upColor: "#22c55e",
+    downColor: "#ef4444",
+    borderVisible: false,
+    wickUpColor: "#22c55e",
+    wickDownColor: "#ef4444",
+  });
+
+  // Resize observer
+  new ResizeObserver(() => {
+    chartInstance.applyOptions({ width: container.clientWidth });
+  }).observe(container);
+}
+
+async function loadChart(symbol, timeframe) {
+  document.getElementById("chartTitle").textContent =
+    `${symbol}  ·  ${timeframe}`;
+
+  if (!chartInstance) initChart();
+
+  try {
+    const res = await fetch(
+      `/api/ohlcv/${encodeURIComponent(symbol)}/${timeframe}`,
+    );
+    const data = await res.json();
+    if (!data.success || !data.candles.length) return;
+
+    candleSeries.setData(data.candles);
+    chartInstance.timeScale().fitContent();
+    lastCandles = data.candles;
+    drawVPVR();
+  } catch (err) {
+    console.warn("Chart load failed:", err);
+  }
+}
+
+function drawChartLevels(chartLevels) {
+  if (!candleSeries || !chartLevels) return;
+
+  // Remove existing price lines (recreate series is simplest)
+  const existingData = candleSeries.data ? candleSeries.data() : null;
+
+  chartLevels.forEach((level) => {
+    if (!level.price) return;
+    const color =
+      (LEVEL_COLORS[level.direction] || LEVEL_COLORS.neutral)[level.grade] ||
+      "#64748b";
     try {
-        crossTFContainer.innerHTML = `
-            <div class="text-center py-4">
-                <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div>
-                <p class="text-slate-400 text-sm mt-2">Loading cross-timeframe combinations...</p>
-            </div>
-        `;
-
-        const response = await fetch(`/api/combo-analysis/active-cross-tf/${symbol}`);
-        const data = await response.json();
-
-        if (!data.success) {
-            throw new Error(data.error || 'Failed to fetch cross-TF combinations');
-        }
-
-        renderCrossTFCombinations(crossTFContainer, data);
-
-    } catch (error) {
-        console.error('Failed to fetch cross-TF combinations:', error);
-        crossTFContainer.innerHTML = `
-            <div class="text-red-400 text-center py-4">
-                <i data-lucide="alert-circle" class="w-6 h-6 mx-auto mb-2"></i>
-                <p class="text-sm">${error.message}</p>
-            </div>
-        `;
-        lucide.createIcons();
+      candleSeries.createPriceLine({
+        price: level.price,
+        color: color,
+        lineWidth: level.grade === "A" ? 2 : 1,
+        lineStyle:
+          level.grade === "A"
+            ? LightweightCharts.LineStyle.Solid
+            : LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: level.grade === "A",
+        title: level.label,
+      });
+    } catch (e) {
+      /* price line already exists or out of range */
     }
+  });
+
+  // Build legend
+  const legend = document.getElementById("chartLegend");
+  legend.innerHTML = "";
+  const seen = new Set();
+  chartLevels.forEach((l) => {
+    if (!l.price || seen.has(l.label)) return;
+    seen.add(l.label);
+    const color = (LEVEL_COLORS[l.direction] || LEVEL_COLORS.neutral)[l.grade];
+    const item = document.createElement("div");
+    item.className = "chart-legend-item";
+    item.innerHTML = `<span class="chart-legend-dot" style="background:${color}"></span>${l.label}: ${formatPrice(l.price)}`;
+    legend.appendChild(item);
+  });
 }
 
-// Render cross-timeframe combinations
-function renderCrossTFCombinations(container, data) {
-    const { symbol, combinations, total_combos, debug_info } = data;
+// ── Results rendering ─────────────────────────────────────────────────────────
 
-    if (!combinations || combinations.length === 0) {
-        container.innerHTML = `
-            <div class="text-slate-400 text-center py-8">
-                <i data-lucide="inbox" class="w-12 h-12 mx-auto mb-3 opacity-50"></i>
-                <p class="text-lg font-semibold">No Active Cross-Timeframe Combinations</p>
-                <p class="text-sm mt-2">No combinations detected in recent signals</p>
-                <p class="text-xs mt-4">Total signals analyzed: ${debug_info.total_signals}</p>
-            </div>
-        `;
-        lucide.createIcons();
-        return;
-    }
+function renderAllResults(short, mid, long) {
+  document.getElementById("priceDisplay").textContent = formatPrice(mid.price);
+  document.getElementById("lastUpdated").textContent =
+    "Updated " + new Date(mid.timestamp).toLocaleTimeString();
 
-    let html = `
-        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 rounded-t-lg">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class="text-white font-bold text-lg flex items-center gap-2">
-                        <i data-lucide="layers" class="w-5 h-5"></i>
-                        Cross-Timeframe Signal Combinations
-                    </h3>
-                    <p class="text-white/80 text-sm mt-1">
-                        Signals across multiple timeframes working together
-                    </p>
-                </div>
-                <div class="text-right">
-                    <p class="text-white font-bold text-2xl">${total_combos}</p>
-                    <p class="text-white/80 text-xs">Active Combos</p>
-                </div>
-            </div>
-        </div>
+  // Chart uses mid timeframes
+  const tfs = mid.timeframes || [];
+  const tfSelect = document.getElementById("chartTfSelect");
+  tfSelect.innerHTML = tfs
+    .map((tf) => `<option value="${tf}"${tf === mid.chart_tf ? " selected" : ""}>${tf}</option>`)
+    .join("");
+  currentChartTf = mid.chart_tf;
+  document.getElementById("chartSection").style.display = "block";
+  loadChart(mid.symbol, currentChartTf).then(() => drawChartLevels(mid.chart_levels));
 
-        <div class="p-4 space-y-3 max-h-[600px] overflow-y-auto">
+  // Build the three stacked horizon sections
+  const container = document.getElementById("horizonSections");
+  container.innerHTML = "";
+  for (const data of [short, mid, long]) {
+    container.appendChild(buildHorizonSection(data));
+  }
+
+  document.getElementById("emptyState").style.display = "none";
+  document.getElementById("results").style.display = "block";
+  document.getElementById("exportBtns").style.display = "flex";
+}
+
+// ── Horizon section builder ───────────────────────────────────────────────────
+
+function buildHorizonSection(data) {
+  const h     = data.horizon;
+  const bias  = data.bias;
+  const pct   = bias.score === 0 ? 50 : Math.round(((bias.score + 1) / 2) * 100);
+
+  const section = document.createElement("div");
+  section.className = `horizon-section ${h}`;
+
+  // Header
+  const header = document.createElement("div");
+  header.className = "horizon-section-header";
+  header.innerHTML = `
+    <span class="horizon-label ${h}">${data.horizon_label}</span>
+    <span style="font-size:11px;color:var(--muted)">${data.timeframes.join(" · ")}</span>
+    <span class="family-bias-badge ${bias.direction}">${bias.direction.toUpperCase()}</span>
+    <span style="font-size:11px;color:var(--muted)">score <strong style="color:var(--text)">${bias.score.toFixed(2)}</strong></span>
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">${formatPrice(data.price)} · ${new Date(data.timestamp).toLocaleTimeString()}</span>
+  `;
+  section.appendChild(header);
+
+  // Body
+  const body = document.createElement("div");
+  body.className = "horizon-section-body";
+
+  // Bias banner
+  const biasEl = document.createElement("div");
+  biasEl.className = `bias-banner-el`;
+  const biasColors = {
+    bullish: { bg: "linear-gradient(135deg,rgba(34,197,94,0.08),rgba(34,197,94,0.03))", border: "var(--bull-dim)" },
+    bearish: { bg: "linear-gradient(135deg,rgba(239,68,68,0.08),rgba(239,68,68,0.03))", border: "var(--bear-dim)" },
+    neutral: { bg: "rgba(148,163,184,0.05)", border: "var(--border)" },
+  };
+  const bc = biasColors[bias.direction] || biasColors.neutral;
+  biasEl.style.cssText = `background:${bc.bg};border:1px solid ${bc.border};border-radius:8px;padding:12px 16px;margin-bottom:12px`;
+  biasEl.innerHTML = `
+    <div class="bias-row">
+      <div class="bias-direction ${bias.direction}">${bias.direction.toUpperCase()}</div>
+      <div class="bias-bar-wrap">
+        <div class="bias-bar-track"><div class="bias-bar-fill" style="width:${pct}%"></div></div>
+        <div class="bias-labels"><span>Bear</span><span>Bull</span></div>
+      </div>
+      <div class="bias-meta">
+        <span style="color:var(--text);font-weight:600">${bias.bull_score}</span> bull &nbsp;/&nbsp;
+        <span style="color:var(--text);font-weight:600">${bias.bear_score}</span> bear
+        &nbsp;·&nbsp;
+        <span style="color:var(--text);font-weight:600">${data.all_signals.length}</span> signals
+      </div>
+    </div>
+  `;
+  body.appendChild(biasEl);
+
+  // Scalp dashboard
+  if (data.scalp_metrics) body.appendChild(buildScalpEl(data.scalp_metrics, bias));
+
+  // Primary strip
+  if (data.primary_signals && data.primary_signals.length) {
+    body.appendChild(buildPrimaryEl(data.primary_signals));
+  }
+
+  // Grade legend
+  const legend = document.createElement("div");
+  legend.className = "legend";
+  legend.innerHTML = `
+    <div class="legend-item"><span class="legend-grade A">A</span> Primary</div>
+    <div class="legend-item"><span class="legend-grade B">B</span> Confirmation</div>
+    <div class="legend-item"><span class="legend-grade C">C</span> Context</div>
+  `;
+  body.appendChild(legend);
+
+  // Family cards
+  body.appendChild(buildCategoriesEl(data.families, data.category_order));
+
+  section.appendChild(body);
+  return section;
+}
+
+function buildPrimaryEl(primarySignals) {
+  const el = document.createElement("div");
+  el.style.marginBottom = "12px";
+  el.innerHTML = `<div class="strip-label">⭐ Grade A — Primary signals</div>`;
+  const pills = document.createElement("div");
+  pills.className = "primary-pills";
+  primarySignals.forEach((s) => {
+    const pill = document.createElement("div");
+    pill.className = "primary-pill";
+    const levelHtml = s.price_level ? `<span class="pill-level">@ ${formatPrice(s.price_level)}</span>` : "";
+    pill.innerHTML = `
+      <span class="pill-dir ${s.direction}"></span>
+      <span>${formatSignalName(s.signal_name)}</span>
+      <span class="pill-tf">${s.timeframe}</span>
+      ${levelHtml}
     `;
-
-    combinations.forEach((combo, index) => {
-        const accuracy = Math.round(combo.accuracy * 100) / 100;
-        const accuracyColor = getConfidenceColor(accuracy);
-        const priceChange = combo.avg_price_change || 0;
-        const priceChangeColor = priceChange > 0 ? 'bg-green-500' : 'bg-red-500';
-        const profitFactor = combo.profit_factor ? combo.profit_factor.toFixed(2) : 'N/A';
-
-        // Parse signal@timeframe pairs
-        const signalParts = combo.combo_signature.split('+');
-        const timeframes = combo.timeframes.split(',');
-
-        // Get signal types from matched signals
-        const signalTypes = combo.matched_signals?.map(s => s.signal_type) || [];
-        const buyCount = signalTypes.filter(t => t === 'BUY').length;
-        const sellCount = signalTypes.filter(t => t === 'SELL').length;
-
-        let sentimentClass = 'bg-slate-600';
-        let sentimentIcon = 'minus';
-        let sentimentText = 'MIXED';
-
-        if (buyCount > sellCount) {
-            sentimentClass = 'bg-green-600';
-            sentimentIcon = 'trending-up';
-            sentimentText = 'BULLISH';
-        } else if (sellCount > buyCount) {
-            sentimentClass = 'bg-red-600';
-            sentimentIcon = 'trending-down';
-            sentimentText = 'BEARISH';
-        }
-
-        html += `
-            <div class="bg-slate-700/50 rounded-lg border border-slate-600 hover:border-purple-500/50 transition-all">
-                <div class="p-3">
-                    <div class="flex items-start justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <span class="text-white font-bold text-lg">#${index + 1}</span>
-                            <span class="${accuracyColor} text-white text-xs px-2 py-1 rounded font-bold">
-                                ${accuracy}%
-                            </span>
-                            <span class="${sentimentClass} text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                                <i data-lucide="${sentimentIcon}" class="w-3 h-3"></i>
-                                ${sentimentText}
-                            </span>
-                        </div>
-                        <div class="text-right text-xs">
-                            <p class="text-slate-400">Samples: <span class="text-white font-semibold">${combo.signals_count}</span></p>
-                            <p class="text-slate-400">PF: <span class="text-white font-semibold">${profitFactor}</span></p>
-                        </div>
-                    </div>
-
-                    <!-- Stats Row -->
-                    <div class="grid grid-cols-3 gap-2 mb-3">
-                        <div class="bg-slate-800/50 rounded p-2 text-center">
-                            <p class="text-slate-400 text-[10px]">Avg Move</p>
-                            <p class="${priceChangeColor} text-white text-xs font-bold px-1 py-0.5 rounded inline-block">
-                                ${priceChange.toFixed(3)}%
-                            </p>
-                        </div>
-                        <div class="bg-slate-800/50 rounded p-2 text-center">
-                            <p class="text-slate-400 text-[10px]">Timeframes</p>
-                            <p class="text-white text-xs font-bold">${combo.num_timeframes}</p>
-                        </div>
-                        <div class="bg-slate-800/50 rounded p-2 text-center">
-                            <p class="text-slate-400 text-[10px]">Signals</p>
-                            <p class="text-white text-xs font-bold">${combo.combo_size}</p>
-                        </div>
-                    </div>
-
-                    <!-- Timeframe Tags -->
-                    <div class="flex flex-wrap gap-1 mb-3">
-                        ${timeframes.map(tf => `
-                            <span class="bg-purple-500/20 text-purple-300 text-[10px] px-2 py-0.5 rounded border border-purple-500/30">
-                                ${tf}
-                            </span>
-                        `).join('')}
-                    </div>
-
-                    <!-- Signal Breakdown -->
-                    <div class="space-y-1">
-                        <p class="text-slate-400 text-xs font-semibold mb-1">Signal Breakdown:</p>
-                        ${signalParts.map(part => {
-                            const [sigName, sigTf] = part.rsplit('@', 1);
-                            const matchedSig = combo.matched_signals?.find(s =>
-                                s.signal_name === sigName && s.timeframe === sigTf
-                            );
-                            const sigType = matchedSig?.signal_type || 'UNKNOWN';
-                            const sigTypeColor = sigType === 'BUY' ? 'text-green-400' :
-                                                sigType === 'SELL' ? 'text-red-400' : 'text-slate-400';
-
-                            return `
-                                <div class="flex items-center justify-between bg-slate-800/50 rounded px-2 py-1">
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-slate-400 text-[10px] font-mono">${sigTf}</span>
-                                        <span class="text-slate-300 text-xs">${formatSignalName(sigName)}</span>
-                                    </div>
-                                    <span class="${sigTypeColor} text-xs font-semibold">${sigType}</span>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-
-                    <!-- Match Info -->
-                    ${combo.matched_at ? `
-                        <div class="mt-2 pt-2 border-t border-slate-600">
-                            <p class="text-slate-400 text-[10px]">
-                                Detected: ${moment(combo.matched_at).add(3, 'h').add(30, 'm').format('jYYYY/jMM/jDD HH:mm')}
-                            </p>
-                        </div>
-                    ` : ''}
-                </div>
-            </div>
-        `;
-    });
-
-    html += '</div>';
-
-    container.innerHTML = html;
-    lucide.createIcons();
+    pills.appendChild(pill);
+  });
+  el.appendChild(pills);
+  return el;
 }
 
-// Helper function for splitting by last occurrence
-String.prototype.rsplit = function(sep, maxsplit) {
-    const split = this.split(sep);
-    return maxsplit ? [split.slice(0, -maxsplit).join(sep)].concat(split.slice(-maxsplit)) : split;
-};
+function buildCategoriesEl(families, categoryOrder) {
+  const container = document.createElement("div");
+  const byCategory = {};
+  Object.entries(families).forEach(([, fam]) => {
+    if (!byCategory[fam.category]) byCategory[fam.category] = {};
+    byCategory[fam.category][fam.name] = fam;
+  });
+  const ordered = categoryOrder ? categoryOrder.filter((c) => byCategory[c]) : Object.keys(byCategory);
+  ordered.forEach((cat) => {
+    const catFamilies = byCategory[cat];
+    if (!catFamilies) return;
+    const section = document.createElement("div");
+    section.className = "category-section";
+    const heading = document.createElement("div");
+    heading.className = "category-heading";
+    heading.textContent = CATEGORY_LABELS[cat] || cat;
+    section.appendChild(heading);
+    const grid = document.createElement("div");
+    grid.className = "family-grid";
+    Object.values(catFamilies).forEach((fam) => grid.appendChild(buildFamilyCard(fam)));
+    section.appendChild(grid);
+    container.appendChild(section);
+  });
+  return container;
+}
+
+function buildScalpEl(m, bias) {
+  const dir   = bias ? bias.direction : "neutral";
+  const label = m.setup_label || "WEAK";
+  const score = Math.round(m.setup_score ?? 0);
+  const tfA   = m.tf_alignment || {};
+
+  const el = document.createElement("div");
+  el.style.cssText = "background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden";
+
+  const pipsHtml = Array.from({ length: 10 }, (_, i) =>
+    `<div class="setup-score-pip${i < score ? ` filled ${label}` : ""}"></div>`
+  ).join("");
+
+  const aligned = tfA.aligned_count ?? 0;
+  const total   = tfA.total_count ?? 0;
+  const strength = tfA.strength === "full" ? 1 : tfA.strength === "partial" ? 0.5 : 0;
+  const tfCls  = strength >= 0.7 ? "good" : strength >= 0.4 ? "warn" : "bad";
+  const tfDirHtml = Object.entries(tfA.timeframes || {}).map(([tf, d]) => {
+    const arrow = d === "bullish" ? "↑" : d === "bearish" ? "↓" : "·";
+    const cls   = d === "bullish" ? "bull" : d === "bearish" ? "bear" : "neutral";
+    return `<span style="color:var(--${cls})">${tf}${arrow}</span>`;
+  }).join(" ");
+
+  const vr  = m.volume_ratio;
+  const vCls = vr >= 2 ? "good" : vr >= 1.2 ? "warn" : "neutral";
+  const vSub = m.volume_trend === "rising"
+    ? `<span style="color:var(--bull)">↑ rising</span>`
+    : m.volume_trend === "falling"
+    ? `<span style="color:var(--bear)">↓ falling</span>`
+    : "avg";
+
+  const atrPct = m.atr_pct;
+  const atrCls = atrPct >= 0.8 ? "good" : atrPct >= 0.3 ? "warn" : "bad";
+  const atrs   = m.atrs_for_2pct;
+  const atrSub = atrs != null
+    ? `<span style="color:${m.target_realistic ? "var(--bull)" : "var(--bear)"}">${atrs.toFixed(1)} ATRs for 2%</span>`
+    : "";
+
+  const ra = m.room_above; const rb = m.room_below;
+  const raCls = ra?.pct >= 2 ? "good" : ra?.pct >= 1 ? "warn" : "bad";
+  const rbCls = rb?.pct >= 2 ? "good" : rb?.pct >= 1 ? "warn" : "bad";
+
+  el.innerHTML = `
+    <div class="scalp-header">
+      <span class="scalp-header-label">⚡ Setup Quality</span>
+      <div class="setup-score-badge">
+        <span class="setup-score-label ${label}">${label}</span>
+        <div class="setup-score-bar">${pipsHtml}</div>
+        <span style="font-size:11px;color:var(--muted)">${score}/10</span>
+      </div>
+    </div>
+    <div class="scalp-metrics-row">
+      <div class="scalp-metric">
+        <div class="scalp-metric-label">TF Alignment</div>
+        <div class="scalp-metric-value ${tfCls}">${aligned}/${total}</div>
+        <div class="scalp-metric-sub">${tfDirHtml}</div>
+      </div>
+      <div class="scalp-metric">
+        <div class="scalp-metric-label">Volume</div>
+        <div class="scalp-metric-value ${vCls}">${vr != null ? vr.toFixed(2) + "×" : "—"}</div>
+        <div class="scalp-metric-sub">${vSub}</div>
+      </div>
+      <div class="scalp-metric">
+        <div class="scalp-metric-label">ATR Context</div>
+        <div class="scalp-metric-value ${atrCls}">${atrPct != null ? atrPct.toFixed(2) + "% ATR" : "—"}</div>
+        <div class="scalp-metric-sub">${atrSub}</div>
+      </div>
+      <div class="scalp-metric">
+        <div class="scalp-metric-label">Room Above</div>
+        <div class="scalp-metric-value ${ra?.pct != null ? raCls : "neutral"}">${ra?.pct != null ? ra.pct.toFixed(2) + "%" : "—"}</div>
+        <div class="scalp-metric-sub">${dir === "bullish" ? "target zone" : "resistance"}</div>
+      </div>
+      <div class="scalp-metric">
+        <div class="scalp-metric-label">Room Below</div>
+        <div class="scalp-metric-value ${rb?.pct != null ? rbCls : "neutral"}">${rb?.pct != null ? rb.pct.toFixed(2) + "%" : "—"}</div>
+        <div class="scalp-metric-sub">${dir === "bearish" ? "target zone" : "support"}</div>
+      </div>
+    </div>
+  `;
+
+  // Factors + key levels
+  const body = document.createElement("div");
+  body.className = "scalp-body";
+
+  const factorsDiv = document.createElement("div");
+  factorsDiv.className = "setup-factors";
+  factorsDiv.innerHTML = `<div class="factor-label">Setup Quality Breakdown</div>`;
+  (m.setup_factors || []).forEach((f) => {
+    const ratio    = f.max > 0 ? (f.points ?? 0) / f.max : 0;
+    const barColor = ratio >= 0.67 ? "var(--bull)" : ratio >= 0.34 ? "var(--grade-a)" : "var(--bear)";
+    const row = document.createElement("div");
+    row.innerHTML = `
+      <div class="factor-row">
+        <div class="factor-name">${f.name}</div>
+        <div class="factor-bar-track"><div class="factor-bar-fill" style="width:${Math.round(ratio * 100)}%;background:${barColor}"></div></div>
+        <div class="factor-pts">${f.points}/${f.max}</div>
+      </div>
+      ${f.detail ? `<div class="factor-detail">${f.detail}</div>` : ""}
+    `;
+    factorsDiv.appendChild(row);
+  });
+  body.appendChild(factorsDiv);
+
+  const levelsDiv = document.createElement("div");
+  levelsDiv.className = "key-levels-panel";
+  levelsDiv.innerHTML = `<div class="key-levels-label">Key Levels — Distance from Current Price</div>`;
+  (m.key_levels || []).slice(0, 8).forEach((l) => {
+    const isAbove = l.pct != null && l.pct >= 0;
+    const row = document.createElement("div");
+    row.className = "key-level-row";
+    row.innerHTML = `
+      <div class="key-level-arrow">${isAbove ? "↑" : "↓"}</div>
+      <div class="key-level-price">${formatPrice(l.price)}</div>
+      <div class="key-level-pct ${isAbove ? "above" : "below"}">${l.pct != null ? (l.pct >= 0 ? "+" : "") + l.pct.toFixed(2) + "%" : ""}</div>
+      <div class="key-level-label">${l.label}</div>
+      ${l.grade ? `<div class="key-level-grade ${l.grade}">${l.grade}</div>` : ""}
+    `;
+    levelsDiv.appendChild(row);
+  });
+  body.appendChild(levelsDiv);
+  el.appendChild(body);
+
+  const stopAbove = m.stop_above ?? null;
+  const stopBelow = m.stop_below ?? null;
+  if (stopAbove !== null || stopBelow !== null) {
+    const stopEl = document.createElement("div");
+    stopEl.className = "stop-suggestion";
+    if (stopBelow !== null) stopEl.innerHTML += `<div class="stop-item"><span style="color:var(--bull)">▲ Long</span> <strong>Stop: ${formatPrice(stopBelow)}</strong></div>`;
+    if (stopAbove !== null) stopEl.innerHTML += `<div class="stop-item"><span style="color:var(--bear)">▼ Short</span> <strong>Stop: ${formatPrice(stopAbove)}</strong></div>`;
+    el.appendChild(stopEl);
+  }
+
+  return el;
+}
+
+function buildFamilyCard(fam) {
+  const card = document.createElement("div");
+  card.className = `family-card ${fam.bias}`;
+
+  // Header
+  card.innerHTML = `
+    <div class="family-header">
+      <span class="family-name">${fam.name}</span>
+      <span class="family-bias-badge ${fam.bias}">${fam.bias}</span>
+    </div>
+    <div class="family-description">${fam.description}</div>
+  `;
+
+  // Indicator values (blue chips — raw readings like RSI: 22.8)
+  const allValues = [
+    ...Object.entries(fam.indicator_values || {}).map(([label, val]) => ({
+      label,
+      val,
+      type: "indicator",
+    })),
+    ...Object.entries(fam.price_levels || {}).map(([label, val]) => ({
+      label,
+      val: formatPrice(val),
+      type: "price_level",
+    })),
+  ];
+
+  if (allValues.length) {
+    const valWrap = document.createElement("div");
+    valWrap.className = "family-values";
+    allValues.forEach(({ label, val, type }) => {
+      const chip = document.createElement("span");
+      chip.className = `value-chip ${type}`;
+      chip.innerHTML = `<span class="chip-label">${label}</span>${typeof val === "number" ? formatValue(val) : val}`;
+      valWrap.appendChild(chip);
+    });
+    card.appendChild(valWrap);
+  }
+
+  // Signal list
+  if (fam.active_signals && fam.active_signals.length) {
+    const list = document.createElement("div");
+    list.className = "signal-list";
+
+    const sorted = [...fam.active_signals].sort(
+      (a, b) =>
+        (({ A: 0, B: 1, C: 2 })[a.grade] ?? 3) -
+        ({ A: 0, B: 1, C: 2 }[b.grade] ?? 3),
+    );
+
+    sorted.forEach((s) => {
+      const item = document.createElement("div");
+      item.className = "signal-item";
+
+      const freshnessHtml = buildFreshnessHtml(s.candles_ago);
+      const levelHtml = s.price_level
+        ? `<span class="signal-price-level">${formatPrice(s.price_level)}</span>`
+        : "";
+
+      item.innerHTML = `
+        <span class="grade-badge ${s.grade}">${s.grade}</span>
+        <span class="signal-dir-dot ${s.direction}"></span>
+        <span class="signal-name-text">${formatSignalName(s.signal_name)}</span>
+        ${levelHtml}
+        <span class="signal-tf-badge">${s.timeframe}</span>
+        ${freshnessHtml}
+        <span class="signal-role-tag">${s.role}</span>
+      `;
+      list.appendChild(item);
+    });
+
+    card.appendChild(list);
+  }
+
+  return card;
+}
+
+function buildFreshnessHtml(candles_ago) {
+  if (candles_ago === null || candles_ago === undefined) return "";
+  if (candles_ago <= 1)
+    return `<span class="freshness-badge fresh">fresh</span>`;
+  if (candles_ago <= 3)
+    return `<span class="freshness-badge recent">${candles_ago}C ago</span>`;
+  return `<span class="freshness-badge stale">${candles_ago}C ago</span>`;
+}
+
+// ── Scalp dashboard (legacy — kept for reference, replaced by buildScalpEl) ───
+
+function renderScalpDashboard(m, bias) {
+  if (!m) return;
+
+  document.getElementById("scalpDashboard").style.display = "block";
+  const dir = bias ? bias.direction : "neutral";
+
+  // ── Setup score ──────────────────────────────────────────────────────────
+  const scoreEl = document.getElementById("setupScoreLabel");
+  const barEl = document.getElementById("setupScoreBar");
+  const numEl = document.getElementById("setupScoreNum");
+
+  scoreEl.textContent = m.setup_label || "—";
+  scoreEl.className = "setup-score-label " + (m.setup_label || "");
+
+  const score = Math.round(m.setup_score ?? 0);
+  const label = m.setup_label || "WEAK";
+  barEl.innerHTML = Array.from(
+    { length: 10 },
+    (_, i) =>
+      `<div class="setup-score-pip${i < score ? ` filled ${label}` : ""}"></div>`,
+  ).join("");
+  numEl.textContent = `${score}/10`;
+
+  // ── TF Alignment ─────────────────────────────────────────────────────────
+  const tfA = m.tf_alignment || {};
+  const aEl = document.getElementById("smAlignment");
+  const aSub = document.getElementById("smAlignmentSub");
+
+  const aligned = tfA.aligned_count ?? 0;
+  const total = tfA.total_count ?? 0;
+  // strength from backend is string: 'full' / 'partial' / 'split'
+  const strength =
+    tfA.strength === "full" ? 1 : tfA.strength === "partial" ? 0.5 : 0;
+
+  aEl.textContent = `${aligned}/${total}`;
+  aEl.className =
+    "scalp-metric-value " +
+    (strength >= 0.7 ? "good" : strength >= 0.4 ? "warn" : "bad");
+
+  // Build per-TF direction summary  e.g. "5m↑ 15m↑ 30m↓"
+  const tfDirs = tfA.timeframes || {};
+  aSub.innerHTML = Object.entries(tfDirs)
+    .map(([tf, d]) => {
+      const arrow = d === "bullish" ? "↑" : d === "bearish" ? "↓" : "·";
+      const cls =
+        d === "bullish" ? "bull" : d === "bearish" ? "bear" : "neutral";
+      return `<span style="color:var(--${cls})">${tf}${arrow}</span>`;
+    })
+    .join(" ");
+
+  // ── Volume ────────────────────────────────────────────────────────────────
+  const vRatio = m.volume_ratio ?? null;
+  const vTrend = m.volume_trend || "";
+  const vEl = document.getElementById("smVolume");
+  const vSub = document.getElementById("smVolumeSub");
+
+  if (vRatio !== null) {
+    vEl.textContent = vRatio.toFixed(2) + "x";
+    vEl.className =
+      "scalp-metric-value " +
+      (vRatio >= 2 ? "good" : vRatio >= 1.2 ? "warn" : "neutral");
+    vSub.textContent =
+      vTrend === "rising"
+        ? "↑ rising"
+        : vTrend === "falling"
+          ? "↓ falling"
+          : "avg";
+    vSub.style.color =
+      vTrend === "rising"
+        ? "var(--bull)"
+        : vTrend === "falling"
+          ? "var(--bear)"
+          : "";
+  } else {
+    vEl.textContent = "—";
+    vEl.className = "scalp-metric-value neutral";
+    vSub.textContent = "";
+  }
+
+  // ── ATR ───────────────────────────────────────────────────────────────────
+  const atrPct = m.atr_pct ?? null;
+  const atrVal = m.atr_value ?? null;
+  const atr2pct = m.atrs_for_2pct ?? null;
+  const atEl = document.getElementById("smAtr");
+  const atSub = document.getElementById("smAtrSub");
+
+  if (atrPct !== null) {
+    atEl.textContent = atrPct.toFixed(2) + "% ATR";
+    atEl.className =
+      "scalp-metric-value " +
+      (atrPct >= 0.8 ? "good" : atrPct >= 0.3 ? "warn" : "bad");
+    if (atr2pct !== null) {
+      const realistic = m.target_realistic;
+      atSub.textContent = `${atr2pct.toFixed(1)} ATRs for 2%`;
+      atSub.style.color = realistic ? "var(--bull)" : "var(--bear)";
+    } else {
+      atSub.textContent = atrVal ? formatPrice(atrVal) : "";
+    }
+  } else {
+    atEl.textContent = "—";
+    atEl.className = "scalp-metric-value neutral";
+    atSub.textContent = "";
+  }
+
+  // ── Room above / below ────────────────────────────────────────────────────
+  const raEl = document.getElementById("smRoomAbove");
+  const raSub = document.getElementById("smRoomAboveSub");
+  const rbEl = document.getElementById("smRoomBelow");
+  const rbSub = document.getElementById("smRoomBelowSub");
+
+  // room_above / room_below are objects: { price, label, pct, enough }
+  const raObj = m.room_above;
+  if (raObj && raObj.pct != null) {
+    const ra = raObj.pct;
+    raEl.textContent = ra.toFixed(2) + "%";
+    raEl.className =
+      "scalp-metric-value " + (ra >= 2 ? "good" : ra >= 1 ? "warn" : "bad");
+    raSub.textContent = dir === "bullish" ? "target zone" : "resistance";
+  } else {
+    raEl.textContent = "—";
+    raEl.className = "scalp-metric-value neutral";
+    raSub.textContent = "";
+  }
+
+  const rbObj = m.room_below;
+  if (rbObj && rbObj.pct != null) {
+    const rb = rbObj.pct;
+    rbEl.textContent = rb.toFixed(2) + "%";
+    rbEl.className =
+      "scalp-metric-value " + (rb >= 2 ? "good" : rb >= 1 ? "warn" : "bad");
+    rbSub.textContent = dir === "bearish" ? "target zone" : "support";
+  } else {
+    rbEl.textContent = "—";
+    rbEl.className = "scalp-metric-value neutral";
+    rbSub.textContent = "";
+  }
+
+  // ── Setup factors ─────────────────────────────────────────────────────────
+  const factorContainer = document.getElementById("factorRows");
+  factorContainer.innerHTML = "";
+  (m.setup_factors || []).forEach((f) => {
+    const earned = f.points ?? 0;
+    const max = f.max ?? 1;
+    const ratio = max > 0 ? earned / max : 0;
+    const barColor =
+      ratio >= 0.67
+        ? "var(--bull)"
+        : ratio >= 0.34
+          ? "var(--grade-a)"
+          : "var(--bear)";
+
+    const row = document.createElement("div");
+    row.innerHTML = `
+      <div class="factor-row">
+        <div class="factor-name">${f.name}</div>
+        <div class="factor-bar-track">
+          <div class="factor-bar-fill" style="width:${Math.round(ratio * 100)}%;background:${barColor}"></div>
+        </div>
+        <div class="factor-pts">${earned}/${max}</div>
+      </div>
+      ${f.detail ? `<div class="factor-detail">${f.detail}</div>` : ""}
+    `;
+    factorContainer.appendChild(row);
+  });
+
+  // ── Key levels ────────────────────────────────────────────────────────────
+  const levelContainer = document.getElementById("keyLevelRows");
+  levelContainer.innerHTML = "";
+  (m.key_levels || []).slice(0, 8).forEach((l) => {
+    const dist = l.pct ?? null;  // backend field is 'pct'
+    const isAbove = dist !== null && dist >= 0;
+    const pctCls = isAbove ? "above" : "below";
+    const pctText =
+      dist !== null ? (dist >= 0 ? "+" : "") + dist.toFixed(2) + "%" : "";
+
+    const row = document.createElement("div");
+    row.className = "key-level-row";
+    row.innerHTML = `
+      <div class="key-level-arrow">${isAbove ? "↑" : "↓"}</div>
+      <div class="key-level-price">${formatPrice(l.price)}</div>
+      <div class="key-level-pct ${pctCls}">${pctText}</div>
+      <div class="key-level-label">${l.label}</div>
+      ${l.grade ? `<div class="key-level-grade ${l.grade}">${l.grade}</div>` : ""}
+    `;
+    levelContainer.appendChild(row);
+  });
+
+  // ── Stop suggestion ───────────────────────────────────────────────────────
+  const stopEl = document.getElementById("stopSuggestion");
+  const stopAbove = m.stop_above ?? null;
+  const stopBelow = m.stop_below ?? null;
+
+  if (stopAbove !== null || stopBelow !== null) {
+    stopEl.innerHTML = "";
+    if (stopBelow !== null) {
+      stopEl.innerHTML += `
+        <div class="stop-item">
+          <span style="color:var(--bull)">▲ Long</span>
+          <strong>Stop: ${formatPrice(stopBelow)}</strong>
+        </div>`;
+    }
+    if (stopAbove !== null) {
+      stopEl.innerHTML += `
+        <div class="stop-item">
+          <span style="color:var(--bear)">▼ Short</span>
+          <strong>Stop: ${formatPrice(stopAbove)}</strong>
+        </div>`;
+    }
+    stopEl.style.display = "flex";
+  } else {
+    stopEl.style.display = "none";
+  }
+}
+
+// ── Formatters ────────────────────────────────────────────────────────────────
+
+function formatSignalName(name) {
+  return name
+    .replace(/_bullish$/, "")
+    .replace(/_bearish$/, "")
+    .replace(/_up$/, "")
+    .replace(/_down$/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatPrice(price) {
+  if (!price && price !== 0) return "—";
+  if (price >= 1000)
+    return "$" + price.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (price >= 1) return "$" + parseFloat(price.toFixed(4)).toString();
+  return "$" + parseFloat(price.toFixed(6)).toString();
+}
+
+function formatValue(val) {
+  if (val === null || val === undefined) return "—";
+  if (Math.abs(val) >= 1000)
+    return val.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  if (Math.abs(val) >= 1) return parseFloat(val.toFixed(2)).toString();
+  return parseFloat(val.toFixed(5)).toString();
+}
+
+function formatLargeNumber(n) {
+  if (!n) return "0";
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + "B";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return n.toFixed(0);
+}
+
+// ── UI state ──────────────────────────────────────────────────────────────────
+
+function setLoading(on) {
+  document.getElementById("loadingState").style.display = on ? "block" : "none";
+  document.getElementById("analyzeBtn").disabled = on;
+  if (on) {
+    document.getElementById("emptyState").style.display = "none";
+    document.getElementById("results").style.display = "none";
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById("errorBanner");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function clearError() {
+  document.getElementById("errorBanner").style.display = "none";
+}
+
+// ── VPVR ──────────────────────────────────────────────────────────────────────
+
+function drawVPVR() {
+  const overlay = document.getElementById("vpvrOverlay");
+  overlay.innerHTML = "";
+  if (!candleSeries || !lastCandles || lastCandles.length < 10) return;
+
+  const W = 72, H = 320, N = 50;
+  const minP = Math.min(...lastCandles.map((c) => c.low));
+  const maxP = Math.max(...lastCandles.map((c) => c.high));
+  const bSize = (maxP - minP) / N;
+  if (bSize <= 0) return;
+
+  const buckets = Array(N).fill(0);
+  for (const c of lastCandles) {
+    const range = c.high - c.low;
+    if (range <= 0) {
+      const bi = Math.min(Math.floor((c.close - minP) / bSize), N - 1);
+      buckets[bi] += c.volume;
+    } else {
+      for (let i = 0; i < N; i++) {
+        const bLow = minP + i * bSize;
+        const overlap = Math.max(0, Math.min(c.high, bLow + bSize) - Math.max(c.low, bLow));
+        buckets[i] += c.volume * (overlap / range);
+      }
+    }
+  }
+
+  const maxVol = Math.max(...buckets);
+  const pocIdx = buckets.indexOf(maxVol);
+  const vah = findVAH(buckets, maxVol, N);
+  const val = findVAL(buckets, maxVol, N);
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", W);
+  svg.setAttribute("height", H);
+  svg.style.cssText = "display:block";
+
+  for (let i = 0; i < N; i++) {
+    if (buckets[i] <= 0) continue;
+    const bucketMid = minP + (i + 0.5) * bSize;
+    const y = candleSeries.priceToCoordinate(bucketMid);
+    if (y === null || y < 0 || y > H) continue;
+
+    const yTop = candleSeries.priceToCoordinate(minP + (i + 1) * bSize);
+    const yBot = candleSeries.priceToCoordinate(minP + i * bSize);
+    const bh = Math.max(1, Math.abs((yBot ?? y + 3) - (yTop ?? y - 3)) - 1);
+    const bw = Math.max(2, Math.round((buckets[i] / maxVol) * (W - 4)));
+
+    const isPOC = i === pocIdx;
+    const inVA = i >= val && i <= vah;
+    let fill = "#2a3040";
+    if (isPOC) fill = "#f59e0b";
+    else if (inVA) fill = "#6366f1";
+
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", W - bw);
+    rect.setAttribute("y", y - bh / 2);
+    rect.setAttribute("width", bw);
+    rect.setAttribute("height", bh);
+    rect.setAttribute("fill", fill);
+    rect.setAttribute("opacity", isPOC ? "1" : "0.65");
+    svg.appendChild(rect);
+  }
+
+  // POC dashed line
+  const pocY = candleSeries.priceToCoordinate(minP + (pocIdx + 0.5) * bSize);
+  if (pocY !== null && pocY >= 0 && pocY <= H) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", "0"); line.setAttribute("y1", pocY);
+    line.setAttribute("x2", W);  line.setAttribute("y2", pocY);
+    line.setAttribute("stroke", "#f59e0b");
+    line.setAttribute("stroke-width", "1");
+    line.setAttribute("stroke-dasharray", "3,2");
+    svg.appendChild(line);
+
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.setAttribute("x", "1");
+    label.setAttribute("y", Math.max(8, pocY - 2));
+    label.setAttribute("fill", "#f59e0b");
+    label.setAttribute("font-size", "8");
+    label.setAttribute("font-family", "monospace");
+    label.textContent = "POC";
+    svg.appendChild(label);
+  }
+
+  overlay.appendChild(svg);
+}
+
+function findVAH(buckets, maxVol, N) {
+  const pocIdx = buckets.indexOf(maxVol);
+  const total = buckets.reduce((a, b) => a + b, 0);
+  const target = total * 0.7;
+  let cum = buckets[pocIdx];
+  let hi = pocIdx, lo = pocIdx;
+  while (cum < target && (hi < N - 1 || lo > 0)) {
+    const addHi = hi < N - 1 ? buckets[hi + 1] : 0;
+    const addLo = lo > 0 ? buckets[lo - 1] : 0;
+    if (addHi >= addLo) hi++; else lo--;
+    cum += Math.max(addHi, addLo);
+  }
+  return hi;
+}
+
+function findVAL(buckets, maxVol, N) {
+  const pocIdx = buckets.indexOf(maxVol);
+  const total = buckets.reduce((a, b) => a + b, 0);
+  const target = total * 0.7;
+  let cum = buckets[pocIdx];
+  let hi = pocIdx, lo = pocIdx;
+  while (cum < target && (hi < N - 1 || lo > 0)) {
+    const addHi = hi < N - 1 ? buckets[hi + 1] : 0;
+    const addLo = lo > 0 ? buckets[lo - 1] : 0;
+    if (addHi >= addLo) hi++; else lo--;
+    cum += Math.max(addHi, addLo);
+  }
+  return lo;
+}
+
+// ── Liquidation heatmap ───────────────────────────────────────────────────────
+
+async function fetchLiquidations(symbol) {
+  try {
+    const res = await fetch(`/api/liquidations/${encodeURIComponent(symbol)}`);
+    const data = await res.json();
+    if (data.success && data.liq_levels && data.liq_levels.length) {
+      renderLiquidations(data);
+    }
+  } catch (err) {
+    console.warn("Liquidation fetch failed:", err);
+  }
+}
+
+function renderLiquidations(data) {
+  const panel = document.getElementById("liqPanel");
+  const body  = document.getElementById("liqBody");
+  const meta  = document.getElementById("liqHeaderMeta");
+
+  const totalB = formatLargeNumber(data.total_oi_usd);
+  const lPct   = Math.round(data.long_pct * 100);
+  const sPct   = Math.round(data.short_pct * 100);
+  meta.textContent = `OI $${totalB}  ·  ${lPct}% longs / ${sPct}% shorts (est.)`;
+
+  body.innerHTML = "";
+
+  // Separate and sort: shorts above price (descending by price), longs below (ascending proximity)
+  const shorts = data.liq_levels.filter((l) => l.side === "short").sort((a, b) => b.price - a.price);
+  const longs  = data.liq_levels.filter((l) => l.side === "long" ).sort((a, b) => a.price - b.price);
+
+  const buildRow = (l) => {
+    const row = document.createElement("div");
+    row.className = "liq-row";
+    const pct = l.pct_from_price;
+    const side = l.side;
+    const barW = Math.round(l.relative_size * 100);
+    row.innerHTML = `
+      <span class="liq-pct ${side}">${pct > 0 ? "+" : ""}${pct.toFixed(1)}%</span>
+      <span class="liq-leverage">${l.leverage}×</span>
+      <div class="liq-bar-track">
+        <div class="liq-bar-fill ${side}" style="width:${barW}%"></div>
+      </div>
+      <span class="liq-size">$${formatLargeNumber(l.size_usd)}</span>
+      <span class="liq-price-label">${formatPrice(l.price)}</span>
+    `;
+    return row;
+  };
+
+  shorts.forEach((l) => body.appendChild(buildRow(l)));
+
+  const priceRow = document.createElement("div");
+  priceRow.className = "liq-current-price";
+  priceRow.textContent = `▶ Current price: ${formatPrice(data.price)}`;
+  body.appendChild(priceRow);
+
+  longs.forEach((l) => body.appendChild(buildRow(l)));
+
+  panel.style.display = "block";
+}
+
+// ── Signal persistence tracker ────────────────────────────────────────────────
+
+async function fetchPersistence(symbol) {
+  try {
+    const res  = await fetch(`/api/runs/${encodeURIComponent(symbol)}?limit=20`);
+    const data = await res.json();
+    if (data.success && data.runs && data.runs.length >= 2) {
+      renderPersistence(data.runs);
+    }
+  } catch (err) {
+    console.warn("Persistence fetch failed:", err);
+  }
+}
+
+function renderPersistence(runs) {
+  const panel  = document.getElementById("persistencePanel");
+  const track  = document.getElementById("persistenceTrack");
+  const streak = document.getElementById("persistenceStreak");
+  track.innerHTML = "";
+
+  // runs are newest-first; display oldest-to-newest left-to-right
+  const ordered = [...runs].reverse();
+
+  ordered.forEach((run, i) => {
+    const dir   = run.bias_direction || "neutral";
+    const score = Math.abs(run.bias_score || 0);
+    const label = dir === "bullish" ? "▲" : dir === "bearish" ? "▼" : "—";
+    const isCurrent = i === ordered.length - 1;
+
+    const dot = document.createElement("div");
+    dot.className = `persistence-dot ${dir}${isCurrent ? " current" : ""}`;
+    dot.style.opacity = 0.35 + score * 0.65;
+    dot.textContent = label;
+    dot.title = `${new Date(run.created_at).toLocaleString()}  ·  ${dir}  ·  score ${(run.bias_score || 0).toFixed(2)}  ·  ${run.total_signals} signals  ·  ${formatPrice(run.price)}`;
+    track.appendChild(dot);
+  });
+
+  // Compute current streak
+  const latest = runs[0]?.bias_direction;
+  let streakCount = 0;
+  for (const r of runs) {
+    if (r.bias_direction === latest) streakCount++;
+    else break;
+  }
+  if (latest && latest !== "neutral" && streakCount > 1) {
+    streak.innerHTML = `<span>${streakCount}</span>-run ${latest} streak`;
+  } else {
+    streak.textContent = "";
+  }
+
+  panel.style.display = "block";
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+
+function exportJSON() {
+  if (!lastResult) return;
+  const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: "application/json" });
+  triggerDownload(blob, `${lastResult.symbol}_all_${exportTimestamp()}.json`);
+}
+
+function exportCSV() {
+  if (!lastResult) return;
+  const rows = [["symbol","horizon","timestamp","price","bias_direction","bias_score","family","signal_name","grade","direction","timeframe","role","price_level","candles_ago"]];
+  for (const key of ["short", "mid", "long"]) {
+    const data = lastResult[key];
+    if (!data) continue;
+    const { symbol, horizon, timestamp, price, bias, families } = data;
+    Object.entries(families || {}).forEach(([, fam]) => {
+      (fam.active_signals || []).forEach((s) => {
+        rows.push([
+          symbol, horizon, timestamp, price,
+          bias?.direction ?? "", bias?.score ?? "",
+          fam.name, s.signal_name, s.grade, s.direction,
+          s.timeframe, s.role, s.price_level ?? "", s.candles_ago ?? "",
+        ]);
+      });
+    });
+  }
+  const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  triggerDownload(blob, `${lastResult.symbol}_all_${exportTimestamp()}.csv`);
+}
+
+function exportTimestamp() {
+  return new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}

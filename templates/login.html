@@ -1,74 +1,173 @@
-<!-- templates/login.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Crypto Pattern Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In — Signal Analyzer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d0f14;
+      --surface: #161a23;
+      --border:  #2a3040;
+      --text:    #e2e8f0;
+      --muted:   #64748b;
+      --accent:  #6366f1;
+      --error:   #ef4444;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .logo h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .logo p { font-size: 13px; color: var(--muted); }
+
+    .field { margin-bottom: 16px; }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 9px 12px;
+      background: #0d0f14;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      font-size: 14px;
+      transition: border-color 0.15s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    #errorMsg {
+      display: none;
+      font-size: 12px;
+      color: var(--error);
+      margin-bottom: 14px;
+      padding: 8px 10px;
+      background: rgba(239,68,68,0.08);
+      border-radius: 6px;
+      border: 1px solid rgba(239,68,68,0.2);
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 10px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 7px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      margin-top: 4px;
+    }
+
+    .submit-btn:hover { opacity: 0.85; }
+    .submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen flex items-center justify-center p-4">
-    <div class="bg-slate-800 rounded-lg shadow-2xl p-8 w-full max-w-md border border-purple-500/20">
-        <div class="text-center mb-8">
-            <h1 class="text-3xl font-bold text-white mb-2">Crypto Pattern Dashboard</h1>
-            <p class="text-slate-400">Sign in to access your signals</p>
-        </div>
-
-        <div class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
-                <input type="text" id="username" placeholder="iheartsogol"
-                    class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-            </div>
-
-            <div>
-                <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
-                <input type="password" id="password" placeholder="sogolpleasecomeback:((((("
-                    class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-            </div>
-
-            <div id="error" class="text-red-400 text-sm hidden"></div>
-
-            <button onclick="login()"
-                class="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
-                Sign In
-            </button>
-        </div>
+<body>
+  <div class="card">
+    <div class="logo">
+      <h1>Signal Analyzer</h1>
+      <p>Sign in to access your dashboard</p>
     </div>
 
-    <script>
-        document.getElementById('username').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') login();
+    <div class="field">
+      <label for="username">Username</label>
+      <input type="text" id="username" autocomplete="username" />
+    </div>
+
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" />
+    </div>
+
+    <div id="errorMsg"></div>
+
+    <button class="submit-btn" id="submitBtn" onclick="doLogin()">Sign In</button>
+  </div>
+
+  <script>
+    ['username', 'password'].forEach(id => {
+      document.getElementById(id).addEventListener('keydown', e => {
+        if (e.key === 'Enter') doLogin();
+      });
+    });
+
+    async function doLogin() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const errEl    = document.getElementById('errorMsg');
+      const btn      = document.getElementById('submitBtn');
+
+      errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+
+      try {
+        const res  = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
         });
-        document.getElementById('password').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') login();
-        });
+        const data = await res.json();
 
-        async function login() {
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-            const errorDiv = document.getElementById('error');
-
-            try {
-                const response = await fetch('/login', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username, password})
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    window.location.href = '/';
-                } else {
-                    errorDiv.textContent = 'Invalid credentials';
-                    errorDiv.classList.remove('hidden');
-                }
-            } catch (error) {
-                errorDiv.textContent = 'Login failed';
-                errorDiv.classList.remove('hidden');
-            }
+        if (data.success) {
+          window.location.href = '/';
+        } else {
+          errEl.textContent    = 'Invalid credentials';
+          errEl.style.display  = 'block';
         }
-    </script>
+      } catch {
+        errEl.textContent   = 'Could not reach server';
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Sign In';
+      }
+    }
+  </script>
 </body>
 </html>

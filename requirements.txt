@@ -1,9 +1,9 @@
-Flask==3.0.0
-requests==2.31.0
-pandas==2.1.4
-numpy==1.26.2
-openpyxl==3.1.2
-gunicorn==21.2.0
-flask-sock==0.7.0  # New: For WebSocket support
-simple-websocket==1.0.0  # New: WebSocket dependency
-eventlet
+Flask==3.1.3
+requests==2.34.2
+pandas==3.0.3
+numpy==2.4.6
+openpyxl==3.1.5
+gunicorn==26.0.0
+flask-sock==0.7.0
+simple-websocket==1.1.0
+eventlet==0.41.0

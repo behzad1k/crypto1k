@@ -1,1842 +1,788 @@
 """
-Complete Flask Application with Integrated Crypto Pattern Monitoring
+Crypto Signal Analyzer v2
+Minimal Flask app — one symbol page with family-based signal analysis.
 """
-import time
-from collections import defaultdict
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file
-import sqlite3
-import json
-import os
-from datetime import datetime, timedelta
-from functools import wraps
-import pandas as pd
-from io import BytesIO
-import threading
 import logging
-from monitor import CryptoPatternMonitor
-from paper_trading_engine import PaperTradingEngine
-from paper_trading_manager import PaperTradingManager
-from scalp_signal_analyzer import ScalpSignalAnalyzer
-from live_analysis_handler import LiveAnalysisDB
-from signal_combination_analyzer import SignalCombinationAnalyzer
-from signal_validation_optimizer import SignalValidationOptimizer
-from signal_fact_checker import SignalFactChecker
+import requests
+import pandas as pd
+import numpy as np
+from datetime import datetime, timezone
+from functools import wraps
 
-from flask_sock import Sock  # pip install flask-sock
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+
+from scalp_signal_analyzer import ScalpSignalAnalyzer
+from signal_config import SIGNAL_LOOKUP, HORIZONS, GRADE_WEIGHTS, SIGNAL_FAMILIES, CATEGORY_ORDER
+import db
+import scanner
+import emailer
+from scanner_config import MONITOR
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = 'sogol'  # IMPORTANT: Change this!
-app.config['DB_PATH'] = 'crypto_signals.db'
-app.config['PRIORITY_COINS_FILE'] = 'priority_coins.json'
-app.config['PATTERNS_FILE'] = 'patterns.json'
-
-# Global monitoring instance
-monitor = None
-monitor_thread = None
-live_analyzer = None
-live_db = None
-fact_checker = None
-signal_validation= None
-combo_analyzer = None
-paper_trading_engine = None
-pt_manager = None
-sock = None
+app.secret_key = 'sogol'
 
 
-# ==================== INITIALIZATION FUNCTION ====================
+def _sanitize(obj):
+    """Recursively convert numpy scalars to Python natives for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    return obj
 
-def init_database():
-  """Initialize database if it doesn't exist"""
-  conn = sqlite3.connect(app.config['DB_PATH'])
-  cursor = conn.cursor()
-
-  cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pattern_signals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL,
-            signal TEXT NOT NULL,
-            pattern_confidence REAL NOT NULL,
-            pattern_count INTEGER NOT NULL,
-            best_pattern TEXT NOT NULL,
-            best_pattern_accuracy REAL NOT NULL,
-            all_patterns TEXT,
-            price REAL NOT NULL,
-            stop_loss REAL,
-            scalp_validation TEXT,
-            datetime_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-  cursor.execute('''
-        CREATE INDEX IF NOT EXISTS idx_symbol_datetime 
-        ON pattern_signals(symbol, datetime_created)
-    ''')
-
-  conn.commit()
-  conn.close()
-  logging.info("✅ Database initialized")
+analyzer = ScalpSignalAnalyzer()
+db.init_db()
 
 
-def initialize_app():
-  """Initialize all modules - called on import for gunicorn compatibility"""
-  global live_analyzer, live_db, fact_checker, sock, combo_analyzer, signal_validation, paper_trading_engine, pt_manager
-
-  # Only initialize once
-  if live_analyzer is not None:
-    return
-
-  logging.info("🚀 Initializing application...")
-
-  # Initialize database
-  init_database()
-  # Initialize live analysis
-  try:
-    paper_trading_engine = PaperTradingEngine(
-      db_path=app.config['DB_PATH'],
-      initial_bankroll=10000.0  # Starting with $10,000
-    )
-    pt_manager = PaperTradingManager();
-    logging.info("✅ Paper trading engine initialized")
-  except Exception as e:
-    logging.error(f"❌ Failed to initialize paper trading: {e}")
-
-  try:
-    live_analyzer = ScalpSignalAnalyzer()
-    live_db = LiveAnalysisDB()
-    fact_checker = SignalFactChecker()
-    sock = Sock(app)
-
-    logging.info("✅ Live analysis system initialized")
-  except Exception as e:
-    logging.error(f"❌ Failed to initialize live analysis: {e}")
-
-
-  # Initialize signal validation modules
-  try:
-      signal_validation = SignalValidationOptimizer(db_path=app.config['DB_PATH'])
-      logging.info("✅ Signal validation analyzer initialized")
-  except Exception as e:
-      logging.error(f"❌ Failed to initialize validation analyzer: {e}")
-
-# Initialize signal combo modules
-  try:
-      combo_analyzer = SignalCombinationAnalyzer(db_path=app.config['DB_PATH'])
-      logging.info("✅ Signal combination analyzer initialized")
-  except Exception as e:
-      logging.error(f"❌ Failed to initialize combo analyzer: {e}")
-# Initialize immediately on import (works with both gunicorn and python app.py)
-
-initialize_app()
-
-
-# ==================== AUTH ====================
+# ── Auth ──────────────────────────────────────────────────────────────────────
 
 def login_required(f):
-  @wraps(f)
-  def decorated_function(*args, **kwargs):
-    if 'logged_in' not in session:
-      return redirect(url_for('login'))
-    return f(*args, **kwargs)
-
-  return decorated_function
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'logged_in' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-  if request.method == 'POST':
-    data = request.get_json()
-    if data.get('username') == 'iheartsogol' and data.get('password') == 'sogolpleasecomeback:(((((':
-      session['logged_in'] = True
-      return jsonify({'success': True})
-    return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
-  return render_template('login.html')
+    if request.method == 'POST':
+        data = request.get_json()
+        if data.get('username') == 'iheartsogol' and data.get('password') == 'sogolpleasecomeback:(((((':
+            session['logged_in'] = True
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+    return render_template('login.html')
 
 
 @app.route('/logout')
 def logout():
-  session.pop('logged_in', None)
-  return redirect(url_for('login'))
+    session.pop('logged_in', None)
+    return redirect(url_for('login'))
 
 
-# ==================== ROUTES ====================
+# ── Pages ─────────────────────────────────────────────────────────────────────
 
 @app.route('/')
 @login_required
 def index():
-  return render_template('index.html')
+    return redirect(url_for('symbol_page', symbol='BTC-USDT'))
+
 
 @app.route('/symbol/<symbol>')
 @login_required
-def symbol_info(symbol):
-  return render_template('symbol.html', symbol=symbol.upper())
+def symbol_page(symbol):
+    return render_template('symbol.html', symbol=symbol)
 
 
-# ==================== PATTERN SIGNALS API ====================
-
-@app.route('/api/signals')
+@app.route('/scanner')
 @login_required
-def get_signals():
-  """Get pattern signals with pagination and filters"""
-  page = int(request.args.get('page', 1))
-  per_page = int(request.args.get('per_page', 10))
-  min_accuracy = request.args.get('minAccuracy', type=float)
-  min_patterns = request.args.get('minPatterns', type=int)
-  signal_type = request.args.get('signalType')
-  symbol = request.args.get('symbol', '').upper()
-
-  conn = sqlite3.connect(app.config['DB_PATH'])
-  conn.row_factory = sqlite3.Row
-  cursor = conn.cursor()
-
-  query = "SELECT * FROM pattern_signals WHERE 1=1"
-  params = []
-
-  if signal_type:
-    query += " AND signal = ?"
-    params.append(signal_type.upper())
-
-  if min_accuracy:
-    query += " AND pattern_confidence >= ?"
-    params.append(min_accuracy)
-  if min_patterns:
-    query += " AND pattern_count >= ?"
-    params.append(min_patterns)
-  if symbol:
-    query += " AND symbol LIKE ?"
-    params.append(f'%{symbol}%')
-
-    # Count total
-  count_query = query.replace('SELECT *', 'SELECT COUNT(*)')
-  cursor.execute(count_query, params)
-  total = cursor.fetchone()[0]
-
-  # Get paginated results
-  query += " ORDER BY datetime_created DESC LIMIT ? OFFSET ?"
-  params.extend([per_page, (page - 1) * per_page])
-
-  cursor.execute(query, params)
-  signals = [dict(row) for row in cursor.fetchall()]
-  conn.close()
-
-  return jsonify({
-    'signals': signals,
-    'total': total,
-    'pages': (total + per_page - 1) // per_page
-  })
+def scanner_page():
+    return render_template('scanner.html')
 
 
-@app.route('/api/symbols/<symbol>')
+# ── Scanner API ───────────────────────────────────────────────────────────────
+
+@app.route('/api/scanner/watchlist', methods=['GET', 'POST'])
 @login_required
-def get_symbol_history(symbol):
-  """Get signal history for a specific symbol"""
-  conn = sqlite3.connect(app.config['DB_PATH'])
-  conn.row_factory = sqlite3.Row
-  cursor = conn.cursor()
-
-  cursor.execute('''
-        SELECT * FROM pattern_signals 
-        WHERE symbol = ? 
-        ORDER BY datetime_created DESC
-    ''', (symbol,))
-
-  history = [dict(row) for row in cursor.fetchall()]
-  conn.close()
-  return jsonify(history)
+def scanner_watchlist():
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        raw = data.get('symbols', '')
+        if isinstance(raw, str):
+            # Accept comma / space / newline separated input
+            symbols = [s for s in raw.replace(',', ' ').split() if s]
+        else:
+            symbols = [str(s).strip() for s in raw if str(s).strip()]
+        added = db.add_to_watchlist(symbols)
+        return jsonify({'success': True, 'added': added, 'watchlist': db.get_watchlist()})
+    return jsonify({'success': True, 'watchlist': db.get_watchlist()})
 
 
-@app.route('/api/export')
+@app.route('/api/scanner/watchlist/<symbol>', methods=['DELETE'])
 @login_required
-def export_signals():
-  """Export signals to Excel"""
-  min_accuracy = request.args.get('minAccuracy', type=float)
-  min_patterns = request.args.get('minPatterns', type=int)
-  symbol = request.args.get('symbol', '').upper()
-
-  conn = sqlite3.connect(app.config['DB_PATH'])
-
-  query = "SELECT * FROM pattern_signals WHERE 1=1"
-  params = []
-
-  if min_accuracy:
-    query += " AND pattern_confidence >= ?"
-    params.append(min_accuracy)
-  if min_patterns:
-    query += " AND pattern_count >= ?"
-    params.append(min_patterns)
-  if symbol:
-    query += " AND symbol LIKE ?"
-    params.append(f'%{symbol}%')
-
-  query += " ORDER BY datetime_created DESC"
-
-  df = pd.read_sql_query(query, conn, params=params)
-  conn.close()
-
-  output = BytesIO()
-  with pd.ExcelWriter(output, engine='openpyxl') as writer:
-    df.to_excel(writer, index=False, sheet_name='Signals')
-  output.seek(0)
-
-  return send_file(
-    output,
-    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    as_attachment=True,
-    download_name=f'crypto_signals_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-  )
+def scanner_watchlist_remove(symbol):
+    db.remove_from_watchlist(symbol)
+    return jsonify({'success': True, 'watchlist': db.get_watchlist()})
 
 
-# ==================== PRIORITY COINS ====================
-
-@app.route('/api/priority-coins', methods=['GET', 'POST'])
+@app.route('/api/scanner/scan', methods=['POST'])
 @login_required
-def priority_coins():
-  """Manage priority coins list"""
-  if request.method == 'POST':
-    data = request.get_json()
-    coins = data.get('coins', [])
-    with open(app.config['PRIORITY_COINS_FILE'], 'w') as f:
-        json.dump(coins, f)
-    return jsonify({'success': True})
-  else:
-    if os.path.exists(app.config['PRIORITY_COINS_FILE']):
-      with open(app.config['PRIORITY_COINS_FILE'], 'r') as f:
-        coins = json.load(f)
+def scanner_scan():
+    """Scan now. Optional body {symbols:[...]} overrides the saved watchlist."""
+    data = request.get_json() or {}
+    symbols = data.get('symbols')
+    if not symbols:
+        symbols = db.get_watchlist()
+    if not symbols:
+        return jsonify({'success': True, 'results': [], 'message': 'Watchlist is empty'})
+    results = scanner.scan_symbols(symbols)
+    return jsonify({'success': True, 'results': _sanitize(results), 'count': len(results)})
+
+
+@app.route('/api/scanner/scan-and-alert', methods=['POST'])
+@login_required
+def scanner_scan_and_alert():
+    """Scan the watchlist and actually fire emails for fresh alerts."""
+    summary = scanner.scan_and_alert()
+    return jsonify({'success': True, **_sanitize(summary)})
+
+
+@app.route('/api/scanner/live')
+@login_required
+def scanner_live():
+    """Latest scan results (from the background monitor or a manual scan)."""
+    return jsonify({'success': True, **_sanitize(scanner.last_scan())})
+
+
+@app.route('/api/scanner/alerts')
+@login_required
+def scanner_alerts():
+    limit = int(request.args.get('limit', 50))
+    return jsonify({'success': True, 'alerts': db.get_recent_alerts(limit)})
+
+
+@app.route('/api/scanner/monitor', methods=['GET', 'POST'])
+@login_required
+def scanner_monitor():
+    if request.method == 'POST':
+        action = (request.get_json() or {}).get('action')
+        if action == 'start':
+            scanner.start_monitor()
+        elif action == 'stop':
+            scanner.stop_monitor()
+    return jsonify({'success': True, **scanner.monitor_status()})
+
+
+@app.route('/api/scanner/test-email', methods=['POST'])
+@login_required
+def scanner_test_email():
+    ok, message = emailer.send_test()
+    return jsonify({'success': ok, 'message': message,
+                    'recipients': emailer.recipient_count()})
+
+
+# ── Scalp metrics ─────────────────────────────────────────────────────────────
+
+def compute_scalp_metrics(df, price, all_signals, chart_levels, timeframes, bias_direction):
+    """
+    Compute all scalp-trading-specific metrics:
+      - Volume ratio vs rolling average
+      - ATR context (how many ATRs to reach 2% target)
+      - Multi-timeframe alignment score
+      - Room to run (nearest level above/below in %)
+      - Key levels list sorted by proximity
+      - Suggested stop levels
+      - Setup quality score (0–10)
+    """
+    m = {
+        'volume_ratio':    None,
+        'volume_trend':    None,
+        'atr_value':       None,
+        'atr_pct':         None,
+        'atrs_for_2pct':   None,
+        'target_realistic':None,
+        'tf_alignment':    None,
+        'room_above':      None,
+        'room_below':      None,
+        'key_levels':      [],
+        'stop_above':      None,
+        'stop_below':      None,
+        'setup_score':     None,
+        'setup_max':       10,
+        'setup_label':     None,
+        'setup_factors':   [],
+    }
+
+    # ── Volume ratio & trend ──────────────────────────────────────────────────
+    if df is not None and len(df) > 21:
+        try:
+            current_vol = float(df['volume'].iloc[-1])
+            avg_vol     = float(df['volume'].iloc[-21:-1].mean())
+            if avg_vol > 0:
+                m['volume_ratio'] = round(current_vol / avg_vol, 2)
+
+            # Trend: last 3 candles vs prev 3
+            last3 = float(df['volume'].iloc[-3:].mean())
+            prev3 = float(df['volume'].iloc[-6:-3].mean())
+            if prev3 > 0:
+                ratio = last3 / prev3
+                m['volume_trend'] = 'rising' if ratio > 1.1 else ('falling' if ratio < 0.9 else 'flat')
+        except Exception as e:
+            logger.warning(f'Volume calc failed: {e}')
+
+    # ── ATR (14-period) ───────────────────────────────────────────────────────
+    if df is not None and len(df) > 15:
+        try:
+            hi, lo, cl = df['high'], df['low'], df['close']
+            tr  = pd.concat([(hi - lo), (hi - cl.shift(1)).abs(), (lo - cl.shift(1)).abs()], axis=1).max(axis=1)
+            atr = float(tr.rolling(14).mean().iloc[-1])
+            atr_pct = (atr / price) * 100
+            m['atr_value']      = round(atr, 4)
+            m['atr_pct']        = round(atr_pct, 3)
+            atrs = round(2.0 / atr_pct, 1) if atr_pct > 0 else None
+            m['atrs_for_2pct']  = atrs
+            m['target_realistic'] = bool(atrs is not None and atrs <= 6)
+        except Exception as e:
+            logger.warning(f'ATR calc failed: {e}')
+
+    # ── Multi-timeframe alignment ─────────────────────────────────────────────
+    tf_directions = {}
+    for tf in timeframes:
+        tf_signals = [s for s in all_signals if s['timeframe'] == tf]
+        bull = sum(GRADE_WEIGHTS.get(s['grade'], 0.5) for s in tf_signals if s['direction'] == 'bullish')
+        bear = sum(GRADE_WEIGHTS.get(s['grade'], 0.5) for s in tf_signals if s['direction'] == 'bearish')
+        if bull > bear * 1.15:
+            tf_directions[tf] = 'bullish'
+        elif bear > bull * 1.15:
+            tf_directions[tf] = 'bearish'
+        else:
+            tf_directions[tf] = 'neutral'
+
+    aligned_dir   = bias_direction if bias_direction != 'neutral' else 'bullish'
+    aligned_count = sum(1 for d in tf_directions.values() if d == aligned_dir)
+    total         = len(timeframes)
+    strength      = 'full' if aligned_count == total else ('partial' if aligned_count >= max(1, total * 0.6) else 'split')
+
+    m['tf_alignment'] = {
+        'timeframes':       tf_directions,
+        'aligned_direction':aligned_dir,
+        'aligned_count':    aligned_count,
+        'total_count':      total,
+        'strength':         strength,
+    }
+
+    # ── Room to run & key levels ──────────────────────────────────────────────
+    # Deduplicate levels within 0.3% of each other
+    raw_levels = [l for l in chart_levels if l.get('price') and 0 < abs(l['price'] - price) / price < 0.12]
+    raw_levels.sort(key=lambda x: x['price'])
+
+    deduped, last_p = [], None
+    for l in raw_levels:
+        if last_p is None or abs(l['price'] - last_p) / price > 0.003:
+            deduped.append(l)
+            last_p = l['price']
+
+    above = [l for l in deduped if l['price'] > price * 1.001]
+    below = [l for l in deduped if l['price'] < price * 0.999]
+    above.sort(key=lambda x: x['price'])
+    below.sort(key=lambda x: x['price'], reverse=True)
+
+    # Key levels list — nearest 10, tagged with distance
+    key_levels = []
+    for l in above[:5]:
+        pct = round(((l['price'] - price) / price) * 100, 2)
+        key_levels.append({'price': l['price'], 'label': l['label'], 'pct': pct,
+                           'side': 'above', 'grade': l['grade'], 'direction': l['direction']})
+    for l in below[:5]:
+        pct = round(((price - l['price']) / price) * 100, 2)
+        key_levels.append({'price': l['price'], 'label': l['label'], 'pct': -pct,
+                           'side': 'below', 'grade': l['grade'], 'direction': l['direction']})
+    key_levels.sort(key=lambda x: abs(x['pct']))
+    m['key_levels'] = key_levels[:10]
+
+    if above:
+        p = above[0]['price']
+        pct = round(((p - price) / price) * 100, 2)
+        m['room_above'] = {'price': float(p), 'label': above[0]['label'], 'pct': float(pct), 'enough': bool(pct >= 2.0)}
+        m['stop_above'] = float(p)
+
+    if below:
+        p = below[0]['price']
+        pct = round(((price - p) / price) * 100, 2)
+        m['room_below'] = {'price': float(p), 'label': below[0]['label'], 'pct': float(pct), 'enough': bool(pct >= 2.0)}
+        m['stop_below'] = float(p)
+
+    # ── Setup quality score ───────────────────────────────────────────────────
+    score   = 0.0
+    factors = []
+
+    # TF alignment (max 3)
+    if strength == 'full':
+        pts    = 3; detail = f"All {total}/{total} timeframes aligned {aligned_dir}"
+    elif strength == 'partial':
+        pts    = 1.5; detail = f"{aligned_count}/{total} timeframes aligned {aligned_dir}"
     else:
-      coins = []
-    return jsonify(coins)
+        pts    = 0;  detail = "Timeframes split — no clear consensus"
+    score += pts
+    factors.append({'name': 'TF Alignment', 'points': pts, 'max': 3, 'detail': detail})
+
+    # Volume (max 2)
+    vr = m['volume_ratio']
+    if vr and vr >= 2.5:
+        pts = 2; detail = f"{vr}× average — strong conviction"
+    elif vr and vr >= 1.4:
+        pts = 1; detail = f"{vr}× average — moderate"
+    else:
+        pts = 0; detail = (f"{vr}× average — weak/no confirmation" if vr else "No volume data")
+    score += pts
+    factors.append({'name': 'Volume', 'points': pts, 'max': 2, 'detail': detail})
+
+    # ADX trend strength (max 2)
+    adx_val = next((s['indicator_value'] for s in all_signals
+                    if s['signal_name'] == 'adx_strong_trend' and s['indicator_value']), None)
+    if adx_val and adx_val >= 40:
+        pts = 2; detail = f"ADX {adx_val:.1f} — very strong trend"
+    elif adx_val and adx_val >= 28:
+        pts = 1; detail = f"ADX {adx_val:.1f} — trend has strength"
+    else:
+        pts = 0; detail = (f"ADX {adx_val:.1f} — weak trend, choppy" if adx_val else "ADX unavailable")
+    score += pts
+    factors.append({'name': 'Trend Strength', 'points': pts, 'max': 2, 'detail': detail})
+
+    # Room to run in trade direction (max 2)
+    trade_room = m['room_below'] if aligned_dir == 'bearish' else m['room_above']
+    if trade_room:
+        r = trade_room['pct']
+        if r >= 2.5:
+            pts = 2; detail = f"{r:.1f}% clear in trade direction"
+        elif r >= 1.5:
+            pts = 1; detail = f"{r:.1f}% — tight but workable"
+        else:
+            pts = 0; detail = f"Only {r:.1f}% — level too close, blocked"
+    else:
+        pts = 1; detail = "No nearby levels — open road"
+    score += pts
+    factors.append({'name': 'Room to Run', 'points': pts, 'max': 2, 'detail': detail})
+
+    # ATR target realism (max 1)
+    atrs = m['atrs_for_2pct']
+    if atrs is not None:
+        if atrs <= 4:
+            pts = 1; detail = f"2% = {atrs}× ATR — highly realistic"
+        elif atrs <= 6:
+            pts = 1; detail = f"2% = {atrs}× ATR — realistic"
+        elif atrs <= 9:
+            pts = 0.5; detail = f"2% = {atrs}× ATR — stretched"
+        else:
+            pts = 0; detail = f"2% = {atrs}× ATR — unlikely in one run"
+    else:
+        pts = 0; detail = "ATR unavailable"
+    score += pts
+    factors.append({'name': 'ATR Target', 'points': pts, 'max': 1, 'detail': detail})
+
+    m['setup_score'] = round(score, 1)
+    m['setup_label'] = ('STRONG' if score >= 8 else
+                        'GOOD'   if score >= 6 else
+                        'FAIR'   if score >= 4 else 'WEAK')
+    m['setup_factors'] = factors
+    return m
 
 
-# ==================== MONITORING CONTROL ====================
+# ── Analysis API ──────────────────────────────────────────────────────────────
 
-@app.route('/api/monitor/status')
+@app.route('/api/analyze', methods=['POST'])
 @login_required
-def monitor_status():
-  """Get monitoring status"""
-  global monitor
-
-  if monitor is None:
-    return jsonify({
-      'running': False,
-            'message': 'Monitor not initialized'
-    })
-
-  stats = monitor.get_stats()
-  return jsonify({
-    'running': monitor.running,
-    'symbols_processed': stats.get('symbols_processed', 0),
-    'alerts_triggered': stats.get('alerts_triggered', 0),
-    'current_symbol': stats.get('current_symbol'),
-    'patterns_loaded': len(monitor.indicator_patterns) if hasattr(monitor, 'indicator_patterns') else 0,
-    'last_update': stats.get('last_update'),
-    'current_symbols_count': len(monitor.current_symbols) if hasattr(monitor, 'current_symbols') else 0,
-    'message': 'Running' if monitor.running else 'Stopped'
-  })
-
-
-@app.route('/api/monitor/start')
-@login_required
-def start_monitor():
-  """Start pattern monitoring with paper trading integration"""
-  global monitor, monitor_thread, paper_trading_engine
-
-  # Check if already running
-  if monitor is not None and monitor.running:
-    return jsonify({
-      'success': False,
-      'message': 'Monitor is already running'
-    })
-
-  try:
-    # Stop any existing monitor first
-    if monitor is not None:
-      monitor.stop()
-      if monitor_thread and monitor_thread.is_alive():
-        monitor_thread.join(timeout=2)
-
-    # Create fresh monitor instance
-    monitor = CryptoPatternMonitor(
-      db_path=app.config['DB_PATH'],
-      pattern_file=app.config['PATTERNS_FILE'],
-      priority_coins_file=app.config['PRIORITY_COINS_FILE'],
-      paper_trading_engine=paper_trading_engine
-    )
-
-    # Start monitoring in background thread WITH paper trading engine
-    monitor_thread = threading.Thread(
-      target=monitor.run,
-      args=(100,),
-      kwargs={'paper_trading_engine': paper_trading_engine},  # NEW
-      daemon=True
-    )
-    monitor_thread.start()
-
-    # Give it a moment to start
-    time.sleep(0.5)
-
-    logging.info("✅ Monitoring started successfully with paper trading integration")
-    return jsonify({
-      'success': True,
-      'message': 'Monitoring started with paper trading'
-    })
-
-  except Exception as e:
-    logging.error(f"Failed to start monitoring: {e}")
-    return jsonify({
-      'success': False,
-      'message': f'Failed to start: {str(e)}'
-    }), 500
-
-
-
-# REPLACE your stop_monitor route with this:
-@app.route('/api/monitor/stop')
-@login_required
-def stop_monitor():
-  """Stop pattern monitoring"""
-  global monitor, monitor_thread
-
-  if monitor is None or not monitor.running:
-    return jsonify({
-      'success': False,
-      'message': 'Monitor is not running'
-    })
-
-  try:
-    monitor.stop()
-
-    # Wait for thread to finish (with timeout)
-    if monitor_thread and monitor_thread.is_alive():
-      monitor_thread.join(timeout=3)
-
-    logging.info("⏸️ Monitoring stopped")
-    return jsonify({
-      'success': True,
-      'message': 'Monitoring stopped'
-    })
-
-  except Exception as e:
-    logging.error(f"Failed to stop monitoring: {e}")
-    return jsonify({
-      'success': False,
-      'message': f'Failed to stop: {str(e)}'
-    }), 500
-
-
-# ==================== LIVE ANALYSIS ROUTES ====================
-
-@app.route('/api/live-analysis/analyze', methods=['POST'])
-@login_required
-def analyze_symbol_live():
-  """Analyze symbol across multiple timeframes"""
-  try:
-    data = request.get_json()
-    symbol = data.get('symbol', '').upper()
-    timeframes = data.get('timeframes', ['1m', '5m', '15m', '1h'])
+def analyze():
+    data    = request.get_json() or {}
+    symbol  = data.get('symbol', '').strip().upper()
+    horizon = data.get('horizon', 'mid').lower()
 
     if not symbol:
-      return jsonify({'error': 'Symbol required'}), 400
+        return jsonify({'success': False, 'error': 'symbol is required'}), 400
+    if horizon not in HORIZONS:
+        return jsonify({'success': False, 'error': f'horizon must be one of: {list(HORIZONS.keys())}'}), 400
 
-    # Validate timeframes
-    valid_tfs = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w']
-    timeframes = [tf for tf in timeframes if tf in valid_tfs]
+    timeframes = HORIZONS[horizon]['timeframes']
+    chart_tf   = HORIZONS[horizon]['chart_tf']
 
-    if not timeframes:
-      return jsonify({'error': 'Valid timeframes required'}), 400
+    try:
+        raw = analyzer.analyze_symbol_all_timeframes(symbol, timeframes)
+    except Exception as e:
+        logger.error(f'Analysis failed for {symbol}: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-    logging.info(f"🔍 Analyzing {symbol} on {timeframes}")
+    # Fetch OHLCV for scalp metrics (volume ratio, ATR)
+    ohlcv_df = None
+    try:
+        ohlcv_df = analyzer.fetch_kucoin_data(symbol, chart_tf)
+        if ohlcv_df is None:
+            ohlcv_df = analyzer.fetch_binance_data(symbol, chart_tf)
+    except Exception as e:
+        logger.warning(f'OHLCV fetch for scalp metrics failed: {e}')
 
-    # Run analysis
-    result = live_analyzer.analyze_symbol_all_timeframes(symbol, timeframes)
+    result = _build_result(symbol, horizon, timeframes, raw, ohlcv_df)
 
-    # Save to database
-    live_db.save_analysis_result(result)
+    try:
+        db.save_analysis(symbol, horizon, timeframes, result)
+    except Exception as e:
+        logger.warning(f'Failed to save analysis to DB: {e}')
 
-    # Return formatted result
-    return jsonify({
-      'success': True,
-      'symbol': symbol,
-      'timestamp': result['timestamp'],
-      'timeframes': result['timeframes'],
-            'combinations': result['combinations']
-    })
-
-  except Exception as e:
-    logging.error(f"Analysis error: {e}")
-    return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/live-analysis/signals/<symbol>')
-@login_required
-def get_live_signals(symbol):
-  """Get latest signals for a symbol"""
-  try:
-    timeframe = request.args.get('timeframe')
-    limit = int(request.args.get('limit', 50))
-
-    signals = live_db.get_latest_signals(symbol.upper(), timeframe, limit)
-
-    return jsonify({
-      'success': True,
-      'symbol': symbol,
-      'signals': signals,
-      'count': len(signals)
-    })
-
-  except Exception as e:
-    logging.error(f"Failed to get signals: {e}")
-    return jsonify({'error': str(e)}), 500
-
-@app.route('/api/live-analysis/full-signals')
-@login_required
-def get_full_signals():
-  """Get all adjusted confidence signals"""
-  global fact_checker
-  try:
-    signals = fact_checker.get_all_adjusted_confidence()
-    return jsonify({'success': True, 'signals': signals})
-
-  except Exception as e:
-    logging.error(f"Failed to get signals: {e}")
-    return jsonify({'error': str(e)}), 500
+    return jsonify({'success': True, **_sanitize(result)})
 
 
-@app.route('/api/live-analysis/summary/<symbol>')
-@login_required
-def get_analysis_summary(symbol):
-  """Get analysis summary for a symbol"""
-  try:
-    hours = int(request.args.get('hours', 24))
-    summary = live_db.get_analysis_summary(symbol.upper(), hours)
+def _build_result(symbol, horizon, timeframes, raw, ohlcv_df=None):
+    now        = datetime.now(timezone.utc).isoformat()
+    tf_seconds = HORIZONS[horizon]['tf_seconds']
 
-    return jsonify({
-      'success': True,
-      'symbol': symbol,
-      'summary': summary
-    })
+    # Price
+    price = 0.0
+    for tf_data in raw.get('timeframes', {}).values():
+        if 'error' not in tf_data and tf_data.get('price'):
+            price = tf_data['price']
+            break
 
-  except Exception as e:
-    logging.error(f"Failed to get summary: {e}")
-    return jsonify({'error': str(e)}), 500
+    # ── Flatten signals ───────────────────────────────────────────────────────
+    all_signals = []
+    for tf, tf_data in raw.get('timeframes', {}).items():
+        if 'error' in tf_data:
+            continue
+        detected_at = tf_data.get('timestamp', now)
 
+        try:
+            detected_ts = datetime.fromisoformat(str(detected_at).replace('Z', '+00:00'))
+            elapsed_sec = (datetime.now(timezone.utc) - detected_ts).total_seconds()
+            candles_ago = max(0, int(elapsed_sec / tf_seconds.get(tf, 3600)))
+        except Exception:
+            candles_ago = None
 
-@app.route('/api/live-analysis/signal-info/<signal_name>')
-@login_required
-def get_signal_info(signal_name):
-  """Get confidence and timeframe info for a signal"""
-  try:
-    info = ScalpSignalAnalyzer.SIGNAL_CONFIDENCE.get(signal_name, {})
+        for signal_name, signal_data in tf_data.get('signals', {}).items():
+            meta = SIGNAL_LOOKUP.get(signal_name)
+            if not meta:
+                continue
 
-    if not info:
-      return jsonify({'error': 'Signal not found'}), 404
+            raw_value   = signal_data.get('value')
+            price_level = signal_data.get('level')
+            if meta['value_type'] == 'price_level' and price_level is None and raw_value is not None:
+                price_level = raw_value
+                raw_value   = None
 
-    return jsonify({
-      'success': True,
-      'signal_name': signal_name,
-      'confidence': info.get('confidence', 0),
-      'suitable_timeframes': info.get('timeframes', []),
-    })
+            all_signals.append({
+                'signal_name':     signal_name,
+                'family':          meta['family'],
+                'family_name':     meta['family_name'],
+                'category':        meta['category'],
+                'role':            meta['role'],
+                'grade':           meta['grade'],
+                'direction':       meta['direction'],
+                'value_type':      meta['value_type'],
+                'value_label':     meta['value_label'],
+                'timeframe':       tf,
+                'indicator_value': raw_value,
+                'price_level':     price_level,
+                'candles_ago':     candles_ago,
+                'detected_at':     detected_at,
+            })
 
-  except Exception as e:
-    return jsonify({'error': str(e)}), 500
+    # ── Bias ──────────────────────────────────────────────────────────────────
+    bull_score = bear_score = 0.0
+    for s in all_signals:
+        w = GRADE_WEIGHTS.get(s['grade'], 0.5)
+        if s['direction'] == 'bullish':
+            bull_score += w
+        elif s['direction'] == 'bearish':
+            bear_score += w
 
-
-@app.route('/api/live-analysis/all-signals')
-@login_required
-def get_all_signal_definitions():
-  """Get all signal definitions with confidence ratings"""
-  try:
-    signals = []
-
-    for signal_name, info in ScalpSignalAnalyzer.SIGNAL_CONFIDENCE.items():
-      signals.append({
-        'name': signal_name,
-        'confidence': info['confidence'],
-        'timeframes': info['timeframes'],
-        # 'category': categorize_signal(signal_name)
-      })
-
-    # Sort by confidence
-    signals.sort(key=lambda x: x['confidence'], reverse=True)
-
-    return jsonify({
-      'success': True,
-      'signals': signals,
-      'total': len(signals)
-    })
-
-  except Exception as e:
-    return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/live-analysis/cleanup', methods=['POST'])
-@login_required
-def cleanup_old_signals():
-  """Cleanup old signals from database"""
-  try:
-    days = int(request.get_json().get('days', 30))
-    deleted = live_db.cleanup_old_signals(days)
-
-    return jsonify({
-      'success': True,
-      'deleted': deleted,
-      'message': f'Cleaned up signals older than {days} days'
-    })
-
-  except Exception as e:
-    return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/live-analysis/combos/<symbol>')
-@login_required
-def get_live_signal_combos(symbol):
-  """Get latest signal combinations for a symbol"""
-  try:
-    timeframe = request.args.get('timeframe')
-    limit = int(request.args.get('limit', 1000))
-
-    conn = sqlite3.connect(app.config['DB_PATH'])
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    query = '''
-            SELECT live.*, combos.signals_count
-            FROM live_tf_combos live
-            INNER JOIN tf_combos combos 
-            ON live.combo_signal_name = combos.signal_name
-            WHERE live.symbol = ?
-        '''
-    params = [symbol.upper()]
-
-    if timeframe:
-      query += ' AND timeframe = ?'
-      params.append(timeframe)
-
-    query += ' ORDER BY accuracy DESC, timestamp DESC LIMIT ?'
-    params.append(limit)
-
-    cursor.execute(query, params)
-    combos = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-
-    return jsonify({
-      'success': True,
-      'symbol': symbol,
-      'combinations': combos,
-      'count': len(combos)
-    })
-
-  except Exception as e:
-    logging.error(f"Failed to get combos: {e}")
-    return jsonify({'error': str(e)}), 500
-
-# ==================== WEBSOCKET FOR LIVE MONITORING ====================
-
-@sock.route('/ws/live-analysis/<symbol>')
-def symbol_websocket(ws, symbol):
-  """WebSocket for real-time symbol monitoring"""
-  analyzer = ScalpSignalAnalyzer()
-  timeframes = ['1m', '5m', '15m', '30m', '1h', '2h']
-
-  try:
-    while True:
-      # Fetch and analyze data
-      result = analyzer.analyze_symbol_all_timeframes(symbol, timeframes)
-
-      # Get adjusted confidences
-      for tf, data in result['timeframes'].items():
-        if 'error' in data:
-          continue
-
-      live_db.save_analysis_result(result)
-
-      # Send update to client with combos
-      ws.send(json.dumps({
-        'timestamp': datetime.now().isoformat(),
-        'symbol': symbol,
-        'analysis': result,
-      }))
-
-      time.sleep(50)
-
-  except Exception as e:
-    logging.error(f"WebSocket error: {e}")
-    ws.send(json.dumps({'error': str(e)}))
-
-# ==================== FACT-CHECKING ROUTES ====================
-
-@app.route('/api/fact-check/bulk-signals', methods=['POST'])
-@login_required
-def bulk_fact_check_live_signals():
-  """Fact-check all signals"""
-  global fact_checker
-
-  if fact_checker is None:
-    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
-
-  data = request.get_json()
-  limit = data.get('limit', None)
-  symbol = data.get('symbol', None)
-
-  try:
-    start_time = time.time()
-    results = fact_checker.bulk_fact_check_live_signals(symbol=symbol, limit=limit)
-    elapsed = time.time() - start_time
-    print("\n" + "=" * 80)
-    print("VALIDATION WINDOW OPTIMIZATION COMPLETE")
-    print("=" * 80)
-    print(f"Time taken: {elapsed / 60:.1f} minutes")
-    print(f"all: {results}")
-    print(f"Total combinations: {results['total_checked']}")
-    print(f"Successfully optimized: {results['correct_predictions']}")
-    print(f"No data available: {results['stopped_out']}")
-    print(f"\nValidation windows have been saved to the signals table")
-    print("=" * 80 + "\n")
-
-    return jsonify({'success': True, 'results': results})
-
-  except Exception as e:
-    logging.error(f"Error signal-validation: {e}")
-  return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/fact-check/signal-accuracy/<signal_name>')
-@login_required
-def get_signal_accuracy(signal_name):
-  """Get accuracy stats for a specific signal"""
-  global fact_checker
-
-  if fact_checker is None:
-    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
-
-  timeframe = request.args.get('timeframe')
-
-  try:
-    accuracy = fact_checker.calculate_signal_accuracy(signal_name, timeframe)
-
-    if accuracy:
-      return jsonify({'success': True, 'accuracy': accuracy})
+    total_weight = bull_score + bear_score
+    if total_weight == 0:
+        bias_score, bias_direction = 0.0, 'neutral'
     else:
-      return jsonify({'success': False, 'error': 'Insufficient data'}), 404
+        bias_score     = round((bull_score - bear_score) / total_weight, 3)
+        bias_direction = ('bullish' if bias_score > 0.15 else
+                          'bearish' if bias_score < -0.15 else 'neutral')
 
-  except Exception as e:
-    logging.error(f"Error getting accuracy: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
+    # ── Per-family summary ────────────────────────────────────────────────────
+    families_out = {}
+    for family_key, family_def in SIGNAL_FAMILIES.items():
+        family_signals = [s for s in all_signals if s['family'] == family_key]
+        if not family_signals:
+            continue
 
+        f_bull = sum(GRADE_WEIGHTS.get(s['grade'], 0.5) for s in family_signals if s['direction'] == 'bullish')
+        f_bear = sum(GRADE_WEIGHTS.get(s['grade'], 0.5) for s in family_signals if s['direction'] == 'bearish')
+        f_bias = ('bullish' if f_bull > f_bear else 'bearish' if f_bear > f_bull else 'neutral')
 
-@app.route('/api/fact-check/adjust-confidence', methods=['POST'])
-@login_required
-def adjust_signal_confidence():
-  """Adjust confidence for a specific signal"""
-  global fact_checker
+        indicator_values, price_levels = {}, {}
+        for s in family_signals:
+            if s['indicator_value'] is not None and s['value_label']:
+                indicator_values[s['value_label']] = s['indicator_value']
+            if s['price_level'] is not None and s['value_label']:
+                price_levels[f"{s['value_label']} ({s['timeframe']})"] = s['price_level']
 
-  if fact_checker is None:
-    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
-
-  data = request.get_json()
-
-  try:
-    result = fact_checker.adjust_signal_confidence(
-      data['signal_name'],
-      data['timeframe'],
-      data.get('min_samples', 10)
-    )
-
-    if result:
-      return jsonify({'success': True, 'adjustment': result})
-    else:
-      return jsonify({
-        'success': False,
-        'error': 'Insufficient samples'
-      }), 400
-  except Exception as e:
-    logging.error(f"Error adjusting confidence: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/fact-check/bulk-adjust', methods=['POST'])
-@login_required
-def bulk_adjust_signals():
-  """Adjust all signals with sufficient data"""
-  global fact_checker
-
-  if fact_checker is None:
-    return jsonify({'success': False, 'error': 'Fact checker not initialized'}), 500
-
-  data = request.get_json()
-  min_samples = data.get('min_samples', 10)
-
-  try:
-    results = fact_checker.bulk_adjust_all_signals(min_samples)
-
-    return jsonify({
-      'success': True,
-      'results': results
-    })
-
-  except Exception as e:
-    logging.error(f"Error bulk adjusting: {e}")
-  return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# ==================== SIGNAL VALIDATION ROUTES ====================
-
-@app.route('/api/signal-validation/bulk-validate', methods=['POST'])
-@login_required
-def bulk_validate_all_signals():
-  """Optimize validation windows for all signals"""
-  global signal_validation
-
-  if signal_validation is None:
-    return jsonify({'success': False, 'error': 'Validator not initialized'}), 500
-
-  data = request.get_json()
-  max_workers = data.get('max_workers', 10)
-  limit_per_signal = data.get('limit_per_signal')
-
-  try:
-    start_time = time.time()
-    results = signal_validation.optimize_all_signals(
-      limit_per_signal=limit_per_signal,
-      max_workers=max_workers
-    )
-    elapsed = time.time() - start_time
-
-    return jsonify({
-      'success': True,
-      'results': results,
-      'time_elapsed': elapsed
-    })
-  except Exception as e:
-    logging.error(f"Error validating: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# ==================== SIGNAL COMBINATION ROUTES ====================
-
-@app.route('/api/combo-analysis/analyze', methods=['POST'])
-@login_required
-def analyze_signal_combinations():
-  """
-  Trigger bulk combination analysis
-  POST body: {
-      "timeframe": "1h" (optional),
-      "min_samples": 20,
-      "min_combo_size": 2,
-      "max_combo_size": 4
-  }
-  """
-  global combo_analyzer
-
-  if combo_analyzer is None:
-    return jsonify({
-      'success': False,
-      'error': 'Combination analyzer not initialized'
-    }), 500
-
-  try:
-    data = request.get_json() or {}
-
-    timeframe = data.get('timeframe')
-    min_samples = int(data.get('min_samples', 20))
-    min_combo_size = int(data.get('min_combo_size', 2))
-    max_combo_size = int(data.get('max_combo_size', 4))
-
-    # Validate combo sizes
-    if min_combo_size < 2 or max_combo_size > 10:
-      return jsonify({
-        'success': False,
-        'error': 'Combo size must be between 2 and 10'
-      }), 400
-
-    logging.info(f"🚀 Starting combination analysis...")
-    logging.info(f"   Min samples: {min_samples}")
-    logging.info(f"   Combo size: {min_combo_size}-{max_combo_size}")
-
-    if timeframe:
-      # Analyze single timeframe
-      result = combo_analyzer.analyze_timeframe_combinations(
-        timeframe, min_samples, min_combo_size, max_combo_size
-      )
-    else:
-      # Analyze all timeframes
-      result = combo_analyzer.analyze_all_timeframes(
-        min_samples, min_combo_size, max_combo_size
-      )
-
-    return jsonify({
-      'success': True,
-      'result': result
-    })
-
-  except Exception as e:
-    logging.error(f"❌ Combination analysis failed: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-
-@app.route('/api/combo-analysis/analyze-cross-tf', methods=['POST'])
-@login_required
-def analyze_cross_tf_signal_combinations():
-  """
-  Trigger bulk combination analysis
-  POST body: {
-      "timeframes": ["1h"] (optional),
-      "min_samples": 20,
-      "min_combo_size": 2,
-      "max_combo_size": 4
-  }
-  """
-  global combo_analyzer
-
-  if combo_analyzer is None:
-    return jsonify({
-      'success': False,
-      'error': 'Combination analyzer not initialized'
-    }), 500
-
-  try:
-    data = request.get_json() or {}
-
-    timeframes = data.get('timeframes', ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w'])
-    min_samples = int(data.get('min_samples', 20))
-    min_combo_size = int(data.get('min_combo_size', 2))
-    max_combo_size = int(data.get('max_combo_size', 4))
-
-    # Validate combo sizes
-    if min_combo_size < 2 or max_combo_size > 10:
-      return jsonify({
-        'success': False,
-        'error': 'Combo size must be between 2 and 10'
-      }), 400
-
-    logging.info(f"🚀 Starting combination analysis...")
-    logging.info(f"   tfs: {timeframes}")
-    logging.info(f"   Min samples: {min_samples}")
-    logging.info(f"   Combo size: {min_combo_size}-{max_combo_size}")
-
-    results = combo_analyzer.analyze_cross_timeframe_combinations(
-      timeframes,
-      min_samples,
-      min_combo_size,
-      max_combo_size,
-    )
-
-    return jsonify({
-      'success': True,
-      'result': results
-    })
-
-  except Exception as e:
-    logging.error(f"❌ Combination analysis failed: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-
-# ADD THIS NEW ROUTE TO app.py AFTER THE get_active_combinations_for_symbol() function
-# Around line 880 (after the existing active-combos endpoint)
-
-@app.route('/api/combo-analysis/active-cross-tf/<symbol>')
-@login_required
-def get_active_cross_tf_combinations_for_symbol(symbol):
-  """
-  Get active cross-timeframe signal combinations for a specific symbol
-  This checks which cross-TF combinations are currently active based on live_signals
-  Returns top 50 combinations sorted by accuracy
-  """
-  global combo_analyzer
-
-  if combo_analyzer is None:
-    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
-
-  try:
-    conn = sqlite3.connect(app.config['DB_PATH'])
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    # Get recent signals across all timeframes (last 2 hours)
-    cursor.execute('''
-      SELECT 
-        timeframe,
-        signal_name,
-        timestamp,
-        signal_type,
-        price
-      FROM live_signals
-      WHERE symbol = ?
-        AND timestamp >= datetime('now', '-2 hours')
-      ORDER BY timestamp DESC
-    ''', (symbol.upper(),))
-
-    signals = [dict(row) for row in cursor.fetchall()]
-
-    if not signals:
-      conn.close()
-      return jsonify({
-        'success': True,
-        'symbol': symbol,
-        'combinations': [],
-        'total_combos': 0,
-        'debug_info': {
-          'total_signals': 0,
-          'message': 'No recent signals found'
+        families_out[family_key] = {
+            'name':             family_def['name'],
+            'description':      family_def['description'],
+            'category':         family_def['category'],
+            'bias':             f_bias,
+            'active_signals':   family_signals,
+            'indicator_values': indicator_values,
+            'price_levels':     price_levels,
         }
-      })
 
-    logging.info(f"🔍 Found {len(signals)} recent signals for {symbol}")
+    # Chart price level lines
+    chart_levels = [
+        {'price': s['price_level'], 'label': f"{s['value_label']} ({s['timeframe']})",
+         'direction': s['direction'], 'grade': s['grade']}
+        for s in all_signals
+        if s['price_level'] is not None and s['value_label']
+    ]
 
-    # Group signals by timeframe and time window
-    timeframe_signals = defaultdict(lambda: defaultdict(list))
-
-    for signal in signals:
-      timestamp = datetime.fromisoformat(signal['timestamp'])
-      # Group by hour for cross-TF matching
-      window = timestamp.replace(minute=0, second=0, microsecond=0)
-      timeframe_signals[signal['timeframe']][window].append(signal)
-
-    # Find matching cross-TF combinations
-    matched_combos = []
-
-    # Get all cross-TF combinations from database
-    cursor.execute('''
-      SELECT * FROM cross_tf_combos
-      WHERE accuracy >= 60
-      ORDER BY accuracy DESC, profit_factor DESC
-      LIMIT 100
-    ''')
-
-    all_cross_combos = [dict(row) for row in cursor.fetchall()]
-
-    logging.info(f"📊 Checking against {len(all_cross_combos)} cross-TF combinations")
-
-    for combo in all_cross_combos:
-      combo_signature = combo['combo_signature']
-      required_timeframes = combo['timeframes'].split(',')
-
-      # Parse signal@timeframe pairs
-      signal_tf_pairs = []
-      for part in combo_signature.split('+'):
-        sig_name, tf = part.rsplit('@', 1)
-        signal_tf_pairs.append((sig_name, tf))
-
-      # Check if all required signals are present in their respective timeframes
-      # within the same time window
-      for window in set(w for tf_dict in timeframe_signals.values() for w in tf_dict.keys()):
-        match_count = 0
-        matched_signals = []
-
-        for sig_name, tf in signal_tf_pairs:
-          # Check if this signal exists in this timeframe at this window
-          if tf in timeframe_signals and window in timeframe_signals[tf]:
-            window_signals = timeframe_signals[tf][window]
-            if any(s['signal_name'] == sig_name for s in window_signals):
-              match_count += 1
-              matched_signal = next(s for s in window_signals if s['signal_name'] == sig_name)
-              matched_signals.append(matched_signal)
-
-        # If all signals matched, add this combo
-        if match_count == len(signal_tf_pairs):
-          matched_combos.append({
-            **combo,
-            'matched_at': window.isoformat(),
-            'matched_signals': matched_signals,
-            'current_price': matched_signals[0]['price'] if matched_signals else None
-          })
-          logging.info(f"✅ MATCH: {combo_signature} at {window}")
-          break  # Only count each combo once
-
-    conn.close()
-
-    # Sort by accuracy
-    matched_combos.sort(key=lambda x: x['accuracy'], reverse=True)
-
-    # Limit to top 50
-    matched_combos = matched_combos[:50]
-
-    logging.info(f"📊 SUMMARY:")
-    logging.info(f"   Total signals: {len(signals)}")
-    logging.info(f"   Matched cross-TF combos: {len(matched_combos)}")
-
-    return jsonify({
-      'success': True,
-      'symbol': symbol,
-      'combinations': matched_combos,
-      'total_combos': len(matched_combos),
-      'debug_info': {
-        'total_signals': len(signals),
-        'timeframes_active': list(timeframe_signals.keys()),
-        'checked_combinations': len(all_cross_combos)
-      }
-    })
-
-  except Exception as e:
-    logging.error(f"❌ Failed to get cross-TF combinations: {e}")
-    import traceback
-    logging.error(traceback.format_exc())
-    return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/combo-analysis/top')
-@login_required
-def get_top_combinations():
-  """
-  Get top performing signal combinations
-  Query params:
-      - timeframe: filter by timeframe (optional)
-      - min_accuracy: minimum accuracy threshold (default 60)
-      - limit: max results (default 20)
-  """
-  global combo_analyzer
-
-  if combo_analyzer is None:
-    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
-
-  try:
-    timeframe = request.args.get('timeframe')
-    min_accuracy = float(request.args.get('min_accuracy', 60.0))
-    limit = int(request.args.get('limit', 20))
-
-    combinations = combo_analyzer.get_top_combinations(
-      timeframe, min_accuracy, limit
+    # ── Scalp metrics ─────────────────────────────────────────────────────────
+    scalp_metrics = compute_scalp_metrics(
+        ohlcv_df, price, all_signals, chart_levels, timeframes, bias_direction
     )
 
-    return jsonify({
-      'success': True,
-      'combinations': combinations,
-      'count': len(combinations)
-    })
+    return {
+        'symbol':          symbol,
+        'horizon':         horizon,
+        'horizon_label':   HORIZONS[horizon]['label'],
+        'chart_tf':        HORIZONS[horizon]['chart_tf'],
+        'timeframes':      timeframes,
+        'price':           price,
+        'timestamp':       now,
+        'bias': {
+            'direction':   bias_direction,
+            'score':       bias_score,
+            'bull_score':  round(bull_score, 1),
+            'bear_score':  round(bear_score, 1),
+        },
+        'families':        families_out,
+        'primary_signals': [s for s in all_signals if s['grade'] == 'A'],
+        'all_signals':     all_signals,
+        'chart_levels':    chart_levels,
+        'scalp_metrics':   scalp_metrics,
+        'category_order':  CATEGORY_ORDER,
+    }
 
-  except Exception as e:
-    logging.error(f"Failed to get top combinations: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
 
+# ── OHLCV for chart ───────────────────────────────────────────────────────────
 
-@app.route('/api/combo-analysis/report')
+@app.route('/api/ohlcv/<symbol>/<timeframe>')
 @login_required
-def get_combination_report():
-  """
-  Get comprehensive combination analysis report
-  Query params:
-      - min_accuracy: minimum accuracy for top performers (default 55)
-  """
-  global combo_analyzer
+def get_ohlcv(symbol, timeframe):
+    try:
+        df = analyzer.fetch_kucoin_data(symbol, timeframe)
+        if df is None:
+            df = analyzer.fetch_binance_data(symbol, timeframe)
+        if df is None:
+            return jsonify({'success': False, 'error': 'No data available'}), 404
 
-  if combo_analyzer is None:
-    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
-
-  try:
-    min_accuracy = float(request.args.get('min_accuracy', 55.0))
-
-    report = combo_analyzer.generate_report(min_accuracy)
-
-    return jsonify({
-      'success': True,
-      'report': report
-    })
-
-  except Exception as e:
-    logging.error(f"Failed to generate report: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
+        candles = [
+            {'time': int(r['timestamp'].timestamp()),
+             'open': float(r['open']), 'high': float(r['high']),
+             'low':  float(r['low']),  'close': float(r['close']),
+             'volume': float(r['volume'])}
+            for _, r in df.tail(150).iterrows()
+        ]
+        return jsonify({'success': True, 'symbol': symbol, 'timeframe': timeframe, 'candles': candles})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/combo-analysis/compare/<combo_name>')
+# ── Market data ───────────────────────────────────────────────────────────────
+
+@app.route('/api/market-data/<symbol>')
 @login_required
-def compare_combo_to_individual_signals(combo_name):
-  """
-  Compare combination accuracy to individual signal accuracies
-  Query params:
-      - timeframe: required
-  """
-  global combo_analyzer
+def get_market_data(symbol):
+    result = {
+        'funding_rate':    None, 'next_funding_in': None,
+        'open_interest':   None, 'oi_change_pct':   None,
+        'bid_depth':       None, 'ask_depth':        None,
+        'imbalance_ratio': None, 'imbalance_side':   None,
+    }
+    binance_symbol = symbol.replace('-', '')
 
-  if combo_analyzer is None:
-    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+    try:
+        r = requests.get('https://fapi.binance.com/fapi/v1/premiumIndex',
+                         params={'symbol': binance_symbol}, timeout=5)
+        if r.status_code == 200:
+            d = r.json()
+            result['funding_rate'] = float(d.get('lastFundingRate', 0))
+            nft = d.get('nextFundingTime', 0)
+            if nft:
+                diff = int((datetime.fromtimestamp(nft/1000, tz=timezone.utc) -
+                            datetime.now(timezone.utc)).total_seconds() / 60)
+                result['next_funding_in'] = max(0, diff)
+    except Exception as e:
+        logger.warning(f'Funding rate failed: {e}')
 
-  try:
-    timeframe = request.args.get('timeframe')
+    try:
+        r = requests.get('https://fapi.binance.com/futures/data/openInterestHist',
+                         params={'symbol': binance_symbol, 'period': '1h', 'limit': 2}, timeout=5)
+        if r.status_code == 200:
+            d = r.json()
+            if len(d) >= 2:
+                oi_now  = float(d[-1].get('sumOpenInterest', 0))
+                oi_prev = float(d[-2].get('sumOpenInterest', 0))
+                result['open_interest'] = oi_now
+                if oi_prev > 0:
+                    result['oi_change_pct'] = round(((oi_now - oi_prev) / oi_prev) * 100, 3)
+    except Exception as e:
+        logger.warning(f'OI failed: {e}')
 
-    if not timeframe:
-      return jsonify({
-        'success': False,
-        'error': 'Timeframe parameter required'
-      }), 400
+    try:
+        r = requests.get('https://api.kucoin.com/api/v1/market/orderbook/level2_20',
+                         params={'symbol': symbol}, timeout=5)
+        if r.status_code == 200:
+            d    = r.json().get('data', {})
+            bids = d.get('bids', [])
+            asks = d.get('asks', [])
+            bid_depth = sum(float(b[0]) * float(b[1]) for b in bids if len(b) >= 2)
+            ask_depth = sum(float(a[0]) * float(a[1]) for a in asks if len(a) >= 2)
+            result['bid_depth'] = round(bid_depth, 0)
+            result['ask_depth'] = round(ask_depth, 0)
+            if ask_depth > 0 and bid_depth > 0:
+                ratio = bid_depth / ask_depth
+                result['imbalance_ratio'] = round(ratio, 2)
+                result['imbalance_side']  = ('bullish' if ratio > 1.1 else
+                                             'bearish' if ratio < 0.9 else 'neutral')
+    except Exception as e:
+        logger.warning(f'Order book failed: {e}')
 
-    comparison = combo_analyzer.compare_combo_to_individual(
-      combo_name, timeframe
-    )
-
-    return jsonify({
-      'success': True,
-      'comparison': comparison
-    })
-
-  except Exception as e:
-    logging.error(f"Failed to compare combination: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
+    return jsonify({'success': True, 'symbol': symbol, **result})
 
 
-@app.route('/api/combo-analysis/timeframe/<timeframe>')
+# ── Signal history ────────────────────────────────────────────────────────────
+
+@app.route('/api/signals/<symbol>')
 @login_required
-def get_timeframe_combinations(timeframe):
-  """
-  Get all combinations for a specific timeframe
-  Query params:
-      - min_accuracy: minimum accuracy threshold (default 50)
-      - limit: max results (default 50)
-  """
-  global combo_analyzer
-
-  if combo_analyzer is None:
-    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
-
-  try:
-    min_accuracy = float(request.args.get('min_accuracy', 50.0))
-    limit = int(request.args.get('limit', 50))
-
-    combinations = combo_analyzer.get_top_combinations(
-      timeframe, min_accuracy, limit
-    )
-
-    return jsonify({
-      'success': True,
-      'timeframe': timeframe,
-      'combinations': combinations,
-      'count': len(combinations)
-    })
-
-  except Exception as e:
-    logging.error(f"Failed to get timeframe combinations: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
+def get_signals(symbol):
+    horizon = request.args.get('horizon')
+    limit   = int(request.args.get('limit', 100))
+    signals = db.get_recent_signals(symbol, horizon=horizon, limit=limit)
+    return jsonify({'success': True, 'symbol': symbol, 'signals': signals, 'count': len(signals)})
 
 
-@app.route('/api/combo-analysis/details')
+@app.route('/api/runs/<symbol>')
 @login_required
-def get_combination_details():
-  """
-  Get details for a specific combination
-  Query params:
-      - combo_name: required (e.g., "macd_cross_bullish+rsi_oversold")
-      - timeframe: required
-  """
-  global combo_analyzer
-
-  if combo_analyzer is None:
-    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
-
-  try:
-    combo_name = request.args.get('combo_name')
-    timeframe = request.args.get('timeframe')
-
-    if not combo_name or not timeframe:
-      return jsonify({
-        'success': False,
-        'error': 'Both combo_name and timeframe required'
-      }), 400
-
-    details = combo_analyzer.get_combination_details(combo_name, timeframe)
-
-    if not details:
-      return jsonify({
-        'success': False,
-        'error': 'Combination not found'
-      }), 404
-
-    return jsonify({
-      'success': True,
-      'details': details
-    })
-
-  except Exception as e:
-    logging.error(f"Failed to get combination details: {e}")
-    return jsonify({'success': False, 'error': str(e)}), 500
+def get_runs(symbol):
+    horizon = request.args.get('horizon')
+    runs = db.get_recent_runs(symbol, horizon=horizon, limit=int(request.args.get('limit', 20)))
+    return jsonify({'success': True, 'symbol': symbol, 'runs': runs})
 
 
-@app.route('/api/combo-analysis/active-combos/<symbol>')
+@app.route('/api/liquidations/<symbol>')
 @login_required
-def get_active_combinations_for_symbol(symbol):
-  """
-  Get active signal combinations for a specific symbol across timeframes
-  This checks which combinations are currently active based on live_signals
-  """
-  global combo_analyzer
+def get_liquidations(symbol):
+    """Estimate liquidation clusters from OI and leverage tier distribution."""
+    binance_symbol = symbol.replace('-', '').replace('/', '')
 
-  if combo_analyzer is None:
-    return jsonify({'success': False, 'error': 'Analyzer not initialized'}), 500
+    price = None
+    try:
+        r = requests.get('https://fapi.binance.com/fapi/v1/ticker/price',
+                         params={'symbol': binance_symbol}, timeout=5)
+        if r.status_code == 200:
+            price = float(r.json()['price'])
+    except Exception:
+        pass
 
-  try:
-    conn = sqlite3.connect(app.config['DB_PATH'])
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    if not price:
+        try:
+            r = requests.get('https://api.kucoin.com/api/v1/market/orderbook/level1',
+                             params={'symbol': symbol}, timeout=5)
+            if r.status_code == 200:
+                price = float(r.json()['data']['price'])
+        except Exception:
+            pass
 
-    # DEBUG 1: Check if we have ANY signals for this symbol
-    cursor.execute('''
-      SELECT COUNT(*) as total, 
-             MIN(timestamp) as oldest, 
-             MAX(timestamp) as newest
-      FROM live_signals
-      WHERE symbol = ?
-    ''', (symbol.upper(),))
+    if not price:
+        return jsonify({'success': False, 'error': 'Could not fetch price'}), 404
 
-    signal_stats = cursor.fetchone()
-    logging.info(f"🔍 DEBUG - Symbol: {symbol}")
-    logging.info(f"   Total signals in DB: {signal_stats['total']}")
-    logging.info(f"   Oldest: {signal_stats['oldest']}")
-    logging.info(f"   Newest: {signal_stats['newest']}")
-    logging.info(f"   now: {datetime.now() - timedelta(hours=2)}")
+    total_oi_usd = None
+    funding_rate = 0.0
+    try:
+        r = requests.get('https://fapi.binance.com/fapi/v1/openInterest',
+                         params={'symbol': binance_symbol}, timeout=5)
+        if r.status_code == 200:
+            total_oi_usd = float(r.json()['openInterest']) * price
+    except Exception:
+        pass
 
-    # DEBUG 2: Check signals in last 2 hours
-    cursor.execute('''
-      SELECT COUNT(*) as count_2h
-      FROM live_signals
-      WHERE symbol = ?
-        AND timestamp >= datetime('now', '-2 hours')
-    ''', (symbol.upper(),))
+    try:
+        r = requests.get('https://fapi.binance.com/fapi/v1/premiumIndex',
+                         params={'symbol': binance_symbol}, timeout=5)
+        if r.status_code == 200:
+            funding_rate = float(r.json().get('lastFundingRate', 0))
+    except Exception:
+        pass
 
-    count_2h = cursor.fetchone()['count_2h']
-    logging.info(f"   Signals in last 2 hours: {count_2h}")
+    if not total_oi_usd:
+        return jsonify({'success': True, 'symbol': symbol, 'price': price,
+                        'total_oi_usd': None, 'liq_levels': [], 'no_perp': True})
 
-    # DEBUG 3: Get actual signals with details
-    cursor.execute('''
-      SELECT 
-        timeframe,
-        COUNT(*) as signal_count,
-        GROUP_CONCAT(signal_name) as signals,
-        MAX(timestamp) as latest_timestamp
-      FROM live_signals
-      WHERE symbol = ?
-        AND timestamp >= datetime('now', '-2 hours')
-      GROUP BY timeframe, 
-        CAST(strftime('%s', timestamp) / 
-          CASE timeframe
-            WHEN '1m' THEN 60
-            WHEN '3m' THEN 180
-            WHEN '5m' THEN 300
-            WHEN '15m' THEN 900
-            WHEN '30m' THEN 1800
-            WHEN '1h' THEN 3600
-            WHEN '2h' THEN 7200
-            WHEN '4h' THEN 14400
-            WHEN '6h' THEN 21600
-            WHEN '8h' THEN 28800
-            WHEN '12h' THEN 43200
-            WHEN '1d' THEN 86400
-            ELSE 3600
-          END AS INTEGER)
-      ORDER BY timeframe, latest_timestamp DESC
-    ''', (symbol.upper(),))
+    # Infer long/short split from funding rate
+    fr_pct = funding_rate * 100
+    if fr_pct > 0.05:   long_pct = 0.65
+    elif fr_pct > 0.01: long_pct = 0.55
+    elif fr_pct < -0.05: long_pct = 0.35
+    elif fr_pct < -0.01: long_pct = 0.45
+    else: long_pct = 0.50
+    short_pct = 1.0 - long_pct
 
-    active_windows = cursor.fetchall()
+    long_oi  = total_oi_usd * long_pct
+    short_oi = total_oi_usd * short_pct
 
-    logging.info(f"   Active windows found: {len(active_windows)}")
+    # Industry-estimated leverage distribution
+    leverage_dist = [
+        (2, 0.04), (3, 0.06), (5, 0.14), (10, 0.28),
+        (20, 0.22), (25, 0.10), (50, 0.10), (100, 0.06),
+    ]
 
-    for idx, window in enumerate(active_windows):
-      signals_list = window['signals'].split(',') if window['signals'] else []
-      logging.info(f"   Window {idx + 1}: {window['timeframe']} - {len(signals_list)} signals")
-      logging.info(f"      Signals: {signals_list}")
-      logging.info(f"      Timestamp: {window['latest_timestamp']}")
-
-    # DEBUG 4: Check tf_combos table
-    cursor.execute('SELECT COUNT(*) as total FROM tf_combos')
-    combo_total = cursor.fetchone()['total']
-    logging.info(f"   Total combinations in tf_combos: {combo_total}")
-
-    if combo_total == 0:
-      logging.warning("⚠️  tf_combos table is EMPTY - run combination analysis first!")
-
-    # Process combinations
-    results = {}
-    checked_combos = 0
-    matched_combos = 0
-
-    for window in active_windows:
-      timeframe = window['timeframe']
-      signals = window['signals'].split(',') if window['signals'] else []
-
-      if len(signals) < 2:
-        logging.info(f"   ⏭️  Skipping {timeframe}: only {len(signals)} signal(s)")
-        continue
-
-      # Generate combo key
-      combo_key = '+'.join(sorted(set(signals)))
-      checked_combos += 1
-
-      logging.info(f"   🔍 Checking combo: {combo_key} in {timeframe}")
-
-      # Check if this combo exists in our database
-      cursor.execute('''
-        SELECT * FROM tf_combos
-        WHERE signal_name = ? AND timeframe = ?
-      ''', (combo_key, timeframe))
-
-      combo_data = cursor.fetchone()
-
-      if combo_data:
-        matched_combos += 1
-        logging.info(f"   ✅ MATCH FOUND! Accuracy: {combo_data['accuracy']:.2f}%")
-
-        if timeframe not in results:
-          results[timeframe] = []
-
-        results[timeframe].append({
-          'combo_name': combo_key,
-          'signals': signals,
-          'accuracy': combo_data['accuracy'],
-          'sample_count': combo_data['signals_count'],
-          'profit_factor': combo_data['profit_factor'],
-          'avg_price_change': combo_data['avg_price_change'],
-          'combo_size': combo_data['combo_size'],
-          'correct_predictions': combo_data['correct_predictions'],
-          'timestamp': window['latest_timestamp']
+    liq_levels = []
+    for leverage, fraction in leverage_dist:
+        # Longs liquidated below current price
+        liq_levels.append({
+            'price':          round(price * (1 - 1 / leverage), 6),
+            'pct_from_price': round(-100 / leverage, 2),
+            'leverage':       leverage,
+            'side':           'long',
+            'size_usd':       round(long_oi * fraction, 0),
         })
-      else:
-        logging.info(f"   ❌ No match in tf_combos for: {combo_key}")
-
-    conn.close()
-
-    logging.info(f"\n📊 SUMMARY:")
-    logging.info(f"   Checked combinations: {checked_combos}")
-    logging.info(f"   Matched combinations: {matched_combos}")
-    logging.info(f"   Timeframes with results: {len(results)}")
-
-    return jsonify({
-      'success': True,
-      'symbol': symbol,
-      'timeframes': results,
-      'total_combos': sum(len(combos) for combos in results.values()),
-      'debug_info': {
-        'total_signals': signal_stats['total'],
-        'signals_last_2h': count_2h,
-        'windows_found': len(active_windows),
-        'combos_checked': checked_combos,
-        'combos_matched': matched_combos,
-        'tf_combos_total': combo_total
-      }
-    })
-
-  except Exception as e:
-    logging.error(f"❌ Failed to get active combinations: {e}")
-    import traceback
-    logging.error(traceback.format_exc())
-    return jsonify({'success': False, 'error': str(e)}), 500
-
-# ==================== PAPER TRADING ROUTES ====================
-# Add these routes to app.py after the combo analysis routes
-
-@app.route('/paper-trading')
-@login_required
-def paper_trading_dashboard():
-  """Paper trading dashboard page"""
-  return render_template('paper_trading.html')
-
-@app.route('/paper-trading/position/<symbol>')
-@login_required
-def paper_trading_position_details(symbol):
-  """Position details page"""
-  return render_template('position_details.html', symbol=symbol.upper())
-
-@app.route('/api/paper-trading/start', methods=['POST'])
-@login_required
-def start_paper_trading():
-  """Start paper trading engine"""
-  global paper_trading_engine
-
-  if paper_trading_engine is None:
-    return jsonify({
-      'success': False,
-      'error': 'Paper trading engine not initialized'
-    }), 500
-
-  try:
-    paper_trading_engine.start()
-    return jsonify({
-      'success': True,
-      'message': 'Paper trading started'
-    })
-  except Exception as e:
-    logging.error(f"Error starting paper trading: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-@app.route('/api/paper-trading/stop', methods=['POST'])
-@login_required
-def stop_paper_trading():
-  """Stop paper trading engine"""
-  global paper_trading_engine
-
-  if paper_trading_engine is None:
-    return jsonify({
-      'success': False,
-      'error': 'Paper trading engine not initialized'
-    }), 500
-
-  try:
-    paper_trading_engine.stop()
-    return jsonify({
-      'success': True,
-      'message': 'Paper trading stopped'
-    })
-  except Exception as e:
-    logging.error(f"Error stopping paper trading: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-@app.route('/api/paper-trading/reset', methods=['POST'])
-@login_required
-def reset_paper_trading():
-  """Reset paper trading engine"""
-  global paper_trading_engine
-
-  if paper_trading_engine is None:
-    return jsonify({
-      'success': False,
-      'error': 'Paper trading engine not initialized'
-    }), 500
-
-  try:
-    data = request.get_json() or {}
-    new_bankroll = data.get('initial_bankroll')
-
-    success = paper_trading_engine.reset(new_bankroll)
-
-    if success:
-      return jsonify({
-        'success': True,
-        'message': 'Paper trading reset successfully'
-      })
-    else:
-      return jsonify({
-        'success': False,
-        'error': 'Failed to reset (make sure engine is stopped)'
-      }), 400
-
-  except Exception as e:
-    logging.error(f"Error resetting paper trading: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-@app.route('/api/paper-trading/positions')
-@login_required
-def get_paper_trading_positions():
-  """Get all active positions with current prices"""
-  global paper_trading_engine
-
-  if paper_trading_engine is None:
-    return jsonify({
-      'success': False,
-      'error': 'Paper trading engine not initialized'
-    }), 500
-
-  try:
-    positions = []
-
-    for symbol, pos_data in paper_trading_engine.active_positions.items():
-      # Get current price
-      current_price = paper_trading_engine.get_current_price(symbol)
-
-      if current_price:
-        entry_price = pos_data['entry_price']
-        quantity = pos_data['quantity']
-        entry_fee = pos_data['entry_fee']
-
-        # Calculate current P/L
-        gross_value = quantity * current_price
-        exit_fee = gross_value * (paper_trading_engine.EXCHANGE_FEE / 100)
-        net_value = gross_value - exit_fee
-
-        position_size = pos_data['position_size']
-        profit_loss = net_value - (position_size - entry_fee)
-        profit_loss_pct = ((current_price - entry_price) / entry_price) * 100
-
-        positions.append({
-          **pos_data,
-          'current_price': current_price,
-          'current_profit_loss': profit_loss,
-          'current_profit_loss_pct': profit_loss_pct
+        # Shorts liquidated above current price
+        liq_levels.append({
+            'price':          round(price * (1 + 1 / leverage), 6),
+            'pct_from_price': round(100 / leverage, 2),
+            'leverage':       leverage,
+            'side':           'short',
+            'size_usd':       round(short_oi * fraction, 0),
         })
 
+    max_size = max(l['size_usd'] for l in liq_levels)
+    for l in liq_levels:
+        l['relative_size'] = round(l['size_usd'] / max_size, 3)
+
+    liq_levels.sort(key=lambda x: x['price'])
+
     return jsonify({
-      'success': True,
-      'positions': positions
+        'success':      True,
+        'symbol':       symbol,
+        'price':        price,
+        'total_oi_usd': round(total_oi_usd, 0),
+        'long_pct':     round(long_pct, 2),
+        'short_pct':    round(short_pct, 2),
+        'funding_rate': funding_rate,
+        'liq_levels':   liq_levels,
     })
 
-  except Exception as e:
-    logging.error(f"Error getting positions: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
 
-@app.route('/api/paper-trading/buying-queue')
+@app.route('/api/config/horizons')
 @login_required
-def get_buying_queue():
-  """Get buying queue with current prices"""
-  global paper_trading_engine
-
-  if paper_trading_engine is None:
-    return jsonify({
-      'success': False,
-      'error': 'Paper trading engine not initialized'
-    }), 500
-
-  try:
-    queue_items = []
-
-    for symbol, queue_data in paper_trading_engine.buying_queue.items():
-      # Get current price
-      current_price = paper_trading_engine.get_current_price(symbol)
-
-      item = {**queue_data}
-
-      if current_price:
-        item['current_price'] = current_price
-        item['distance_to_target_pct'] = (
-          ((current_price - queue_data['target_price']) / queue_data['target_price']) * 100
-        )
-
-      queue_items.append(item)
-
-    return jsonify({
-      'success': True,
-      'queue': queue_items
-    })
-
-  except Exception as e:
-    logging.error(f"Error getting buying queue: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-@app.route('/api/paper-trading/history')
-@login_required
-def get_position_history():
-  """Get closed position history"""
-  try:
-    limit = int(request.args.get('limit', 50))
-
-    conn = sqlite3.connect(app.config['DB_PATH'])
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    cursor.execute('''
-            SELECT * FROM position_history 
-            ORDER BY closed_at DESC 
-            LIMIT ?
-        ''', (limit,))
-
-    history = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-
-    return jsonify({
-      'success': True,
-      'history': history
-    })
-
-  except Exception as e:
-    logging.error(f"Error getting history: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-@app.route('/api/paper-trading/position/<symbol>')
-@login_required
-def get_position_details(symbol):
-  """Get detailed position information"""
-  global paper_trading_engine
-
-  if paper_trading_engine is None:
-    return jsonify({
-      'success': False,
-      'error': 'Paper trading engine not initialized'
-    }), 500
-
-  try:
-    symbol = symbol.upper()
-
-    # Check active positions
-    if symbol in paper_trading_engine.active_positions:
-      pos_data = paper_trading_engine.active_positions[symbol]
-
-      # Get current price and P/L
-      current_price = paper_trading_engine.get_current_price(symbol)
-
-      if current_price:
-        entry_price = pos_data['entry_price']
-        quantity = pos_data['quantity']
-        entry_fee = pos_data['entry_fee']
-
-        gross_value = quantity * current_price
-        exit_fee = gross_value * (paper_trading_engine.EXCHANGE_FEE / 100)
-        net_value = gross_value - exit_fee
-
-        position_size = pos_data['position_size']
-        profit_loss = net_value - (position_size - entry_fee)
-        profit_loss_pct = ((current_price - entry_price) / entry_price) * 100
-
-        return jsonify({
-          'success': True,
-          'position': {
-            **pos_data,
-            'current_price': current_price,
-            'current_profit_loss': profit_loss,
-            'current_profit_loss_pct': profit_loss_pct,
-            'is_closed': False
-          }
-        })
-
-    # Check closed positions
-    conn = sqlite3.connect(app.config['DB_PATH'])
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    cursor.execute('''
-            SELECT * FROM position_history 
-            WHERE symbol = ? 
-            ORDER BY closed_at DESC 
-            LIMIT 1
-        ''', (symbol,))
-
-    result = cursor.fetchone()
-    conn.close()
-
-    if result:
-      return jsonify({
-        'success': True,
-        'position': {
-          **dict(result),
-          'is_closed': True
-        }
-      })
-
-    return jsonify({
-      'success': False,
-      'error': 'Position not found'
-    }), 404
-
-  except Exception as e:
-    logging.error(f"Error getting position details: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-@app.route('/api/paper-trading/position/<symbol>/monitoring')
-@login_required
-def get_position_monitoring(symbol):
-  """Get position monitoring history"""
-  try:
-    symbol = symbol.upper()
-    limit = int(request.args.get('limit', 100))
-
-    conn = sqlite3.connect(app.config['DB_PATH'])
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    # Get position ID
-    cursor.execute('''
-            SELECT id FROM active_positions WHERE symbol = ?
-            UNION
-            SELECT id FROM (
-                SELECT DISTINCT position_id as id 
-                FROM position_monitoring 
-                WHERE symbol = ?
-                ORDER BY checked_at DESC
-                LIMIT 1
-            )
-        ''', (symbol, symbol))
-
-    pos_id_result = cursor.fetchone()
-
-    if not pos_id_result:
-      conn.close()
-      return jsonify({
-        'success': True,
-        'monitoring': []
-      })
-
-    position_id = pos_id_result[0]
-
-    # Get monitoring history
-    cursor.execute('''
-            SELECT * FROM position_monitoring 
-            WHERE position_id = ? 
-            ORDER BY checked_at DESC 
-            LIMIT ?
-        ''', (position_id, limit))
-
-    monitoring = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-
-    return jsonify({
-      'success': True,
-      'monitoring': monitoring
-    })
-
-  except Exception as e:
-    logging.error(f"Error getting monitoring history: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
+def get_horizons():
+    return jsonify({'success': True, 'horizons': HORIZONS})
 
 
-@app.route('/api/paper-trading/status')
-@login_required
-def get_paper_trading_status():
-  """Get paper trading engine status from DATABASE"""
-  try:
-    # Get fresh stats from database, not memory
-    stats = pt_manager.get_stats_from_db()
+def _maybe_start_monitor():
+    """Start the background scanner loop once (guarded against the dev reloader)."""
+    import os
+    # With debug reloader, only the child worker has WERKZEUG_RUN_MAIN=true.
+    if app.debug and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        return
+    if MONITOR.get('enabled_on_start'):
+        scanner.start_monitor()
+        logger.info('Scanner monitor auto-started')
 
-    if not stats:
-      return jsonify({
-        'success': False,
-        'error': 'No trading data available'
-      }), 404
-
-    # Add running status from state file
-    state = pt_manager.get_state()
-    stats['running'] = state.get('running', False)
-
-    return jsonify({
-      'success': True,
-      'stats': stats
-    })
-  except Exception as e:
-    logging.error(f"Error getting status: {e}")
-    return jsonify({
-      'success': False,
-      'error': str(e)
-    }), 500
-
-
-# ==================== HELPER FUNCTIONS ====================
-
-def calculate_validity_hours(confidence, pattern_count):
-  """Calculate signal validity based on confidence and pattern count"""
-  base = 12
-  confidence_factor = (confidence - 0.7) / 0.3
-  pattern_factor = min(pattern_count / 200, 1.0)
-  total_factor = (confidence_factor * 0.6 + pattern_factor * 0.4)
-  validity = base + (48 * total_factor)
-  return int(validity)
-
-
-# ==================== STARTUP ====================
 
 if __name__ == '__main__':
-  # This only runs when using "python app.py" directly
-  # Gunicorn will skip this and use the initialization above
-  app.run(host='0.0.0.0', port=5001, debug=True)
+    _maybe_start_monitor()
+    app.run(debug=True, port=5000)
