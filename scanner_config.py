@@ -130,7 +130,11 @@ SCORING = {
 
 ALERTING = {
     "min_validity_score": 6.1,  # 0–10; lenient. Raise to be pickier.
-    "min_vol_pace_1h": 2.5,  # must at least show this volume surge
+    # Volume gate: a coin qualifies if it shows a 1h surge OR a 5m acceleration.
+    # The 5m path catches setups heating up *right now* even when the full hour
+    # still looks average (e.g. PENGU: 1h 1.1× but 5m 6.4×).
+    "min_vol_pace_1h": 2.5,  # 1h volume vs its 24h hourly average
+    "min_vol_pace_5m": 4.0,  # 5m volume vs its 24h 5-min average (acceleration)
     "require_bullish": False,  # True = only alert on bullish-leaning spikes
     # Don't re-alert the same coin again until this many minutes have passed.
     "cooldown_minutes": 120,

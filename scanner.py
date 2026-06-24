@@ -215,10 +215,14 @@ def evaluate(pair: dict) -> dict:
     direction = 'bullish' if bull > bear else 'bearish' if bear > bull else 'neutral'
 
     # ── Alert decision (lenient by config) ───────────────────────────────────
+    # Volume qualifies on a 1h surge OR a 5m acceleration — the latter catches
+    # setups heating up right now while the full hour still reads average.
+    vol_ok = (vol_pace_1h >= ALERTING['min_vol_pace_1h']
+              or vol_pace_5m >= ALERTING.get('min_vol_pace_5m', float('inf')))
     is_alert = (
         passes_filters
         and score >= ALERTING['min_validity_score']
-        and vol_pace_1h >= ALERTING['min_vol_pace_1h']
+        and vol_ok
         and (not ALERTING['require_bullish'] or direction == 'bullish')
     )
 
