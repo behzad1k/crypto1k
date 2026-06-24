@@ -101,7 +101,8 @@ def _fmt(n, prefix='$'):
 
 
 def send_alert(r: dict) -> bool:
-    subject = f"🚨 Volume alert: {r['symbol']} ({r['label']} {r['score']}/10, {r['direction']})"
+    signal = {'bullish': 'BUY', 'bearish': 'SELL'}.get(r['direction'], 'NEUTRAL')
+    subject = f"🚨 {signal} signal: {r['symbol']} ({r['label']} {r['score']}/10, {r['direction']})"
 
     sig_rows = ''.join(
         f"<li><b>{s['name'].replace('_', ' ').title()}</b> "

@@ -41,6 +41,15 @@ RECIPIENTS = [
 ]
 
 
+# --- Telegram channel alerts (free, sends over HTTPS — works even when SMTP is
+#     blocked). See telegram_notify.py for the 3-step setup. ---
+TELEGRAM = {
+    "enabled": False,  # flip to True once token + chat_id are filled in
+    "bot_token": "8458351245:AAGpkWV7gFm8acEvlyjWbAgEpfKvsXHVgBI",  # from @BotFather (e.g. 123456:ABC-DEF...)
+    "chat_id": "@s_crypto1k",  # "@your_channel" (public) or -100123... (private)
+}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2. DATA SOURCE  (DexScreener — free, no API key)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -116,7 +125,7 @@ SCORING = {
 ALERTING = {
     "min_validity_score": 6.2,  # 0–10; lenient. Raise to be pickier.
     "min_vol_pace_1h": 2.5,  # must at least show this volume surge
-    "require_bullish": True,  # True = only alert on bullish-leaning spikes
+    "require_bullish": False,  # True = only alert on bullish-leaning spikes
     # Don't re-alert the same coin again until this many minutes have passed.
     "cooldown_minutes": 120,
 }

@@ -343,6 +343,45 @@
                 font-size: 10px;
             }
 
+            /* Horizontal-scroll safety net so a wide table never breaks layout */
+            .table-wrap {
+                width: 100%;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            /* Mobile: drop secondary columns and let the expand row (which holds
+               the full summary) carry vol pace, buy/sell, liquidity & flags. */
+            @media (max-width: 640px) {
+                table {
+                    font-size: 12px;
+                }
+                th,
+                td {
+                    padding: 8px 6px;
+                }
+                /* Hide: Vol pace 1h(5), Vol pace 5m(6), Buy/Sell(8),
+                   Liquidity(9), Flags(10) — header + data rows only. */
+                thead th:nth-child(5),
+                thead th:nth-child(6),
+                thead th:nth-child(8),
+                thead th:nth-child(9),
+                thead th:nth-child(10),
+                tr.row td:nth-child(5),
+                tr.row td:nth-child(6),
+                tr.row td:nth-child(8),
+                tr.row td:nth-child(9),
+                tr.row td:nth-child(10) {
+                    display: none;
+                }
+                .caret {
+                    padding: 4px;
+                }
+                .sym {
+                    font-size: 13px;
+                }
+            }
+
             .signals {
                 display: none;
             }
@@ -498,6 +537,7 @@
                     >
                     <span id="scanMsg" class="sub"></span>
                 </div>
+                <div class="table-wrap">
                 <table>
                     <thead>
                         <tr>
@@ -526,6 +566,7 @@
                         </tr>
                     </tbody>
                 </table>
+                </div>
             </div>
 
             <!-- Recent alerts -->

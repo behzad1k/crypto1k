@@ -17,6 +17,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 import db
 import emailer
 import scanner
+import telegram_notify
 from scalp_signal_analyzer import ScalpSignalAnalyzer
 from scanner_config import MONITOR
 from signal_config import (
@@ -196,6 +197,13 @@ def scanner_test_email():
     return jsonify(
         {"success": ok, "message": message, "recipients": emailer.recipient_count()}
     )
+
+
+@app.route("/api/scanner/test-telegram", methods=["POST"])
+@login_required
+def scanner_test_telegram():
+    ok, message = telegram_notify.send_test()
+    return jsonify({"success": ok, "message": message})
 
 
 # ── Scalp metrics ─────────────────────────────────────────────────────────────

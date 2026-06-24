@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 
 import dexscreener
 import emailer
+import telegram_notify
 import db
 from scanner_config import FILTERS, THRESHOLDS, SCORING, ALERTING, MONITOR
 
@@ -247,8 +248,14 @@ def build_summary(r: dict) -> str:
     sym = r['symbol']
     parts = []
 
-    arrow = '🟢' if r['direction'] == 'bullish' else '🔴' if r['direction'] == 'bearish' else '⚪'
-    parts.append(f"{arrow} {sym} — setup quality {r['label']} ({r['score']}/10), leaning {r['direction']}.")
+    signal_label = {
+        'bullish': '🟢 BUY SIGNAL',
+        'bearish': '🔴 SELL SIGNAL',
+    }.get(r['direction'], '⚪ NEUTRAL — no clear direction')
+    parts.append(
+        f"{signal_label} — {sym}: setup quality {r['label']} ({r['score']}/10), "
+        f"leaning {r['direction']}."
+    )
 
     if m['vol_pace_1h'] >= THRESHOLDS['vol_pace_1h_notable']:
         parts.append(
@@ -321,6 +328,7 @@ def scan_and_alert(symbols: list = None) -> dict:
 
     results = scan_symbols(symbols)
     emailed = 0
+    telegrammed = 0
     fired = []
 
     for r in results:
@@ -335,12 +343,18 @@ def scan_and_alert(symbols: list = None) -> dict:
                 emailed += 1
         except Exception as e:
             logger.warning(f"Email failed for {r['symbol']}: {e}")
+        try:
+            if telegram_notify.send_alert(r):
+                telegrammed += 1
+        except Exception as e:
+            logger.warning(f"Telegram failed for {r['symbol']}: {e}")
         fired.append(r['symbol'])
 
     return {
         'scanned': len(results),
         'alerts':  len(fired),
         'emailed': emailed,
+        'telegrammed': telegrammed,
         'fired':   fired,
         'results': results,
     }
