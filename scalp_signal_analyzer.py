@@ -8,6 +8,8 @@ import requests
 import pandas as pd
 import numpy as np
 import sqlite3
+import dexscreener
+import geckoterminal
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from itertools import combinations
@@ -186,6 +188,10 @@ class ScalpSignalAnalyzer:
       '6h': 360, '8h': 480, '12h': 720, '1d': 1440,
       '3d': 4320, '1w': 10080
     }
+    # Per-instance cache of DexScreener pair resolutions (symbol -> pair|None)
+    self._dex_cache = {}
+    # Source that supplied the most recent fetch_data() call
+    self.last_source = None
     self.init_combo_database()
 
   def init_combo_database(self):
@@ -315,11 +321,50 @@ class ScalpSignalAnalyzer:
       logging.error(f"Binance fetch failed for {symbol} {timeframe}: {e}")
       return None
 
+  def _resolve_dex_pair(self, symbol: str):
+    """Resolve a symbol to a DexScreener pair, cached per analyzer instance."""
+    key = (symbol or '').upper()
+    if key not in self._dex_cache:
+      try:
+        self._dex_cache[key] = dexscreener.resolve_symbol(symbol)
+      except Exception as e:
+        logging.warning(f"DexScreener resolve failed for {symbol}: {e}")
+        self._dex_cache[key] = None
+    return self._dex_cache[key]
+
+  def fetch_dexscreener_data(self, symbol: str, timeframe: str, limit: int = 200) -> Optional[pd.DataFrame]:
+    """On-chain OHLCV fallback for tokens not on a CEX.
+
+    DexScreener resolves the symbol to a (chain, pair_address); GeckoTerminal
+    supplies the candles for that pool (DexScreener's own chart API is
+    Cloudflare-blocked server-side).
+    """
+    pair = self._resolve_dex_pair(symbol)
+    if not pair or not pair.get('pair_address'):
+      return None
+    return geckoterminal.fetch_ohlcv(
+      pair['pair_address'], pair.get('chain'), timeframe, limit
+    )
+
   def fetch_data(self, symbol: str, timeframe: str, limit: int = 200) -> Optional[pd.DataFrame]:
-    """Fetch with KuCoin primary, Binance fallback"""
+    """KuCoin primary, Binance fallback, then DexScreener/on-chain for tokens
+    not listed on a CEX. Records the winning source in self.last_source."""
     data = self.fetch_kucoin_data(symbol, timeframe, limit)
-    if data is None or len(data) < 50:
-      data = self.fetch_binance_data(symbol, timeframe, limit)
+    if data is not None and len(data) >= 50:
+      self.last_source = 'kucoin'
+      return data
+
+    data = self.fetch_binance_data(symbol, timeframe, limit)
+    if data is not None and len(data) >= 50:
+      self.last_source = 'binance'
+      return data
+
+    data = self.fetch_dexscreener_data(symbol, timeframe, limit)
+    if data is not None and len(data) >= 50:
+      self.last_source = 'dexscreener'
+      return data
+
+    self.last_source = None
     return data
 
   def calculate_all_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -1232,6 +1277,71 @@ class ScalpSignalAnalyzer:
   # UPDATED: Main Analysis Method with Combo Integration
   # ========================================================================
 
+  def analyze_dexscreener_snapshot(self, symbol: str) -> Optional[Dict]:
+    """Derive non-OHLCV signals from DexScreener aggregate metrics.
+
+    Used when no candle data is available anywhere (token has no CEX listing and
+    no on-chain candles). These signals rely only on DexScreener's multi-window
+    aggregates (price change, volume, buy/sell counts, liquidity) — never OHLCV.
+    """
+    pair = self._resolve_dex_pair(symbol)
+    if not pair:
+      return None
+
+    pc = pair.get('price_change') or {}
+    vol = pair.get('volume') or {}
+    txns = pair.get('txns') or {}
+    liq = pair.get('liquidity_usd') or 0.0
+    signals = []
+
+    def add(name, direction, detail, value=None):
+      signals.append({'name': name, 'direction': direction,
+                      'detail': detail, 'value': value})
+
+    windows = [('m5', '5m'), ('h1', '1h'), ('h6', '6h'), ('h24', '24h')]
+
+    # Price momentum per window
+    for win, label in windows:
+      v = pc.get(win)
+      if v is None:
+        continue
+      if v >= 5:
+        add(f'Price momentum ({label})', 'bullish', f'+{v:.2f}% over {label}', v)
+      elif v <= -5:
+        add(f'Price momentum ({label})', 'bearish', f'{v:.2f}% over {label}', v)
+
+    # Buy/sell pressure per window (need a meaningful sample)
+    for win, label in windows:
+      t = txns.get(win) or {}
+      buys, sells = int(t.get('buys') or 0), int(t.get('sells') or 0)
+      total = buys + sells
+      if total < 10:
+        continue
+      ratio = buys / total
+      if ratio >= 0.6:
+        add(f'Buy pressure ({label})', 'bullish', f'{buys} buys / {sells} sells', round(ratio, 2))
+      elif ratio <= 0.4:
+        add(f'Sell pressure ({label})', 'bearish', f'{buys} buys / {sells} sells', round(ratio, 2))
+
+    # Volume surge: is the 5m pace outrunning the hourly pace?
+    v5, v1h = vol.get('m5') or 0.0, vol.get('h1') or 0.0
+    if v1h > 0 and v5 * 12 > v1h * 1.5:
+      add('Volume surge (5m)', 'bullish',
+          f'5m volume running {v5 * 12 / v1h:.1f}x the hourly pace', round(v5 * 12 / v1h, 1))
+
+    # Liquidity context (informational)
+    liq_note = 'thin' if liq < 50000 else ('moderate' if liq < 250000 else 'deep')
+    add('Liquidity', 'neutral', f'${liq:,.0f} ({liq_note})', liq)
+
+    return {
+      'pair': {k: pair.get(k) for k in (
+        'symbol', 'name', 'chain', 'dex', 'pair_address', 'url',
+        'price_usd', 'liquidity_usd', 'market_cap', 'fdv')},
+      'price_change': pc,
+      'volume': vol,
+      'signals': signals,
+    }
+
   def analyze_symbol_all_timeframes(self, symbol: str, timeframes: List[str]) -> Dict:
     """
     Comprehensive analysis across multiple timeframes
@@ -1241,17 +1351,26 @@ class ScalpSignalAnalyzer:
       'symbol': symbol,
       'timestamp': datetime.now().isoformat(),
       'timeframes': {},
-      'combinations': []
+      'combinations': [],
+      'source': None,
+      'degraded': False,
     }
+
+    sources = set()
+    got_candles = False
 
     for tf in timeframes:
       logging.info(f"Analyzing {symbol} on {tf}...")
 
       df = self.fetch_data(symbol, tf, 200)
+      if self.last_source:
+        sources.add(self.last_source)
 
       if df is None or len(df) < 50:
         results['timeframes'][tf] = {'error': 'Insufficient data'}
         continue
+
+      got_candles = True
 
       # Calculate indicators
       df = self.calculate_all_indicators(df)
@@ -1278,6 +1397,23 @@ class ScalpSignalAnalyzer:
         'buy_signals': len([s for s in signals.values() if s.get('signal') == 'BUY']),
         'sell_signals': len([s for s in signals.values() if s.get('signal') == 'SELL'])
       }
+
+    # ── Resolve data source / degraded mode ──────────────────────────────────
+    if not got_candles:
+      # No OHLCV from any source — fall back to non-OHLCV DexScreener signals.
+      snapshot = self.analyze_dexscreener_snapshot(symbol)
+      if snapshot:
+        results['degraded'] = True
+        results['source'] = 'dexscreener_snapshot'
+        results['snapshot'] = snapshot
+        logging.info(
+          f"{symbol}: no OHLCV available — showing "
+          f"{len(snapshot['signals'])} non-OHLCV DexScreener signal(s)"
+        )
+    elif sources and sources <= {'dexscreener'}:
+      results['source'] = 'dexscreener'   # on-chain candles (DexScreener + GeckoTerminal)
+    else:
+      results['source'] = 'cex'           # KuCoin / Binance
 
     # ========================================================================
     # NEW: Analyze signal combinations after all timeframe analysis is complete

@@ -523,6 +523,8 @@ def analyze():
         ohlcv_df = analyzer.fetch_kucoin_data(symbol, chart_tf)
         if ohlcv_df is None:
             ohlcv_df = analyzer.fetch_binance_data(symbol, chart_tf)
+        if ohlcv_df is None:
+            ohlcv_df = analyzer.fetch_dexscreener_data(symbol, chart_tf)
     except Exception as e:
         logger.warning(f"OHLCV fetch for scalp metrics failed: {e}")
 
@@ -700,6 +702,9 @@ def _build_result(symbol, horizon, timeframes, raw, ohlcv_df=None):
         "chart_levels": chart_levels,
         "scalp_metrics": scalp_metrics,
         "category_order": CATEGORY_ORDER,
+        "source": raw.get("source"),
+        "degraded": raw.get("degraded", False),
+        "snapshot": raw.get("snapshot"),
     }
 
 
@@ -713,6 +718,8 @@ def get_ohlcv(symbol, timeframe):
         df = analyzer.fetch_kucoin_data(symbol, timeframe)
         if df is None:
             df = analyzer.fetch_binance_data(symbol, timeframe)
+        if df is None:
+            df = analyzer.fetch_dexscreener_data(symbol, timeframe)
         if df is None:
             return jsonify({"success": False, "error": "No data available"}), 404
 

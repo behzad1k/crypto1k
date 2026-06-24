@@ -344,6 +344,17 @@ function buildHorizonSection(data) {
   const section = document.createElement("div");
   section.className = `horizon-section ${h}`;
 
+  // Data-source badge
+  const sourceBadges = {
+    cex: { label: "CEX · KuCoin/Binance", color: "var(--muted)" },
+    dexscreener: { label: "DexScreener · on-chain", color: "#a78bfa" },
+    dexscreener_snapshot: { label: "DexScreener · no candles (limited)", color: "#f59e0b" },
+  };
+  const sb = sourceBadges[data.source];
+  const sourceHtml = sb
+    ? `<span style="font-size:10px;font-weight:600;color:${sb.color};border:1px solid ${sb.color};border-radius:4px;padding:1px 6px">${sb.label}</span>`
+    : "";
+
   // Header
   const header = document.createElement("div");
   header.className = "horizon-section-header";
@@ -352,6 +363,7 @@ function buildHorizonSection(data) {
     <span style="font-size:11px;color:var(--muted)">${data.timeframes.join(" · ")}</span>
     <span class="family-bias-badge ${bias.direction}">${bias.direction.toUpperCase()}</span>
     <span style="font-size:11px;color:var(--muted)">score <strong style="color:var(--text)">${bias.score.toFixed(2)}</strong></span>
+    ${sourceHtml}
     <span style="margin-left:auto;font-size:11px;color:var(--muted)">${formatPrice(data.price)} · ${new Date(data.timestamp).toLocaleTimeString()}</span>
   `;
   section.appendChild(header);
@@ -387,6 +399,13 @@ function buildHorizonSection(data) {
   `;
   body.appendChild(biasEl);
 
+  // Degraded mode: no OHLCV anywhere — show non-OHLCV DexScreener signals only
+  if (data.degraded && data.snapshot) {
+    body.appendChild(buildSnapshotEl(data.snapshot));
+    section.appendChild(body);
+    return section;
+  }
+
   // Scalp dashboard
   if (data.scalp_metrics) body.appendChild(buildScalpEl(data.scalp_metrics, bias));
 
@@ -410,6 +429,44 @@ function buildHorizonSection(data) {
 
   section.appendChild(body);
   return section;
+}
+
+// Degraded panel: DexScreener aggregate signals when no OHLCV candles exist
+function buildSnapshotEl(snapshot) {
+  const el = document.createElement("div");
+  const p = snapshot.pair || {};
+  const dirColor = { bullish: "var(--bull)", bearish: "var(--bear)", neutral: "var(--muted)" };
+
+  const notice = `
+    <div style="background:rgba(245,158,11,0.08);border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text)">
+      ⚠️ No OHLCV candles available for this token (not on a CEX, and no on-chain
+      candle history). Showing <strong>non-OHLCV signals</strong> derived from
+      DexScreener aggregates only — technical indicators are unavailable.
+    </div>`;
+
+  const meta = `
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:10px">
+      <span>Pair: <strong style="color:var(--text)">${p.symbol || "?"}</strong></span>
+      <span>Chain: <strong style="color:var(--text)">${p.chain || "?"}</strong></span>
+      <span>DEX: <strong style="color:var(--text)">${p.dex || "?"}</strong></span>
+      <span>Price: <strong style="color:var(--text)">${p.price_usd != null ? formatPrice(p.price_usd) : "?"}</strong></span>
+      <span>Liquidity: <strong style="color:var(--text)">$${Math.round(p.liquidity_usd || 0).toLocaleString()}</strong></span>
+      ${p.url ? `<a href="${p.url}" target="_blank" rel="noopener" style="color:#a78bfa">DexScreener ↗</a>` : ""}
+    </div>`;
+
+  const rows = (snapshot.signals || [])
+    .map((s) => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="width:8px;height:8px;border-radius:50%;background:${dirColor[s.direction] || "var(--muted)"}"></span>
+        <span style="font-weight:600;color:var(--text);font-size:12px">${s.name}</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--muted)">${s.detail || ""}</span>
+      </div>`)
+    .join("");
+
+  el.innerHTML = notice + meta +
+    `<div class="strip-label">DexScreener signals</div>` +
+    (rows || `<div style="font-size:12px;color:var(--muted);padding:6px 0">No notable signals.</div>`);
+  return el;
 }
 
 function buildPrimaryEl(primarySignals) {
