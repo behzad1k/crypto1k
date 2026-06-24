@@ -53,6 +53,17 @@ def _age_hours(pair_created_at):
         return None
 
 
+def _fmt_price(p) -> str:
+    """Format a USD price readably across the huge range of token prices."""
+    if p is None:
+        return "n/a"
+    if p >= 1:
+        return f"${p:,.2f}"
+    if p >= 0.01:
+        return f"${p:.4f}"
+    return f"${p:.8f}".rstrip('0').rstrip('.')  # tiny prices: trim trailing zeros
+
+
 def _label(score: float) -> str:
     if score >= SCORING['label_strong']:
         return 'STRONG'
@@ -102,6 +113,11 @@ def evaluate(pair: dict) -> dict:
         filter_fails.append(f"{txns_1h} txns/1h < {FILTERS['min_txns_1h']}")
     if age_h is not None and age_h < FILTERS['min_pair_age_hours']:
         filter_fails.append(f"pair age {age_h:.1f}h < {FILTERS['min_pair_age_hours']}h")
+    # Data-sanity: reject corrupted price feeds (e.g. "+501,497% in 1h" from a
+    # broken thin pool) so they never score or alert.
+    max_chg = FILTERS.get('max_price_change_1h_pct', 5_000.0)
+    if abs(chg['h1']) > max_chg:
+        filter_fails.append(f"1h change {chg['h1']:+,.0f}% looks corrupted (> {max_chg:,.0f}%)")
     passes_filters = not filter_fails
 
     wash_warning = (turnover is not None and turnover >= FILTERS['wash_turnover_ratio'])
@@ -253,8 +269,8 @@ def build_summary(r: dict) -> str:
         'bearish': '🔴 SELL SIGNAL',
     }.get(r['direction'], '⚪ NEUTRAL — no clear direction')
     parts.append(
-        f"{signal_label} — {sym}: setup quality {r['label']} ({r['score']}/10), "
-        f"leaning {r['direction']}."
+        f"{signal_label} — {sym} @ {_fmt_price(r.get('price_usd'))}: "
+        f"setup quality {r['label']} ({r['score']}/10), leaning {r['direction']}."
     )
 
     if m['vol_pace_1h'] >= THRESHOLDS['vol_pace_1h_notable']:

@@ -23,7 +23,7 @@ Nothing in the scanner logic hard-codes a threshold; they all come from here.
 
 EMAIL = {
     # --- Your sending account (e.g. a Gmail App Password, NOT your login password) ---
-    "enabled": True,  # flip to True once filled in
+    "enabled": False,  # flip to True once filled in
     "smtp_host": "smtp.gmail.com",
     "smtp_port": 587,  # 587 = STARTTLS (Gmail), 465 = SSL
     "use_ssl": False,  # True only if you use port 465
@@ -74,6 +74,12 @@ FILTERS = {
     "min_volume_24h_usd": 20_000,  # ignore totally dead coins
     "min_txns_1h": 15,  # need real trades, not a single whale print
     "min_pair_age_hours": 1,  # avoid brand-new pairs (set 0 to allow any)
+    # Data-sanity cap: thin pools (often Meteora DLMM) sometimes report broken
+    # priceUsd / priceChange — e.g. "+501,497% in 1h". Any pair whose |price
+    # change| over a window exceeds this is treated as corrupted data: it's
+    # skipped during symbol resolution and, if it slips through, fails filters
+    # so it never scores or alerts. A real coin won't move 50× in an hour.
+    "max_price_change_1h_pct": 5_000.0,
     # Wash-trade sanity: volume/liquidity above this is suspicious but NOT
     # auto-rejected — it only caps the score and adds a warning to the email.
     "wash_turnover_ratio": 75.0,  # vol_24h / liquidity
@@ -123,7 +129,7 @@ SCORING = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ALERTING = {
-    "min_validity_score": 6.2,  # 0–10; lenient. Raise to be pickier.
+    "min_validity_score": 6.1,  # 0–10; lenient. Raise to be pickier.
     "min_vol_pace_1h": 2.5,  # must at least show this volume surge
     "require_bullish": False,  # True = only alert on bullish-leaning spikes
     # Don't re-alert the same coin again until this many minutes have passed.

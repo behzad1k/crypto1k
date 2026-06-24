@@ -17,7 +17,7 @@ Public surface:
 import logging
 import requests
 
-from scanner_config import DEXSCREENER
+from scanner_config import DEXSCREENER, FILTERS
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,14 @@ def resolve_symbol(symbol: str):
     if not candidates:
         return None
 
+    # Prefer pairs with sane data. Thin pools sometimes report corrupted
+    # priceChange (e.g. "+501,497% in 1h"); skip them so we land on the real
+    # pool. If every candidate is corrupted, fall back to all of them — the
+    # scanner's filters will still reject the result so it can't alert.
+    plausible = [p for p in candidates if _plausible(p)]
+    if plausible:
+        candidates = plausible
+
     best = max(candidates, key=_pair_score)
     return normalize(best)
 
@@ -139,6 +147,21 @@ def _num(v):
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _plausible(p: dict) -> bool:
+    """
+    True unless the pair's DexScreener readings look corrupted. Some thin pools
+    report astronomical priceChange (e.g. +501,497% in 1h); those numbers are
+    bad data, not real moves, so we don't want to resolve to such a pair.
+    """
+    cap = FILTERS.get('max_price_change_1h_pct', 5_000.0)
+    chg = p.get('priceChange') or {}
+    for window in ('m5', 'h1', 'h6', 'h24'):
+        v = _num(chg.get(window))
+        if v is not None and abs(v) > cap:
+            return False
+    return True
 
 
 def normalize(p: dict) -> dict:
