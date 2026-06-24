@@ -109,31 +109,42 @@ def evaluate(pair: dict) -> dict:
     signals = []
     score = 0.0
 
-    # (1) Volume surge — headline factor
+    # Price moves drive *direction*. Volume is directionless — a surge confirms
+    # whichever way price is moving, so volume signals inherit the price
+    # direction of their window (1h for the surge, 5m for the acceleration).
+    # Without this, a heavy sell-off reads as "bullish" purely on volume.
+    pc1, pc5m, pc6 = chg['h1'], chg['m5'], chg['h6']
+
+    def _dir(x):
+        return 'bullish' if x > 0 else 'bearish' if x < 0 else 'neutral'
+
+    mom_dir = _dir(pc1)
+    vol_dir_1h = _dir(pc1)
+    vol_dir_5m = _dir(pc5m)
+
+    # (1) Volume surge — headline factor (direction follows price)
     vp = max(vol_pace_1h, vol_pace_5m)
     if vol_pace_1h >= THRESHOLDS['vol_pace_1h_strong']:
         pts = SCORING['max_volume_surge']
-        signals.append(_sig('volume_surge', 'volume', 'bullish',
-            f"1h volume {vol_pace_1h}× its 24h average — strong surge", vol_pace_1h))
+        signals.append(_sig('volume_surge', 'volume', vol_dir_1h,
+            f"1h volume {vol_pace_1h}× its 24h average — strong surge on a {vol_dir_1h} move", vol_pace_1h))
     elif vol_pace_1h >= THRESHOLDS['vol_pace_1h_notable']:
         pts = SCORING['max_volume_surge'] * 0.6
-        signals.append(_sig('volume_surge', 'volume', 'bullish',
-            f"1h volume {vol_pace_1h}× its 24h average — notable surge", vol_pace_1h))
+        signals.append(_sig('volume_surge', 'volume', vol_dir_1h,
+            f"1h volume {vol_pace_1h}× its 24h average — notable surge on a {vol_dir_1h} move", vol_pace_1h))
     else:
         pts = SCORING['max_volume_surge'] * 0.15 * min(vol_pace_1h, 2.0)
     # 5-minute acceleration bonus (within the headline budget)
     if vol_pace_5m >= THRESHOLDS['vol_pace_5m_strong']:
-        signals.append(_sig('volume_acceleration', 'volume', 'bullish',
-            f"5m volume {vol_pace_5m}× average — accelerating right now", vol_pace_5m))
+        signals.append(_sig('volume_acceleration', 'volume', vol_dir_5m,
+            f"5m volume {vol_pace_5m}× average — accelerating right now ({vol_dir_5m})", vol_pace_5m))
         pts = SCORING['max_volume_surge']
     elif vol_pace_5m >= THRESHOLDS['vol_pace_5m_notable']:
-        signals.append(_sig('volume_acceleration', 'volume', 'bullish',
-            f"5m volume {vol_pace_5m}× average — picking up", vol_pace_5m))
+        signals.append(_sig('volume_acceleration', 'volume', vol_dir_5m,
+            f"5m volume {vol_pace_5m}× average — picking up ({vol_dir_5m})", vol_pace_5m))
     score += min(pts, SCORING['max_volume_surge'])
 
     # (2) Momentum — price move + multi-window alignment
-    pc1, pc5m, pc6 = chg['h1'], chg['m5'], chg['h6']
-    mom_dir = 'bullish' if pc1 > 0 else 'bearish' if pc1 < 0 else 'neutral'
     aligned = (pc5m > 0 and pc1 > 0 and pc6 > 0) or (pc5m < 0 and pc1 < 0 and pc6 < 0)
     mpts = 0.0
     if abs(pc1) >= THRESHOLDS['price_move_1h_strong']:

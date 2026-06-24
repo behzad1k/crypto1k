@@ -114,9 +114,9 @@ SCORING = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ALERTING = {
-    "min_validity_score": 5.0,  # 0–10; lenient. Raise to be pickier.
+    "min_validity_score": 6.2,  # 0–10; lenient. Raise to be pickier.
     "min_vol_pace_1h": 2.5,  # must at least show this volume surge
-    "require_bullish": False,  # True = only alert on bullish-leaning spikes
+    "require_bullish": True,  # True = only alert on bullish-leaning spikes
     # Don't re-alert the same coin again until this many minutes have passed.
     "cooldown_minutes": 120,
 }
