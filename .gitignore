@@ -4,3 +4,4 @@ data_analysis/indictaor_testing/datasets/*
 *.csv
 *.db-shm
 *.db-wal
+*.db
