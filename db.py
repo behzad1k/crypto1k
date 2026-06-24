@@ -98,6 +98,13 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_alerts_symbol
                 ON scanner_alerts(symbol, created_at DESC);
+
+            -- Shared scanner state (so the monitor's on/off + last run are
+            -- consistent across all gunicorn workers, not per-process).
+            CREATE TABLE IF NOT EXISTS scanner_state (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            );
         ''')
     # Migrate: add columns that were added after initial schema
     with get_conn() as conn:
@@ -289,3 +296,48 @@ def get_recent_runs(symbol: str, horizon: Optional[str] = None, limit: int = 20)
                 ORDER BY created_at DESC LIMIT ?
             ''', (symbol, limit)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Shared scanner state (cross-worker) ──────────────────────────────────────
+
+def get_state(key: str, default=None):
+    with get_conn() as conn:
+        row = conn.execute(
+            'SELECT value FROM scanner_state WHERE key = ?', (key,)
+        ).fetchone()
+    return row['value'] if row else default
+
+
+def set_state(key: str, value):
+    with get_conn() as conn:
+        conn.execute(
+            'INSERT INTO scanner_state (key, value) VALUES (?, ?) '
+            'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+            (key, str(value)),
+        )
+
+
+def is_monitor_enabled() -> bool:
+    return get_state('monitor_enabled', '0') == '1'
+
+
+def set_monitor_enabled(on: bool):
+    set_state('monitor_enabled', '1' if on else '0')
+
+
+def set_monitor_last_run(at: str, summary: dict, results: list):
+    set_state('monitor_last_run', json.dumps(
+        {'at': at, 'summary': summary, 'results': results}
+    ))
+
+
+def get_monitor_last_run() -> dict:
+    raw = get_state('monitor_last_run')
+    if not raw:
+        return {'at': None, 'summary': None, 'results': []}
+    try:
+        d = json.loads(raw)
+        return {'at': d.get('at'), 'summary': d.get('summary'),
+                'results': d.get('results', [])}
+    except Exception:
+        return {'at': None, 'summary': None, 'results': []}

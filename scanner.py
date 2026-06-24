@@ -362,59 +362,77 @@ def scan_and_alert(symbols: list = None) -> dict:
 
 # ── Background monitor ──────────────────────────────────────────────────────
 
-_monitor_thread = None
-_monitor_enabled = False
-_monitor_lock = threading.Lock()
-_last_run = {'at': None, 'summary': None, 'results': []}
+# The monitor's on/off flag and last run live in the DB (db.scanner_state) so
+# every gunicorn worker sees the same state. A single always-on *supervisor*
+# thread runs in just one worker (the boot file-lock holder in app.py); each
+# cycle it checks the shared flag and scans only when enabled. start/stop just
+# flip the shared flag, so they work no matter which worker handles the request.
+_supervisor_thread = None
+_supervisor_lock = threading.Lock()
 
 
 def _monitor_loop():
-    global _monitor_enabled
-    logger.info('Scanner monitor loop started')
-    while _monitor_enabled:
+    logger.info('Scanner monitor supervisor started')
+    last_scan_at = 0.0  # monotonic; 0 = scan immediately once enabled
+    while True:
         try:
-            summary = scan_and_alert()
-            _last_run['at'] = datetime.now(timezone.utc).isoformat()
-            _last_run['summary'] = {k: summary[k] for k in ('scanned', 'alerts', 'emailed', 'fired')
-                                    if k in summary}
-            if summary['alerts']:
-                logger.info(f"Monitor: {summary['alerts']} alert(s), {summary['emailed']} email(s)")
+            if db.is_monitor_enabled():
+                now = time.monotonic()
+                if now - last_scan_at >= MONITOR['interval_seconds']:
+                    last_scan_at = now
+                    summary = scan_and_alert()
+                    db.set_monitor_last_run(
+                        datetime.now(timezone.utc).isoformat(),
+                        {k: summary[k] for k in
+                         ('scanned', 'alerts', 'emailed', 'telegrammed', 'fired')
+                         if k in summary},
+                        summary.get('results', []),
+                    )
+                    if summary['alerts']:
+                        logger.info(f"Monitor: {summary['alerts']} alert(s), "
+                                    f"{summary['emailed']} email(s)")
+            else:
+                last_scan_at = 0.0  # re-enable should scan right away
         except Exception as e:
             logger.warning(f'Monitor cycle error: {e}')
-        # Sleep in small steps so stop_monitor() is responsive
-        for _ in range(int(MONITOR['interval_seconds'])):
-            if not _monitor_enabled:
-                break
-            time.sleep(1)
-    logger.info('Scanner monitor loop stopped')
+        # Poll the shared flag frequently so start/stop feel responsive.
+        time.sleep(3)
+
+
+def start_supervisor() -> bool:
+    """Start the single always-on supervisor thread (boot, in the lock owner)."""
+    global _supervisor_thread
+    with _supervisor_lock:
+        if _supervisor_thread and _supervisor_thread.is_alive():
+            return False
+        _supervisor_thread = threading.Thread(target=_monitor_loop, daemon=True)
+        _supervisor_thread.start()
+        return True
 
 
 def start_monitor() -> bool:
-    global _monitor_thread, _monitor_enabled
-    with _monitor_lock:
-        if _monitor_enabled:
-            return False
-        _monitor_enabled = True
-        _monitor_thread = threading.Thread(target=_monitor_loop, daemon=True)
-        _monitor_thread.start()
-        return True
+    """Turn the monitor on (shared flag). Returns False if already running."""
+    if db.is_monitor_enabled():
+        return False
+    db.set_monitor_enabled(True)
+    return True
 
 
 def stop_monitor() -> bool:
-    global _monitor_enabled
-    with _monitor_lock:
-        if not _monitor_enabled:
-            return False
-        _monitor_enabled = False
-        return True
+    """Turn the monitor off (shared flag). Returns False if already stopped."""
+    if not db.is_monitor_enabled():
+        return False
+    db.set_monitor_enabled(False)
+    return True
 
 
 def monitor_status() -> dict:
+    lr = db.get_monitor_last_run()
     return {
-        'running':          _monitor_enabled,
+        'running':          db.is_monitor_enabled(),
         'interval_seconds': MONITOR['interval_seconds'],
-        'last_run':         _last_run['at'],
-        'last_summary':     _last_run['summary'],
+        'last_run':         lr['at'],
+        'last_summary':     lr['summary'],
         'watchlist_count':  len(db.get_watchlist()),
         'email_ready':      emailer.is_configured(),
         'recipients':       emailer.recipient_count(),
@@ -422,11 +440,12 @@ def monitor_status() -> dict:
 
 
 def last_scan() -> dict:
-    """Most recent scan results (manual or automated) for the live view."""
+    """Most recent scan results (from the monitor) for the live view."""
+    lr = db.get_monitor_last_run()
     return {
-        'running':          _monitor_enabled,
+        'running':          db.is_monitor_enabled(),
         'interval_seconds': MONITOR['interval_seconds'],
-        'last_run':         _last_run['at'],
-        'last_summary':     _last_run['summary'],
-        'results':          _last_run['results'],
+        'last_run':         lr['at'],
+        'last_summary':     lr['summary'],
+        'results':          lr['results'],
     }

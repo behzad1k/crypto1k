@@ -1020,22 +1020,21 @@ _monitor_lock_fd = None
 
 
 def _maybe_start_monitor():
-    """Start the background scanner loop exactly once across all processes.
+    """Start the single background supervisor thread, once across all processes.
 
-    Two distinct deployments to guard against:
+    The supervisor's on/off state lives in the DB (shared across workers); this
+    just ensures exactly one process actually runs the scan loop. Guards:
       * Dev reloader (`app.run(debug=True)`) — only the reloaded child process,
         which has WERKZEUG_RUN_MAIN=true, should start it.
       * Gunicorn with multiple workers — the `__main__` block never runs, so we
-        start it on import (see below). But every worker imports this module, so
-        without a guard all of them would scan the watchlist and fire duplicate
-        emails. An exclusive, non-blocking file lock lets exactly one worker win.
+        start it on import. Every worker imports this module, so an exclusive,
+        non-blocking file lock lets exactly one worker own the supervisor;
+        otherwise all of them would scan and fire duplicate alerts.
     """
     global _monitor_lock_fd
 
     # Dev reloader: skip the supervisor process, only start in the serving child.
     if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-        return
-    if not MONITOR.get("enabled_on_start"):
         return
 
     import fcntl
@@ -1046,13 +1045,16 @@ def _maybe_start_monitor():
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        # Another worker already owns the monitor — stand down.
+        # Another worker already owns the supervisor — stand down.
         fd.close()
         return
 
     _monitor_lock_fd = fd  # keep the fd open to hold the lock
-    scanner.start_monitor()
-    logger.info("Scanner monitor auto-started (pid %s)", os.getpid())
+    # Seed the shared on/off flag from config, then start the always-on
+    # supervisor (it scans only while the flag is on).
+    db.set_monitor_enabled(bool(MONITOR.get("enabled_on_start")))
+    scanner.start_supervisor()
+    logger.info("Scanner monitor supervisor started (pid %s)", os.getpid())
 
 
 # Under gunicorn the `__main__` block below never executes, so trigger the
