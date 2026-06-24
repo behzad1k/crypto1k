@@ -309,9 +309,17 @@ def scan_symbols(symbols: list) -> list:
                             'score': 0, 'is_alert': False, 'passes_filters': False})
         time.sleep(MONITOR['per_request_pause'])
     results.sort(key=lambda r: r.get('score', 0), reverse=True)
-    # Remember the most recent scan (manual or automated) for the live view
-    _last_run['at'] = datetime.now(timezone.utc).isoformat()
-    _last_run['results'] = results
+    # Persist the most recent scan (manual or automated) to shared state so the
+    # live view is consistent across all workers. The monitor loop overwrites
+    # this with a richer summary (alert/email counts) right after.
+    try:
+        db.set_monitor_last_run(
+            datetime.now(timezone.utc).isoformat(),
+            {'scanned': len(results)},
+            results,
+        )
+    except Exception as e:
+        logger.warning(f'Could not persist last scan: {e}')
     return results
 
 

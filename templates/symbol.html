@@ -101,6 +101,27 @@
                 color: var(--text);
             }
 
+            /* Mobile: let the header wrap instead of overflowing, and shrink the
+               symbol input / price so the nav links stay reachable. */
+            @media (max-width: 640px) {
+                header {
+                    padding: 10px 14px;
+                    flex-wrap: wrap;
+                    gap: 8px 12px;
+                }
+                .header-left {
+                    gap: 10px;
+                    flex-wrap: wrap;
+                }
+                #symbolInput {
+                    width: 96px;
+                    font-size: 13px;
+                }
+                .price-display {
+                    font-size: 16px;
+                }
+            }
+
             /* ── Market data bar ── */
             #marketBar {
                 display: flex;

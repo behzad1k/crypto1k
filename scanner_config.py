@@ -137,6 +137,6 @@ ALERTING = {
 
 MONITOR = {
     "enabled_on_start": True,  # auto-start the background loop when the app boots
-    "interval_seconds": 180,  # how often to re-scan the watchlist (3 min)
+    "interval_seconds": 600,  # how often to re-scan the watchlist (10 min)
     "per_request_pause": 0.4,  # polite pause between DexScreener calls
 }

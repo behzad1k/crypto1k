@@ -353,6 +353,20 @@
             /* Mobile: drop secondary columns and let the expand row (which holds
                the full summary) carry vol pace, buy/sell, liquidity & flags. */
             @media (max-width: 640px) {
+                /* Header: shrink and allow the nav links to wrap below the title
+                   on very narrow screens instead of overflowing. */
+                header {
+                    padding: 12px 14px;
+                    flex-wrap: wrap;
+                    gap: 6px 14px;
+                }
+                header h1 {
+                    font-size: 15px;
+                }
+                header .links {
+                    gap: 16px;
+                    font-size: 13px;
+                }
                 table {
                     font-size: 12px;
                 }
