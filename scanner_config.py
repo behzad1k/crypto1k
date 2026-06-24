@@ -44,7 +44,7 @@ RECIPIENTS = [
 # --- Telegram channel alerts (free, sends over HTTPS — works even when SMTP is
 #     blocked). See telegram_notify.py for the 3-step setup. ---
 TELEGRAM = {
-    "enabled": False,  # flip to True once token + chat_id are filled in
+    "enabled": True,  # flip to True once token + chat_id are filled in
     "bot_token": "8458351245:AAGpkWV7gFm8acEvlyjWbAgEpfKvsXHVgBI",  # from @BotFather (e.g. 123456:ABC-DEF...)
     "chat_id": "@s_crypto1k",  # "@your_channel" (public) or -100123... (private)
 }
