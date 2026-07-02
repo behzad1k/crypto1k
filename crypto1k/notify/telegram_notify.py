@@ -25,7 +25,7 @@ import logging
 
 import requests
 
-from scanner_config import TELEGRAM
+from crypto1k.config.scanner_config import TELEGRAM
 
 logger = logging.getLogger(__name__)
 

@@ -13,9 +13,13 @@ import sqlite3
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-DB_PATH = 'signals_v2.db'
+# Project root (two levels above crypto1k/core/) — keeps the DB in the same
+# place no matter what directory the app is launched from.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DB_PATH = str(PROJECT_ROOT / 'signals_v2.db')
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +109,26 @@ def init_db():
                 key   TEXT PRIMARY KEY,
                 value TEXT
             );
+
+            -- Forward price outcome for each alert, backfilled from on-chain
+            -- OHLCV candles anchored to the alert's timestamp. Lets us score
+            -- whether an alert was actually worth sending, and how late.
+            CREATE TABLE IF NOT EXISTS alert_outcomes (
+                alert_id        INTEGER PRIMARY KEY REFERENCES scanner_alerts(id),
+                computed_at     TEXT NOT NULL,
+                price_at_alert  REAL,
+                price_1h_before REAL,   -- close ~1h before the alert (lateness)
+                price_15m       REAL,   -- close ~15m after
+                price_1h        REAL,
+                price_4h        REAL,
+                price_24h       REAL,
+                high_1h         REAL,   -- max close within 1h after
+                low_1h          REAL,   -- min close within 1h after
+                high_24h        REAL,   -- max close within 24h after
+                low_24h         REAL,   -- min close within 24h after
+                candles_used    INTEGER,
+                data_complete   INTEGER NOT NULL DEFAULT 0  -- 1 once 24h has elapsed and candles were found
+            );
         ''')
     # Migrate: add columns that were added after initial schema
     with get_conn() as conn:
@@ -116,6 +140,16 @@ def init_db():
             if col not in existing:
                 conn.execute(f'ALTER TABLE signals ADD COLUMN {col} {definition}')
                 logger.info(f'Migrated: added signals.{col}')
+
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(scanner_alerts)").fetchall()}
+        for col, definition in [
+            # Correctly-cased pool address (DexScreener's url slug lowercases
+            # it, which corrupts case-sensitive base58 addresses on Solana).
+            ('pair_address', 'TEXT'),
+        ]:
+            if col not in existing:
+                conn.execute(f'ALTER TABLE scanner_alerts ADD COLUMN {col} {definition}')
+                logger.info(f'Migrated: added scanner_alerts.{col}')
     logger.info('Database initialised')
 
 
@@ -240,8 +274,8 @@ def record_alert(result: dict):
         conn.execute('''
             INSERT INTO scanner_alerts
               (symbol, score, label, direction, price_usd, vol_pace_1h,
-               price_change_1h, liquidity_usd, chain, url, summary, payload)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               price_change_1h, liquidity_usd, chain, url, pair_address, summary, payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             result.get('symbol'),
             result.get('score'),
@@ -253,21 +287,25 @@ def record_alert(result: dict):
             result.get('liquidity_usd'),
             result.get('chain'),
             result.get('url'),
+            result.get('pair_address'),
             result.get('summary'),
             json.dumps(result, default=str),
         ))
 
 
-def in_cooldown(symbol: str, cooldown_minutes: int) -> bool:
-    """True if this symbol was alerted within the cooldown window."""
+def best_alert_score_within(symbol: str, cooldown_minutes: int):
+    """
+    Highest score this symbol alerted with inside the cooldown window, or None
+    if it hasn't alerted. MAX (not latest) so a slowly climbing score can't
+    chain-fire an alert every scan.
+    """
     with get_conn() as conn:
         row = conn.execute('''
-            SELECT created_at FROM scanner_alerts
+            SELECT MAX(score) AS best FROM scanner_alerts
             WHERE symbol = ?
               AND created_at >= datetime('now', ?)
-            ORDER BY created_at DESC LIMIT 1
         ''', (symbol, f'-{int(cooldown_minutes)} minutes')).fetchone()
-    return row is not None
+    return row['best'] if row and row['best'] is not None else None
 
 
 def get_recent_alerts(limit: int = 50) -> list:
@@ -277,6 +315,64 @@ def get_recent_alerts(limit: int = 50) -> list:
                    price_change_1h, liquidity_usd, chain, url, summary, created_at
             FROM scanner_alerts
             ORDER BY created_at DESC LIMIT ?
+        ''', (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── Alert outcomes (forward returns, backfilled from OHLCV) ─────────────────
+
+def get_alerts_needing_outcome(limit: int = 200, min_age_hours: float = 0.3) -> list:
+    """
+    Alerts with no outcome row yet, or an incomplete one that's now old enough
+    to retry (e.g. it was backfilled before 24h had elapsed). Oldest first, so
+    a partial backfill run always makes forward progress.
+    """
+    with get_conn() as conn:
+        rows = conn.execute('''
+            SELECT a.id, a.symbol, a.chain, a.url, a.pair_address, a.direction,
+                   a.score, a.label, a.price_usd, a.created_at
+            FROM scanner_alerts a
+            LEFT JOIN alert_outcomes o ON o.alert_id = a.id
+            WHERE a.created_at <= datetime('now', ?)
+              AND (o.alert_id IS NULL OR o.data_complete = 0
+                   OR (o.data_complete = 1 AND o.price_24h IS NULL))
+            ORDER BY a.created_at ASC
+            LIMIT ?
+        ''', (f'-{min_age_hours} hours', limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_alert_outcome(alert_id: int, fields: dict):
+    cols = ['alert_id', 'computed_at'] + list(fields.keys())
+    vals = [alert_id, datetime.utcnow().isoformat()] + list(fields.values())
+    placeholders = ', '.join('?' for _ in cols)
+    updates = ', '.join(f'{c} = excluded.{c}' for c in cols if c != 'alert_id')
+    with get_conn() as conn:
+        conn.execute(f'''
+            INSERT INTO alert_outcomes ({', '.join(cols)})
+            VALUES ({placeholders})
+            ON CONFLICT(alert_id) DO UPDATE SET {updates}
+        ''', vals)
+
+
+def get_alerts_with_outcomes(limit: int = 2000) -> list:
+    """Every alert that has a (possibly partial) outcome, richest fields first."""
+    with get_conn() as conn:
+        rows = conn.execute('''
+            SELECT
+                a.id, a.symbol, a.score, a.label, a.direction, a.price_usd,
+                a.vol_pace_1h, a.liquidity_usd, a.chain, a.created_at,
+                json_extract(a.payload, '$.alert_path')            AS alert_path,
+                json_extract(a.payload, '$.metrics.vol_pace_5m')   AS vol_pace_5m,
+                json_extract(a.payload, '$.price_change.m5')       AS price_change_5m,
+                json_extract(a.payload, '$.wash_warning')          AS wash_warning,
+                o.price_at_alert, o.price_1h_before, o.price_15m, o.price_1h,
+                o.price_4h, o.price_24h, o.high_1h, o.low_1h, o.high_24h,
+                o.low_24h, o.data_complete
+            FROM scanner_alerts a
+            JOIN alert_outcomes o ON o.alert_id = a.id
+            ORDER BY a.created_at DESC
+            LIMIT ?
         ''', (limit,)).fetchall()
     return [dict(r) for r in rows]
 

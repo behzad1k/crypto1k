@@ -11,11 +11,15 @@ Docs: https://www.geckoterminal.com/dex-api
 """
 
 import logging
+import time
 
 import requests
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+_RATE_LIMIT_RETRIES = 3
+_RATE_LIMIT_BACKOFF = 3.0  # seconds; GeckoTerminal's free tier is ~30 req/min
 
 _BASE = "https://api.geckoterminal.com/api/v2"
 _TIMEOUT = 12
@@ -67,8 +71,15 @@ def network_id(chain: str) -> str:
     return _NETWORK_MAP.get(c, c)
 
 
-def fetch_ohlcv(pool_address: str, chain: str, timeframe: str, limit: int = 200):
-    """Return DataFrame[timestamp, open, high, low, close, volume] or None."""
+def fetch_ohlcv(pool_address: str, chain: str, timeframe: str, limit: int = 200,
+                 before_timestamp: int = None):
+    """
+    Return DataFrame[timestamp, open, high, low, close, volume] or None.
+
+    before_timestamp (unix seconds) pages backward from that point instead of
+    from now — used to fetch a window anchored to a specific past moment
+    (e.g. the candles around when an alert fired), rather than only "recent".
+    """
     spec = _TF_MAP.get(timeframe)
     if not spec or not pool_address:
         return None
@@ -85,8 +96,16 @@ def fetch_ohlcv(pool_address: str, chain: str, timeframe: str, limit: int = 200)
 
     url = f"{_BASE}/networks/{net}/pools/{pool_address}/ohlcv/{unit}"
     params = {"aggregate": aggregate, "limit": base_limit, "currency": "usd"}
+    if before_timestamp:
+        params["before_timestamp"] = int(before_timestamp)
+    r = None
     try:
-        r = requests.get(url, params=params, headers=_HEADERS, timeout=_TIMEOUT)
+        for attempt in range(_RATE_LIMIT_RETRIES + 1):
+            r = requests.get(url, params=params, headers=_HEADERS, timeout=_TIMEOUT)
+            if r.status_code != 429:
+                break
+            if attempt < _RATE_LIMIT_RETRIES:
+                time.sleep(_RATE_LIMIT_BACKOFF * (attempt + 1))
         if r.status_code != 200:
             logger.warning("GeckoTerminal %s %s -> HTTP %s", net, timeframe, r.status_code)
             return None

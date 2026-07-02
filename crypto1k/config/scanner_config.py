@@ -105,6 +105,10 @@ THRESHOLDS = {
     # --- Price momentum (percent) ---
     "price_move_1h_notable": 3.0,  # |price change| over 1h, percent
     "price_move_1h_strong": 8.0,
+    # --- 5m price momentum (fast detection — scores a move while it's young,
+    #     before the rolling 1h window has caught up) ---
+    "price_move_5m_notable": 1.5,
+    "price_move_5m_strong": 3.0,
 }
 
 
@@ -129,15 +133,31 @@ SCORING = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ALERTING = {
-    "min_validity_score": 6.1,  # 0–10; lenient. Raise to be pickier.
+    "min_validity_score": 7.5,  # 0–10; lenient. Raise to be pickier.
     # Volume gate: a coin qualifies if it shows a 1h surge OR a 5m acceleration.
     # The 5m path catches setups heating up *right now* even when the full hour
     # still looks average (e.g. PENGU: 1h 1.1× but 5m 6.4×).
     "min_vol_pace_1h": 2.5,  # 1h volume vs its 24h hourly average
     "min_vol_pace_5m": 4.0,  # 5m volume vs its 24h 5-min average (acceleration)
     "require_bullish": False,  # True = only alert on bullish-leaning spikes
-    # Don't re-alert the same coin again until this many minutes have passed.
+    # Don't re-alert the same coin again until this many minutes have passed…
     "cooldown_minutes": 120,
+    # …unless the new score beats the best score alerted inside that window by
+    # this much — a weak early alert must not mask the real pump an hour later.
+    "cooldown_rearm_score_jump": 2.0,
+    # FAST PATH — alert immediately on an extreme 5-minute spike, regardless of
+    # the validity score. The score is dominated by 1h rolling windows, which
+    # dilute a fresh move; this path uses only 5m data (volume pace, price
+    # move, buy/sell flow) so a spike can alert on the first scan after it
+    # starts. Wash-trading suspects (see wash_turnover_ratio) never qualify.
+    "fast_path": {
+        "enabled": True,
+        "min_vol_pace_5m": 6.0,  # 5m volume ≥ this × its 24h 5-min average
+        "min_price_move_5m_pct": 2.0,  # |5m price change| ≥ this
+        # Flow imbalance in the last 5m: buys/sells for an up-move,
+        # sells/buys for a down-move.
+        "min_flow_ratio_5m": 1.5,
+    },
 }
 
 
@@ -147,6 +167,9 @@ ALERTING = {
 
 MONITOR = {
     "enabled_on_start": True,  # auto-start the background loop when the app boots
-    "interval_seconds": 600,  # how often to re-scan the watchlist (10 min)
+    # Re-scan every minute. DexScreener allows ~300 req/min and a scan costs one
+    # request per watchlist symbol, so this is safe for watchlists up to ~100.
+    # At the old 600s a spike could be 10 minutes stale before we even looked.
+    "interval_seconds": 60,
     "per_request_pause": 0.4,  # polite pause between DexScreener calls
 }

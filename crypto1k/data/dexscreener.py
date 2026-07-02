@@ -17,7 +17,7 @@ Public surface:
 import logging
 import requests
 
-from scanner_config import DEXSCREENER, FILTERS
+from crypto1k.config.scanner_config import DEXSCREENER, FILTERS
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,19 @@ def pairs_for_token(token_address: str, chain: str = None) -> list:
     else:
         data = _get(f'/latest/dex/tokens/{token_address}')
     return (data or {}).get('pairs') or []
+
+
+def get_pair(chain: str, pair_address: str) -> dict:
+    """
+    Look up one pair by (chain, address). The lookup is case-insensitive —
+    handy for recovering the correctly-cased address after it's been
+    lowercased elsewhere (e.g. DexScreener's own dexscreener.com/{chain}/{addr}
+    URL slug, which corrupts case-sensitive base58 addresses on Solana).
+    Returns the raw pair dict (with the real-cased pairAddress) or None.
+    """
+    data = _get(f'/latest/dex/pairs/{chain}/{pair_address}')
+    pairs = (data or {}).get('pairs') or []
+    return pairs[0] if pairs else None
 
 
 # ── Symbol resolution ───────────────────────────────────────────────────────

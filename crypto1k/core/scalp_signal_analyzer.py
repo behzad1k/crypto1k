@@ -8,9 +8,8 @@ import requests
 import pandas as pd
 import numpy as np
 import sqlite3
-import dexscreener
-import geckoterminal
-from datetime import datetime, timedelta
+from crypto1k.data import dexscreener, geckoterminal
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Optional
 from itertools import combinations
 from collections import defaultdict
@@ -180,7 +179,10 @@ class ScalpSignalAnalyzer:
     'low_volume_node': {'confidence': 70, 'timeframes': ['mid', 'long'], 'category': 'Volume Profile'},
   }
 
-  def __init__(self, db_path: str = 'crypto_signals.db'):
+  def __init__(self, db_path: str = None):
+    from pathlib import Path
+    if db_path is None:
+      db_path = str(Path(__file__).resolve().parents[2] / 'crypto_signals.db')
     self.db_path = db_path
     self.timeframe_minutes = {
       '1m': 1, '3m': 3, '5m': 5, '15m': 15,
@@ -243,7 +245,7 @@ class ScalpSignalAnalyzer:
     """Fetch OHLCV data from KuCoin"""
     try:
       symbol_pair = f"{symbol}-USDT"
-      end_time = int(datetime.now().timestamp())
+      end_time = int(datetime.now(timezone.utc).timestamp())
       minutes = self.timeframe_minutes[timeframe]
       start_time = end_time - (minutes * 60 * limit)
 
@@ -1234,7 +1236,7 @@ class ScalpSignalAnalyzer:
                 tf,
                 combo_result['accuracy'],
                 combo_result['avg_price_change'],
-                datetime.now().isoformat()
+                datetime.now(timezone.utc).isoformat()
               ))
 
               # Add to result dict
@@ -1252,7 +1254,7 @@ class ScalpSignalAnalyzer:
                 'profit_factor': combo_result['profit_factor'],
                 'combo_size': combo_result['combo_size'],
                 'signals_count': combo_result['signals_count'],
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
               }
 
               combos_by_tf[tf].append(combo_dict)
@@ -1349,7 +1351,7 @@ class ScalpSignalAnalyzer:
     """
     results = {
       'symbol': symbol,
-      'timestamp': datetime.now().isoformat(),
+      'timestamp': datetime.now(timezone.utc).isoformat(),
       'timeframes': {},
       'combinations': [],
       'source': None,

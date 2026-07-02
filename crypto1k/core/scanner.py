@@ -20,11 +20,10 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-import dexscreener
-import emailer
-import telegram_notify
-import db
-from scanner_config import FILTERS, THRESHOLDS, SCORING, ALERTING, MONITOR
+from crypto1k.core import db
+from crypto1k.data import dexscreener
+from crypto1k.notify import emailer, telegram_notify
+from crypto1k.config.scanner_config import FILTERS, THRESHOLDS, SCORING, ALERTING, MONITOR
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +160,8 @@ def evaluate(pair: dict) -> dict:
             f"5m volume {vol_pace_5m}× average — picking up ({vol_dir_5m})", vol_pace_5m))
     score += min(pts, SCORING['max_volume_surge'])
 
-    # (2) Momentum — price move + multi-window alignment
+    # (2) Momentum — price move + multi-window alignment. The 5m move gets its
+    # own weight so a fresh spike scores before the rolling 1h window catches up.
     aligned = (pc5m > 0 and pc1 > 0 and pc6 > 0) or (pc5m < 0 and pc1 < 0 and pc6 < 0)
     mpts = 0.0
     if abs(pc1) >= THRESHOLDS['price_move_1h_strong']:
@@ -172,6 +172,14 @@ def evaluate(pair: dict) -> dict:
         mpts += SCORING['max_momentum'] * 0.35
         signals.append(_sig('price_momentum', 'momentum', mom_dir,
             f"price {pc1:+.1f}% in 1h", pc1))
+    if abs(pc5m) >= THRESHOLDS['price_move_5m_strong']:
+        mpts += SCORING['max_momentum'] * 0.35
+        signals.append(_sig('price_momentum_5m', 'momentum', vol_dir_5m,
+            f"price {pc5m:+.1f}% in the last 5m — moving right now", pc5m))
+    elif abs(pc5m) >= THRESHOLDS['price_move_5m_notable']:
+        mpts += SCORING['max_momentum'] * 0.2
+        signals.append(_sig('price_momentum_5m', 'momentum', vol_dir_5m,
+            f"price {pc5m:+.1f}% in the last 5m", pc5m))
     if aligned:
         mpts += SCORING['max_momentum'] * 0.4
         signals.append(_sig('momentum_alignment', 'trend', mom_dir,
@@ -219,12 +227,35 @@ def evaluate(pair: dict) -> dict:
     # setups heating up right now while the full hour still reads average.
     vol_ok = (vol_pace_1h >= ALERTING['min_vol_pace_1h']
               or vol_pace_5m >= ALERTING.get('min_vol_pace_5m', float('inf')))
-    is_alert = (
+    standard_alert = (
         passes_filters
         and score >= ALERTING['min_validity_score']
         and vol_ok
         and (not ALERTING['require_bullish'] or direction == 'bullish')
     )
+
+    # Fast path: an extreme, coherent 5m spike (volume + price + flow all in
+    # the same direction) alerts without waiting for the score — the score is
+    # mostly 1h windows, which lag a fresh move by 30–60 minutes.
+    buys_5m, sells_5m = txns['m5']['buys'], txns['m5']['sells']
+    flow_5m = round((buys_5m if pc5m >= 0 else sells_5m)
+                    / max((sells_5m if pc5m >= 0 else buys_5m), 1), 2)
+    fp = ALERTING.get('fast_path', {})
+    fast_alert = (
+        bool(fp.get('enabled'))
+        and passes_filters
+        and not wash_warning
+        and vol_pace_5m >= fp['min_vol_pace_5m']
+        and abs(pc5m) >= fp['min_price_move_5m_pct']
+        and flow_5m >= fp['min_flow_ratio_5m']
+        and (not ALERTING['require_bullish'] or pc5m > 0)
+    )
+    if fast_alert:
+        signals.append(_sig('fast_spike', 'volume', vol_dir_5m,
+            f"⚡ 5m spike: volume {vol_pace_5m}× average, price {pc5m:+.1f}%, "
+            f"{buys_5m} buys / {sells_5m} sells — caught early", vol_pace_5m))
+
+    is_alert = standard_alert or fast_alert
 
     result = {
         'symbol':         pair['symbol'],
@@ -233,6 +264,12 @@ def evaluate(pair: dict) -> dict:
         'dex':            pair['dex'],
         'quote_symbol':   pair['quote_symbol'],
         'url':            pair['url'],
+        # Correctly-cased pool/token addresses. DexScreener's own URL slug
+        # lowercases the address, which corrupts case-sensitive base58
+        # addresses (Solana) — store these separately so downstream lookups
+        # (e.g. GeckoTerminal outcome backfill) don't have to guess the case.
+        'pair_address':   pair.get('pair_address'),
+        'token_address':  pair.get('token_address'),
         'price_usd':      pair['price_usd'],
         'liquidity_usd':  liq,
         'market_cap':     pair['market_cap'],
@@ -249,6 +286,8 @@ def evaluate(pair: dict) -> dict:
         'filter_fails':   filter_fails,
         'wash_warning':   wash_warning,
         'is_alert':       is_alert,
+        'alert_path':     ('fast' if fast_alert and not standard_alert
+                           else 'standard' if is_alert else None),
         'scanned_at':     datetime.now(timezone.utc).isoformat(),
     }
     result['summary'] = build_summary(result)
@@ -276,6 +315,10 @@ def build_summary(r: dict) -> str:
         f"{signal_label} — {sym} @ {_fmt_price(r.get('price_usd'))}: "
         f"setup quality {r['label']} ({r['score']}/10), leaning {r['direction']}."
     )
+
+    if r.get('alert_path') == 'fast':
+        parts.append("⚡ Early catch: extreme 5-minute spike — volume, price and "
+                     "order flow all agree, alerted before the 1h stats caught up.")
 
     if m['vol_pace_1h'] >= THRESHOLDS['vol_pace_1h_notable']:
         parts.append(
@@ -362,9 +405,17 @@ def scan_and_alert(symbols: list = None) -> dict:
     for r in results:
         if not r.get('is_alert'):
             continue
-        if db.in_cooldown(r['symbol'], ALERTING['cooldown_minutes']):
-            logger.info(f"{r['symbol']} alert suppressed (cooldown)")
-            continue
+        # Cooldown, with a re-arm: a repeat alert gets through if its score
+        # beats the best one already sent in the window by a clear margin.
+        prev_best = db.best_alert_score_within(r['symbol'], ALERTING['cooldown_minutes'])
+        if prev_best is not None:
+            jump = ALERTING.get('cooldown_rearm_score_jump')
+            if jump is None or r['score'] < prev_best + jump:
+                logger.info(f"{r['symbol']} alert suppressed "
+                            f"(cooldown; score {r['score']} vs best {prev_best})")
+                continue
+            logger.info(f"{r['symbol']} re-alerting inside cooldown: "
+                        f"score jumped {prev_best} → {r['score']}")
         db.record_alert(r)
         try:
             if emailer.send_alert(r):

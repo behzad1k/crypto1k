@@ -18,7 +18,7 @@ import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from scanner_config import EMAIL, RECIPIENTS
+from crypto1k.config.scanner_config import EMAIL, RECIPIENTS
 
 logger = logging.getLogger(__name__)
 
