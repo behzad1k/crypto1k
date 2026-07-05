@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 import pandas as pd
 
+from crypto1k.config.scanner_config import BTC_IMPACT
 from crypto1k.core import db
 from crypto1k.data import dexscreener, geckoterminal
 
@@ -94,6 +95,44 @@ def _window_extreme(df: pd.DataFrame, start: datetime, end: datetime, col: str, 
     return float(sub.max() if how == 'max' else sub.min())
 
 
+_btc_candles = {'df': None, 'fetched_at': None}
+
+
+def _btc_window_change(start: datetime, end: datetime):
+    """
+    BTC's % move over [start, end], from 1h candles of the reference WBTC pool
+    (same one btc_market quotes). One fetch covers ~41 days of alerts and is
+    reused for the whole backfill run, so this adds a single request.
+    """
+    if not BTC_IMPACT.get('enabled'):
+        return None
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cached = _btc_candles['df']
+    if cached is None or (now - _btc_candles['fetched_at']) > timedelta(hours=1):
+        chain, pool = BTC_IMPACT['pair']
+        cached = geckoterminal.fetch_ohlcv(pool, chain, '1h', limit=1000)
+        if cached is None or cached.empty:
+            return None
+        _btc_candles.update(df=cached, fetched_at=now)
+        time.sleep(_PER_REQUEST_PAUSE)
+
+    btc_start = _closest_close(cached, start, tolerance_minutes=90)
+    btc_end = _closest_close(cached, end, tolerance_minutes=90)
+    if not btc_start or not btc_end:
+        return None
+    return round((btc_end - btc_start) / btc_start * 100, 2)
+
+
+def _window_extreme_at(df: pd.DataFrame, start: datetime, end: datetime, col: str, how: str):
+    """(extreme value, candle timestamp ISO string) — or (None, None)."""
+    mask = (df['timestamp'] >= pd.Timestamp(start)) & (df['timestamp'] <= pd.Timestamp(end))
+    sub = df.loc[mask, col]
+    if sub.empty:
+        return None, None
+    idx = sub.idxmax() if how == 'max' else sub.idxmin()
+    return float(sub.loc[idx]), df.loc[idx, 'timestamp'].isoformat()
+
+
 def compute_outcome_for_alert(alert: dict) -> dict:
     """
     Fetch candles for one alert and derive its outcome fields.
@@ -130,6 +169,8 @@ def compute_outcome_for_alert(alert: dict) -> dict:
     # they alerted) and go quiet afterward, so candles get sparser the further
     # out we look — a tight tolerance works near the alert but misses real gaps
     # by the 4h/24h mark. Widen tolerance for the later horizons accordingly.
+    high_24h, high_24h_at = _window_extreme_at(df, alert_time, window_end, 'high', 'max')
+
     fields = {
         'price_at_alert':  price_at_alert,
         'price_1h_before': _closest_close(df, alert_time - timedelta(hours=1), tolerance_minutes=60),
@@ -139,7 +180,9 @@ def compute_outcome_for_alert(alert: dict) -> dict:
         'price_24h':       _closest_close(df, alert_time + timedelta(hours=24), tolerance_minutes=240) if data_complete else None,
         'high_1h':         _window_extreme(df, alert_time, alert_time + timedelta(hours=1), 'high', 'max'),
         'low_1h':          _window_extreme(df, alert_time, alert_time + timedelta(hours=1), 'low', 'min'),
-        'high_24h':        _window_extreme(df, alert_time, window_end, 'high', 'max'),
+        'high_24h':        high_24h,
+        'high_24h_at':     high_24h_at,
+        'btc_change_window': _btc_window_change(alert_time, window_end),
         'low_24h':         _window_extreme(df, alert_time, window_end, 'low', 'min'),
         'candles_used':    len(df),
         'data_complete':   int(data_complete),

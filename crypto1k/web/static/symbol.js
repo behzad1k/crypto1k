@@ -652,6 +652,22 @@ function buildScalpEl(m, bias) {
   return el;
 }
 
+// Interpretation guide per indicator label — shown as a hint on value chips so
+// you can judge a reading without memorizing each indicator's scale.
+const INDICATOR_GUIDE = {
+  ADX:   { hint: "<20 weak · >25 trending · >60 strong", rate: (v) => (v >= 60 ? "good" : v >= 25 ? "ok" : "bad") },
+  RSI:   { hint: "<30 oversold · >70 overbought",        rate: (v) => (v <= 30 || v >= 70 ? "good" : "ok") },
+  Stoch: { hint: "<20 oversold · >80 overbought",        rate: (v) => (v <= 20 || v >= 80 ? "good" : "ok") },
+  MFI:   { hint: "<20 oversold · >80 overbought",        rate: (v) => (v <= 20 || v >= 80 ? "good" : "ok") },
+  CCI:   { hint: "<-100 oversold · >+100 overbought",    rate: (v) => (Math.abs(v) >= 100 ? "good" : "ok") },
+  "%R":  { hint: "<-80 oversold · >-20 overbought",      rate: (v) => (v <= -80 || v >= -20 ? "good" : "ok") },
+  TSI:   { hint: "<-25 oversold · >+25 overbought",      rate: (v) => (Math.abs(v) >= 25 ? "good" : "ok") },
+  ROC:   { hint: ">0 bullish · <0 bearish",              rate: (v) => (Math.abs(v) >= 5 ? "good" : "ok") },
+  CMF:   { hint: ">+0.2 strong buying · <-0.2 strong selling", rate: (v) => (Math.abs(v) >= 0.2 ? "good" : Math.abs(v) >= 0.05 ? "ok" : "bad") },
+  Hist:  { hint: ">0 bullish · <0 bearish · size = momentum",  rate: () => "ok" },
+  ATR:   { hint: "higher = more volatile, bigger moves",       rate: () => "ok" },
+};
+
 function buildFamilyCard(fam) {
   const card = document.createElement("div");
   card.className = `family-card ${fam.bias}`;
@@ -685,7 +701,13 @@ function buildFamilyCard(fam) {
     allValues.forEach(({ label, val, type }) => {
       const chip = document.createElement("span");
       chip.className = `value-chip ${type}`;
-      chip.innerHTML = `<span class="chip-label">${label}</span>${typeof val === "number" ? formatValue(val) : val}`;
+      const guide = type === "indicator" ? INDICATOR_GUIDE[label] : null;
+      const rating = guide && typeof val === "number" ? guide.rate(val) : null;
+      chip.innerHTML =
+        `<span class="chip-label">${label}</span>` +
+        `<span class="chip-value${rating ? " " + rating : ""}">${typeof val === "number" ? formatValue(val) : val}</span>` +
+        (guide ? `<span class="chip-hint">${guide.hint}</span>` : "");
+      if (guide) chip.title = `${label}: ${guide.hint}`;
       valWrap.appendChild(chip);
     });
     card.appendChild(valWrap);
@@ -1249,6 +1271,62 @@ function exportJSON() {
   if (!lastResult) return;
   const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: "application/json" });
   triggerDownload(blob, `${lastResult.symbol}_all_${exportTimestamp()}.json`);
+}
+
+// Compact markdown export for feeding to an LLM — keeps only grade A/B
+// signals (drops the noisy grade-C tail) and states each fact once instead
+// of the JSON export's all_signals/primary_signals/families triplication.
+function exportSummary() {
+  if (!lastResult) return;
+  const lines = [`# ${lastResult.symbol} — Analysis Summary`, `_${new Date().toISOString()}_`, ""];
+
+  for (const key of ["short", "mid", "long"]) {
+    const d = lastResult[key];
+    if (!d) continue;
+    const sm = d.scalp_metrics || {};
+
+    lines.push(`## ${d.horizon_label || key} (${(d.timeframes || []).join("/")})`);
+    lines.push(`Price: $${d.price} · Bias: **${d.bias.direction}** (score ${d.bias.score}, bull ${d.bias.bull_score} / bear ${d.bias.bear_score})`);
+
+    if (sm.setup_score != null) {
+      lines.push(`Setup: **${sm.setup_label}** (${sm.setup_score}/10) — ` +
+        (sm.setup_factors || []).map((f) => `${f.name} ${f.points}/${f.max} (${f.detail})`).join("; "));
+    }
+    if (sm.volume_ratio != null) {
+      lines.push(`Volume: ${sm.volume_ratio}x avg, ${sm.volume_trend || "n/a"}` +
+        (sm.atr_pct != null ? ` · ATR: ${sm.atr_pct}% (2% target = ${sm.atrs_for_2pct}x ATR, ${sm.target_realistic ? "realistic" : "stretched"})` : ""));
+    }
+    if (sm.tf_alignment) {
+      const ta = sm.tf_alignment;
+      lines.push(`TF alignment: ${ta.aligned_count}/${ta.total_count} ${ta.strength} ${ta.aligned_direction} (` +
+        Object.entries(ta.timeframes || {}).map(([tf, dir]) => `${tf}:${dir}`).join(", ") + ")");
+    }
+
+    const sigs = (d.all_signals || []).filter((s) => s.grade === "A" || s.grade === "B");
+    lines.push("", "**Signals (A/B grade):**");
+    if (!sigs.length) {
+      lines.push("_none_");
+    } else {
+      sigs
+        .sort((a, b) => (a.grade === b.grade ? 0 : a.grade === "A" ? -1 : 1))
+        .forEach((s) => {
+          const val = s.price_level != null ? `level=$${s.price_level}` : s.indicator_value != null ? `value=${s.indicator_value}` : "";
+          lines.push(`- [${s.grade}][${s.direction}][${s.timeframe}] ${s.signal_name}` +
+            (val ? ` — ${val}` : "") + (s.candles_ago != null ? ` (${s.candles_ago} candles ago)` : ""));
+        });
+    }
+
+    if ((sm.key_levels || []).length) {
+      lines.push("", "**Key levels:**");
+      sm.key_levels.forEach((l) => {
+        lines.push(`- ${l.pct > 0 ? "+" : ""}${l.pct}% $${l.price} ${l.label} (${l.grade}, ${l.direction})`);
+      });
+    }
+    lines.push("");
+  }
+
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+  triggerDownload(blob, `${lastResult.symbol}_summary_${exportTimestamp()}.md`);
 }
 
 function exportCSV() {

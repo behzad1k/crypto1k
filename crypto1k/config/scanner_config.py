@@ -139,7 +139,7 @@ ALERTING = {
     # still looks average (e.g. PENGU: 1h 1.1× but 5m 6.4×).
     "min_vol_pace_1h": 2.5,  # 1h volume vs its 24h hourly average
     "min_vol_pace_5m": 4.0,  # 5m volume vs its 24h 5-min average (acceleration)
-    "require_bullish": False,  # True = only alert on bullish-leaning spikes
+    "require_bullish": True,  # True = only alert on bullish-leaning spikes
     # Don't re-alert the same coin again until this many minutes have passed…
     "cooldown_minutes": 120,
     # …unless the new score beats the best score alerted inside that window by
@@ -172,4 +172,48 @@ MONITOR = {
     # At the old 600s a spike could be 10 minutes stale before we even looked.
     "interval_seconds": 60,
     "per_request_pause": 0.4,  # polite pause between DexScreener calls
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. DIGEST  —  daily Telegram summary of how yesterday's buy alerts paid off
+# ═══════════════════════════════════════════════════════════════════════════════
+
+DIGEST = {
+    "enabled": True,
+    # Send once per day, at the first monitor tick after this local hour.
+    # Covers every buy alert whose 24h outcome window completed since the last
+    # digest (so nothing is judged on partial data, and downtime self-heals).
+    "hour_local": 9,
+    "retry_minutes": 10,   # wait this long before retrying a failed send
+    # Take-profit calibration: the digest footer reports how many alerts
+    # reached at least this % gain within 24h (would your TP have filled?).
+    "tp_target_pct": 5.0,
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. BTC IMPACT  —  market-regime scoring around (not inside) the coin score
+# ═══════════════════════════════════════════════════════════════════════════════
+
+BTC_IMPACT = {
+    "enabled": True,
+    # Deep WBTC/USDC pool (Uniswap v3, Ethereum) — one DexScreener quote gives
+    # BTC price plus its 5m/1h/24h changes, on the API budget we already pay.
+    "pair": ("ethereum", "0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35"),
+    "cache_seconds": 60,  # one BTC fetch per scan cycle at most
+    # Regime score = 5 + m5%*w + h1%*w + h24%*w, clamped 0–10. Fresh moves
+    # weigh hardest: a BTC dump minutes ago kills alt pumps faster than a
+    # slow daily drift. Flat BTC ≈ 5, -2% hour ≈ 3, +2% hour ≈ 7.
+    "score_weights": {"m5": 0.8, "h1": 1.0, "h24": 0.15},
+    "risk_on_score": 6.5,   # regime label thresholds
+    "risk_off_score": 3.5,
+    # ENTRY GATE — suppress buy alerts when the regime score is below the
+    # cutoff. OFF until the digest's regime breakdown shows where (and
+    # whether) alert performance actually collapses; flip it on with an
+    # evidence-based cutoff instead of a guessed one.
+    "gate": {
+        "enabled": False,
+        "min_regime_score": 3.5,
+    },
 }

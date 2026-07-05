@@ -20,10 +20,12 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from crypto1k.core import db
-from crypto1k.data import dexscreener
+from crypto1k.core import db, digest
+from crypto1k.data import btc_market, dexscreener
 from crypto1k.notify import emailer, telegram_notify
-from crypto1k.config.scanner_config import FILTERS, THRESHOLDS, SCORING, ALERTING, MONITOR
+from crypto1k.config.scanner_config import (
+    FILTERS, THRESHOLDS, SCORING, ALERTING, MONITOR, BTC_IMPACT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -402,9 +404,26 @@ def scan_and_alert(symbols: list = None) -> dict:
     telegrammed = 0
     fired = []
 
+    # One BTC regime snapshot per scan — stamped on every alert this cycle so
+    # the digest can later split performance by market regime.
+    btc = btc_market.get_btc_context()
+
     for r in results:
         if not r.get('is_alert'):
             continue
+        if btc:
+            r['btc'] = btc
+            r['summary'] = (r.get('summary') or '') + (
+                f" ₿ BTC regime {btc['regime_score']}/10 ({btc['regime']}): "
+                f"{btc['change_h1']:+.1f}% 1h, {btc['change_h24']:+.1f}% 24h."
+            )
+            gate = BTC_IMPACT.get('gate', {})
+            if (gate.get('enabled')
+                    and r.get('direction') == 'bullish'
+                    and btc['regime_score'] < gate['min_regime_score']):
+                logger.info(f"{r['symbol']} alert suppressed by BTC gate "
+                            f"(regime {btc['regime_score']} < {gate['min_regime_score']})")
+                continue
         # Cooldown, with a re-arm: a repeat alert gets through if its score
         # beats the best one already sent in the window by a clear margin.
         prev_best = db.best_alert_score_within(r['symbol'], ALERTING['cooldown_minutes'])
@@ -472,6 +491,9 @@ def _monitor_loop():
                                     f"{summary['emailed']} email(s)")
             else:
                 last_scan_at = 0.0  # re-enable should scan right away
+            # Daily 24h-outcome digest — runs even while scanning is paused,
+            # since past alerts still deserve their scorecard.
+            digest.maybe_send_daily_digest()
         except Exception as e:
             logger.warning(f'Monitor cycle error: {e}')
         # Poll the shared flag frequently so start/stop feel responsive.

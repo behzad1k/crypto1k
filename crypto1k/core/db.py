@@ -97,6 +97,10 @@ def init_db():
                 url           TEXT,
                 summary       TEXT,
                 payload       TEXT,                  -- full result JSON
+                btc_regime_score REAL,               -- BTC market regime 0-10 at fire time
+                btc_price     REAL,
+                btc_change_1h REAL,
+                btc_change_24h REAL,
                 created_at    TEXT DEFAULT (datetime('now'))
             );
 
@@ -125,9 +129,12 @@ def init_db():
                 high_1h         REAL,   -- max close within 1h after
                 low_1h          REAL,   -- min close within 1h after
                 high_24h        REAL,   -- max close within 24h after
+                high_24h_at     TEXT,   -- candle timestamp of that 24h high
                 low_24h         REAL,   -- min close within 24h after
+                btc_change_window REAL, -- BTC's % move over the same 24h window
                 candles_used    INTEGER,
-                data_complete   INTEGER NOT NULL DEFAULT 0  -- 1 once 24h has elapsed and candles were found
+                data_complete   INTEGER NOT NULL DEFAULT 0, -- 1 once 24h has elapsed and candles were found
+                digest_sent     INTEGER NOT NULL DEFAULT 0  -- 1 once reported in a daily digest
             );
         ''')
     # Migrate: add columns that were added after initial schema
@@ -146,10 +153,32 @@ def init_db():
             # Correctly-cased pool address (DexScreener's url slug lowercases
             # it, which corrupts case-sensitive base58 addresses on Solana).
             ('pair_address', 'TEXT'),
+            # BTC market regime at fire time (see data/btc_market.py) — kept
+            # separate from the coin's own validity score.
+            ('btc_regime_score', 'REAL'),
+            ('btc_price', 'REAL'),
+            ('btc_change_1h', 'REAL'),
+            ('btc_change_24h', 'REAL'),
         ]:
             if col not in existing:
                 conn.execute(f'ALTER TABLE scanner_alerts ADD COLUMN {col} {definition}')
                 logger.info(f'Migrated: added scanner_alerts.{col}')
+
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(alert_outcomes)").fetchall()}
+        if 'high_24h_at' not in existing:
+            conn.execute('ALTER TABLE alert_outcomes ADD COLUMN high_24h_at TEXT')
+            logger.info('Migrated: added alert_outcomes.high_24h_at')
+        if 'btc_change_window' not in existing:
+            # BTC's own % move over this alert's 24h outcome window — separates
+            # "the coin was fake" from "BTC dumped and took everything down".
+            conn.execute('ALTER TABLE alert_outcomes ADD COLUMN btc_change_window REAL')
+            logger.info('Migrated: added alert_outcomes.btc_change_window')
+        if 'digest_sent' not in existing:
+            conn.execute('ALTER TABLE alert_outcomes ADD COLUMN digest_sent INTEGER NOT NULL DEFAULT 0')
+            # Outcomes that were already complete before the digest feature
+            # existed are old news — the first digest starts from now.
+            conn.execute('UPDATE alert_outcomes SET digest_sent = 1 WHERE data_complete = 1')
+            logger.info('Migrated: added alert_outcomes.digest_sent')
     logger.info('Database initialised')
 
 
@@ -274,8 +303,9 @@ def record_alert(result: dict):
         conn.execute('''
             INSERT INTO scanner_alerts
               (symbol, score, label, direction, price_usd, vol_pace_1h,
-               price_change_1h, liquidity_usd, chain, url, pair_address, summary, payload)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               price_change_1h, liquidity_usd, chain, url, pair_address, summary, payload,
+               btc_regime_score, btc_price, btc_change_1h, btc_change_24h)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             result.get('symbol'),
             result.get('score'),
@@ -290,6 +320,10 @@ def record_alert(result: dict):
             result.get('pair_address'),
             result.get('summary'),
             json.dumps(result, default=str),
+            (result.get('btc') or {}).get('regime_score'),
+            (result.get('btc') or {}).get('price'),
+            (result.get('btc') or {}).get('change_h1'),
+            (result.get('btc') or {}).get('change_h24'),
         ))
 
 
@@ -353,6 +387,36 @@ def upsert_alert_outcome(alert_id: int, fields: dict):
             VALUES ({placeholders})
             ON CONFLICT(alert_id) DO UPDATE SET {updates}
         ''', vals)
+
+
+def get_alerts_for_digest() -> list:
+    """
+    Alerts whose 24h outcome window has completed and that haven't been
+    reported in a daily digest yet. All directions — the digest itself decides
+    what to show, but everything returned here gets marked sent afterward.
+    """
+    with get_conn() as conn:
+        rows = conn.execute('''
+            SELECT a.id, a.symbol, a.score, a.label, a.direction, a.chain,
+                   a.url, a.pair_address, a.created_at, a.btc_regime_score,
+                   o.price_at_alert, o.price_24h, o.high_24h, o.high_24h_at,
+                   o.low_24h, o.btc_change_window
+            FROM scanner_alerts a
+            JOIN alert_outcomes o ON o.alert_id = a.id
+            WHERE o.data_complete = 1 AND o.digest_sent = 0
+            ORDER BY a.created_at ASC
+        ''').fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_digest_sent(alert_ids: list):
+    if not alert_ids:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            'UPDATE alert_outcomes SET digest_sent = 1 WHERE alert_id = ?',
+            [(i,) for i in alert_ids],
+        )
 
 
 def get_alerts_with_outcomes(limit: int = 2000) -> list:

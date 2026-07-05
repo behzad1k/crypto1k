@@ -467,6 +467,82 @@
             .loading {
                 color: var(--amber);
             }
+
+            /* scoring documentation */
+            .doc-lede {
+                color: #cbd5e1;
+                line-height: 1.55;
+                margin-bottom: 16px;
+            }
+            .doc-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                gap: 12px;
+                margin-bottom: 16px;
+            }
+            .doc-card {
+                background: var(--surface2);
+                border: 1px solid var(--border);
+                border-radius: 9px;
+                padding: 12px 14px;
+            }
+            .doc-card-title {
+                font-weight: 700;
+                font-size: 13px;
+                margin-bottom: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+            .doc-pts {
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--accent);
+                background: rgba(99, 102, 241, 0.14);
+                padding: 2px 7px;
+                border-radius: 20px;
+            }
+            .doc-card ul {
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 5px;
+            }
+            .doc-card li {
+                padding-left: 14px;
+                position: relative;
+                font-size: 12.5px;
+                color: #cbd5e1;
+                line-height: 1.45;
+            }
+            .doc-card li::before {
+                content: "▸";
+                position: absolute;
+                left: 0;
+                color: var(--muted);
+            }
+            .doc-note {
+                font-size: 13px;
+                color: #cbd5e1;
+                line-height: 1.55;
+                margin-bottom: 12px;
+                padding: 10px 12px;
+                background: var(--surface2);
+                border-left: 3px solid var(--accent);
+                border-radius: 6px;
+            }
+            .doc-badges {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 16px;
+            }
+            .doc-badge-range {
+                font-size: 12px;
+                color: var(--muted);
+                margin-right: 10px;
+            }
         </style>
     </head>
     <body>
@@ -588,6 +664,92 @@
                 <h2>Recent Alerts (fired)</h2>
                 <div id="alertsBox">
                     <span class="empty">No alerts yet.</span>
+                </div>
+            </div>
+
+            <!-- Scoring documentation -->
+            <div class="panel">
+                <h2>How the score works</h2>
+                <div class="doc">
+                    <p class="doc-lede">
+                        Each coin gets a <b>0–10 validity score</b> from four
+                        weighted signals, then gets labelled and (optionally)
+                        alerted on.
+                    </p>
+
+                    <div class="doc-grid">
+                        <div class="doc-card">
+                            <div class="doc-card-title">
+                                Volume surge <span class="doc-pts">max 4.0</span>
+                            </div>
+                            <ul>
+                                <li>1h volume ≥ 5.0× its 24h average → full 4.0 pts (strong)</li>
+                                <li>1h volume ≥ 2.5× average → 2.4 pts (notable)</li>
+                                <li>otherwise a small scaled amount, up to 0.6 pts</li>
+                                <li>a 5m acceleration (≥3.0×, or ≥6.0× for full marks) can push this to the max — catches a move before the 1h window catches up</li>
+                                <li>direction (bullish/bearish) follows the price move in that window; volume itself is directionless</li>
+                            </ul>
+                        </div>
+                        <div class="doc-card">
+                            <div class="doc-card-title">
+                                Momentum <span class="doc-pts">max 3.0</span>
+                            </div>
+                            <ul>
+                                <li>|1h price change| ≥ 8% → 1.8 pts; ≥ 3% → 1.05 pts</li>
+                                <li>|5m price change| ≥ 3% → +1.05 pts; ≥ 1.5% → +0.6 pts</li>
+                                <li>alignment bonus: 5m, 1h and 6h all moving the same direction → +1.2 pts</li>
+                            </ul>
+                        </div>
+                        <div class="doc-card">
+                            <div class="doc-card-title">
+                                Buy pressure <span class="doc-pts">max 2.0</span>
+                            </div>
+                            <ul>
+                                <li>buy/sell ratio (1h) ≥ 2.5:1 → full 2.0 pts</li>
+                                <li>ratio ≥ 1.5:1 → 1.0 pt</li>
+                                <li>ratio ≤ 1/1.5 (sellers dominating) → 0 pts, flagged as bearish "sell pressure"</li>
+                            </ul>
+                        </div>
+                        <div class="doc-card">
+                            <div class="doc-card-title">
+                                Activity / liquidity <span class="doc-pts">max 1.0</span>
+                            </div>
+                            <ul>
+                                <li>liquidity ≥ 3× min AND txns ≥ 3× min → full 1.0 pt</li>
+                                <li>merely passes filters → 0.5 pt</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <p class="doc-note">
+                        <b>Wash-trade cap:</b> if 24h volume ÷ liquidity ≥ 75×,
+                        the score is capped at 6.0 (GOOD) and flagged
+                        regardless of the raw total.
+                    </p>
+
+                    <div class="doc-badges">
+                        <span class="badge STRONG">STRONG</span><span class="doc-badge-range">≥ 8.0</span>
+                        <span class="badge GOOD">GOOD</span><span class="doc-badge-range">≥ 6.0</span>
+                        <span class="badge FAIR">FAIR</span><span class="doc-badge-range">≥ 4.0</span>
+                        <span class="badge WEAK">WEAK</span><span class="doc-badge-range">below 4.0</span>
+                    </div>
+
+                    <p class="doc-note">
+                        <b>Filters (gates):</b> a coin isn't scored at all unless
+                        liquidity ≥ $15,000, 24h volume ≥ $20,000, ≥15 txns in
+                        the last hour, pair age ≥ 1h, and its 1h price change
+                        looks sane (≤ 5,000% — guards against corrupted feeds).
+                    </p>
+
+                    <p class="doc-note">
+                        <b>Alerting is separate from scoring:</b> an email/Telegram
+                        alert fires when score ≥ 7.5 and a real volume surge is
+                        present (1h ≥ 2.5× or 5m ≥ 4.0×) — or via a
+                        <b>fast path</b> that alerts on an extreme 5-minute spike
+                        (volume ≥ 6×, price move ≥ 2%, buy/sell flow ≥ 1.5:1)
+                        independently of the score, since the score leans on 1h
+                        windows that can lag a fresh move by 30–60 minutes.
+                    </p>
                 </div>
             </div>
         </div>

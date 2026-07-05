@@ -918,6 +918,20 @@
                 opacity: 0.7;
                 margin-right: 3px;
             }
+            .value-chip .chip-value.good {
+                color: var(--bull);
+                font-weight: 600;
+            }
+            .value-chip .chip-value.bad {
+                opacity: 0.55;
+            }
+            .value-chip .chip-hint {
+                opacity: 0.5;
+                font-size: 10px;
+                margin-left: 5px;
+                padding-left: 5px;
+                border-left: 1px solid rgba(56, 189, 248, 0.25);
+            }
 
             /* Signal list */
             .signal-list {
@@ -1322,6 +1336,9 @@
             </div>
             <button class="analyze-btn" id="analyzeBtn">Analyze All</button>
             <div class="export-btns" id="exportBtns">
+                <button class="export-btn" onclick="exportSummary()">
+                    ↓ Summary (MD)
+                </button>
                 <button class="export-btn" onclick="exportJSON()">
                     ↓ JSON
                 </button>
