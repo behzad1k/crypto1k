@@ -136,6 +136,55 @@ def init_db():
                 data_complete   INTEGER NOT NULL DEFAULT 0, -- 1 once 24h has elapsed and candles were found
                 digest_sent     INTEGER NOT NULL DEFAULT 0  -- 1 once reported in a daily digest
             );
+
+            -- ── Smart money module ──────────────────────────────────────────
+            -- Wallets we follow. source='manual' (user-added) or 'auto'
+            -- (promoted by win-rate). Deactivating keeps history but drops the
+            -- wallet from signals/feed.
+            CREATE TABLE IF NOT EXISTS smart_wallets (
+                address     TEXT NOT NULL,   -- lowercased for EVM, as-is for Solana
+                chain       TEXT NOT NULL DEFAULT '',
+                label       TEXT,
+                source      TEXT NOT NULL DEFAULT 'manual',
+                is_active   INTEGER NOT NULL DEFAULT 1,
+                added_at    TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (address, chain)
+            );
+
+            -- Every whale-sized trade seen on a watched pool.
+            CREATE TABLE IF NOT EXISTS wallet_trades (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_key    TEXT NOT NULL UNIQUE,  -- GeckoTerminal trade id
+                tx_hash      TEXT,
+                wallet       TEXT NOT NULL,
+                chain        TEXT NOT NULL,
+                pool_address TEXT NOT NULL,
+                symbol       TEXT,
+                side         TEXT NOT NULL,         -- buy / sell
+                amount_usd   REAL,
+                price_usd    REAL,
+                block_ts     TEXT NOT NULL,         -- ISO, naive UTC
+                recorded_at  TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_wtrades_wallet
+                ON wallet_trades(wallet, block_ts DESC);
+            CREATE INDEX IF NOT EXISTS idx_wtrades_pool
+                ON wallet_trades(pool_address, block_ts DESC);
+            CREATE INDEX IF NOT EXISTS idx_wtrades_ts
+                ON wallet_trades(block_ts DESC);
+
+            -- Forward return of each whale BUY, backfilled from OHLCV candles —
+            -- this is what turns "a whale" into "a proven smart wallet".
+            CREATE TABLE IF NOT EXISTS wallet_trade_outcomes (
+                trade_id       INTEGER PRIMARY KEY REFERENCES wallet_trades(id),
+                computed_at    TEXT NOT NULL,
+                price_at_trade REAL,
+                price_1h       REAL,
+                price_24h      REAL,
+                ret_1h_pct     REAL,
+                ret_24h_pct    REAL,
+                data_complete  INTEGER NOT NULL DEFAULT 0
+            );
         ''')
     # Migrate: add columns that were added after initial schema
     with get_conn() as conn:
@@ -456,6 +505,238 @@ def get_recent_runs(symbol: str, horizon: Optional[str] = None, limit: int = 20)
                 ORDER BY created_at DESC LIMIT ?
             ''', (symbol, limit)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Smart money: wallets, whale trades, outcomes ─────────────────────────────
+
+# A buy is a WIN when the price was up ≥ win_1h% one hour later OR ≥ win_24h%
+# a day later. Used both for auto-qualification and the leaderboard.
+_WIN_CASE = ('(o.ret_1h_pct >= :w1 OR COALESCE(o.ret_24h_pct, -999999) >= :w24)')
+
+# Wallets we treat as smart money: manually tracked, plus any wallet whose
+# scored buys clear the win-rate bar.
+_TRACKED_CTE = f'''
+    WITH qualified AS (
+        SELECT t.wallet, t.chain,
+               COUNT(*) AS scored,
+               AVG(CASE WHEN {_WIN_CASE} THEN 1.0 ELSE 0.0 END) AS win_rate
+        FROM wallet_trades t
+        JOIN wallet_trade_outcomes o ON o.trade_id = t.id
+        WHERE t.side = 'buy' AND o.ret_1h_pct IS NOT NULL
+        GROUP BY t.wallet, t.chain
+        HAVING scored >= :min_buys AND win_rate >= :min_wr
+    ),
+    tracked AS (
+        SELECT address AS wallet, chain, label, source
+        FROM smart_wallets WHERE is_active = 1
+        UNION
+        SELECT q.wallet, q.chain, NULL AS label, 'auto' AS source
+        FROM qualified q
+        WHERE NOT EXISTS (
+            SELECT 1 FROM smart_wallets s
+            WHERE s.address = q.wallet AND (s.chain = q.chain OR s.chain = '')
+        )
+    )
+'''
+
+
+def _qualify_params(qualify: dict) -> dict:
+    return {
+        'w1':       qualify['win_ret_1h_pct'],
+        'w24':      qualify['win_ret_24h_pct'],
+        'min_buys': qualify['min_scored_buys'],
+        'min_wr':   qualify['min_win_rate'],
+    }
+
+
+def record_wallet_trades(trades: list, chain: str, pool_address: str,
+                         symbol: str) -> int:
+    """Insert whale trades (deduped by trade_key). Returns how many were new."""
+    added = 0
+    with get_conn() as conn:
+        for t in trades:
+            cur = conn.execute('''
+                INSERT OR IGNORE INTO wallet_trades
+                  (trade_key, tx_hash, wallet, chain, pool_address, symbol,
+                   side, amount_usd, price_usd, block_ts)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (t['trade_key'], t.get('tx_hash'), t['wallet'], chain,
+                  pool_address, symbol, t['side'], t.get('amount_usd'),
+                  t.get('price_usd'), t['block_ts']))
+            added += cur.rowcount
+    return added
+
+
+def add_smart_wallet(address: str, chain: str = '', label: str = None,
+                     source: str = 'manual'):
+    address = (address or '').strip()
+    if address.startswith('0x'):
+        address = address.lower()
+    with get_conn() as conn:
+        conn.execute('''
+            INSERT INTO smart_wallets (address, chain, label, source, is_active)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(address, chain) DO UPDATE SET
+                label = COALESCE(excluded.label, label),
+                is_active = 1
+        ''', (address, (chain or '').lower(), label, source))
+
+
+def remove_smart_wallet(address: str, chain: str = ''):
+    with get_conn() as conn:
+        conn.execute('DELETE FROM smart_wallets WHERE address = ? AND chain = ?',
+                     ((address or '').strip(), (chain or '').lower()))
+
+
+def get_tracked_wallets(qualify: dict) -> dict:
+    """
+    {wallet_address: {'chain', 'label', 'source', 'win_rate'?}} for every
+    wallet currently considered smart money (manual + auto-qualified).
+    """
+    with get_conn() as conn:
+        rows = conn.execute(f'''
+            {_TRACKED_CTE}
+            SELECT wallet, chain, label, source FROM tracked
+        ''', _qualify_params(qualify)).fetchall()
+    return {r['wallet']: {'chain': r['chain'], 'label': r['label'],
+                          'source': r['source']} for r in rows}
+
+
+def smart_money_feed(qualify: dict, limit: int = 100) -> list:
+    """Recent movements (all trades) of tracked/qualified wallets, newest first."""
+    params = {**_qualify_params(qualify), 'limit': limit}
+    with get_conn() as conn:
+        rows = conn.execute(f'''
+            {_TRACKED_CTE}
+            SELECT tr.id, tr.wallet, tr.chain, tr.pool_address, tr.symbol,
+                   tr.side, tr.amount_usd, tr.price_usd, tr.block_ts,
+                   tk.label, tk.source,
+                   o.ret_1h_pct, o.ret_24h_pct
+            FROM wallet_trades tr
+            JOIN tracked tk
+              ON tk.wallet = tr.wallet AND (tk.chain = tr.chain OR tk.chain = '')
+            LEFT JOIN wallet_trade_outcomes o ON o.trade_id = tr.id
+            ORDER BY tr.block_ts DESC
+            LIMIT :limit
+        ''', params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def wallet_leaderboard(qualify: dict, min_buys: int = 2, limit: int = 200) -> list:
+    """
+    Every whale wallet seen, aggregated: buys, scored buys, wins, win rate,
+    average forward returns, volume, last seen. Sorted best-first.
+    """
+    params = {**_qualify_params(qualify), 'min_display_buys': min_buys,
+              'limit': limit}
+    with get_conn() as conn:
+        rows = conn.execute(f'''
+            SELECT t.wallet, t.chain,
+                   COUNT(*)                                        AS trades,
+                   SUM(CASE WHEN t.side = 'buy' THEN 1 ELSE 0 END) AS buys,
+                   SUM(t.amount_usd)                               AS total_usd,
+                   COUNT(DISTINCT t.pool_address)                  AS pools,
+                   MAX(t.block_ts)                                 AS last_seen,
+                   SUM(CASE WHEN t.side = 'buy' AND o.ret_1h_pct IS NOT NULL
+                            THEN 1 ELSE 0 END)                     AS scored_buys,
+                   SUM(CASE WHEN t.side = 'buy' AND o.ret_1h_pct IS NOT NULL
+                            AND {_WIN_CASE} THEN 1 ELSE 0 END)     AS wins,
+                   AVG(CASE WHEN t.side = 'buy' THEN o.ret_1h_pct END)  AS avg_ret_1h,
+                   AVG(CASE WHEN t.side = 'buy' THEN o.ret_24h_pct END) AS avg_ret_24h,
+                   MAX(s.label)     AS label,
+                   MAX(s.source)    AS manual_source,
+                   MAX(s.is_active) AS manually_tracked
+            FROM wallet_trades t
+            LEFT JOIN wallet_trade_outcomes o ON o.trade_id = t.id
+            LEFT JOIN smart_wallets s
+              ON s.address = t.wallet AND (s.chain = t.chain OR s.chain = '')
+            GROUP BY t.wallet, t.chain
+            HAVING buys >= :min_display_buys OR manually_tracked = 1
+            ORDER BY wins DESC, scored_buys DESC, total_usd DESC
+            LIMIT :limit
+        ''', params).fetchall()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        scored = d['scored_buys'] or 0
+        d['win_rate'] = round((d['wins'] or 0) / scored, 3) if scored else None
+        d['is_smart'] = bool(d['manually_tracked']) or (
+            scored >= qualify['min_scored_buys']
+            and (d['win_rate'] or 0) >= qualify['min_win_rate']
+        )
+        out.append(d)
+    return out
+
+
+def get_wallet_trades(address: str, limit: int = 100) -> list:
+    """One wallet's recorded trades with outcomes, newest first."""
+    with get_conn() as conn:
+        rows = conn.execute('''
+            SELECT t.id, t.wallet, t.chain, t.pool_address, t.symbol, t.side,
+                   t.amount_usd, t.price_usd, t.block_ts,
+                   o.ret_1h_pct, o.ret_24h_pct, o.data_complete
+            FROM wallet_trades t
+            LEFT JOIN wallet_trade_outcomes o ON o.trade_id = t.id
+            WHERE t.wallet = ?
+            ORDER BY t.block_ts DESC LIMIT ?
+        ''', ((address or '').strip(), limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_trades_needing_outcome(min_age_minutes: int, limit: int = 400) -> list:
+    """
+    Whale BUYS old enough to have an observable 1h return but no complete
+    outcome yet. Oldest first; the backfill groups them by pool so one candle
+    fetch scores every pending trade on that pool.
+    """
+    with get_conn() as conn:
+        rows = conn.execute('''
+            SELECT t.id, t.wallet, t.chain, t.pool_address, t.symbol,
+                   t.price_usd, t.block_ts
+            FROM wallet_trades t
+            LEFT JOIN wallet_trade_outcomes o ON o.trade_id = t.id
+            WHERE t.side = 'buy'
+              AND t.block_ts <= datetime('now', ?)
+              AND (o.trade_id IS NULL OR o.data_complete = 0)
+            ORDER BY t.block_ts ASC
+            LIMIT ?
+        ''', (f'-{int(min_age_minutes)} minutes', limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_wallet_trade_outcome(trade_id: int, fields: dict):
+    cols = ['trade_id', 'computed_at'] + list(fields.keys())
+    vals = [trade_id, datetime.utcnow().isoformat()] + list(fields.values())
+    placeholders = ', '.join('?' for _ in cols)
+    updates = ', '.join(f'{c} = excluded.{c}' for c in cols if c != 'trade_id')
+    with get_conn() as conn:
+        conn.execute(f'''
+            INSERT INTO wallet_trade_outcomes ({', '.join(cols)})
+            VALUES ({placeholders})
+            ON CONFLICT(trade_id) DO UPDATE SET {updates}
+        ''', vals)
+
+
+def smart_money_overview(qualify: dict) -> dict:
+    with get_conn() as conn:
+        trades = conn.execute('SELECT COUNT(*) AS n, COUNT(DISTINCT wallet) AS w '
+                              'FROM wallet_trades').fetchone()
+        scored = conn.execute('SELECT COUNT(*) AS n FROM wallet_trade_outcomes '
+                              'WHERE ret_1h_pct IS NOT NULL').fetchone()
+        manual = conn.execute('SELECT COUNT(*) AS n FROM smart_wallets '
+                              'WHERE is_active = 1').fetchone()
+        auto = conn.execute(f'''
+            {_TRACKED_CTE}
+            SELECT COUNT(*) AS n FROM tracked WHERE source = 'auto'
+        ''', _qualify_params(qualify)).fetchone()
+    return {
+        'trades_recorded': trades['n'],
+        'wallets_seen':    trades['w'],
+        'buys_scored':     scored['n'],
+        'manual_wallets':  manual['n'],
+        'auto_qualified':  auto['n'],
+    }
 
 
 # ── Shared scanner state (cross-worker) ──────────────────────────────────────

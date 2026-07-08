@@ -136,3 +136,68 @@ def fetch_ohlcv(pool_address: str, chain: str, timeframe: str, limit: int = 200,
     if df is None or len(df) == 0:
         return None
     return df.tail(limit).reset_index(drop=True)
+
+
+def fetch_trades(pool_address: str, chain: str, min_volume_usd: float = 0.0) -> list:
+    """
+    Recent trades for a pool (GeckoTerminal returns up to the last ~300 trades
+    from the past 24h). Each trade includes the wallet address that sent the
+    tx — the raw material for smart-money tracking.
+
+    Returns a list of normalized dicts, newest first:
+      {trade_key, tx_hash, wallet, side ('buy'|'sell'), amount_usd,
+       price_usd, block_ts (ISO, naive UTC)}
+    """
+    if not pool_address:
+        return []
+    net = network_id(chain)
+    url = f"{_BASE}/networks/{net}/pools/{pool_address}/trades"
+    params = {}
+    if min_volume_usd:
+        params["trade_volume_in_usd_greater_than"] = min_volume_usd
+    try:
+        for attempt in range(_RATE_LIMIT_RETRIES + 1):
+            r = requests.get(url, params=params, headers=_HEADERS, timeout=_TIMEOUT)
+            if r.status_code != 429:
+                break
+            if attempt < _RATE_LIMIT_RETRIES:
+                time.sleep(_RATE_LIMIT_BACKOFF * (attempt + 1))
+        if r.status_code != 200:
+            logger.warning("GeckoTerminal trades %s/%s -> HTTP %s",
+                           net, pool_address, r.status_code)
+            return []
+        rows = (r.json().get("data")) or []
+    except Exception as e:
+        logger.warning("GeckoTerminal trades fetch failed (%s/%s): %s",
+                       net, pool_address, e)
+        return []
+
+    out = []
+    for row in rows:
+        a = row.get("attributes") or {}
+        wallet = (a.get("tx_from_address") or "").strip()
+        side = a.get("kind")
+        if not wallet or side not in ("buy", "sell"):
+            continue
+        try:
+            usd = float(a.get("volume_in_usd") or 0.0)
+        except (TypeError, ValueError):
+            usd = 0.0
+        # Base-token USD price at trade time: for a buy the base token is the
+        # "to" side, for a sell it's the "from" side.
+        raw_price = a.get("price_to_in_usd") if side == "buy" else a.get("price_from_in_usd")
+        try:
+            price_usd = float(raw_price) if raw_price is not None else None
+        except (TypeError, ValueError):
+            price_usd = None
+        block_ts = (a.get("block_timestamp") or "").replace("Z", "").replace(" ", "T")
+        out.append({
+            "trade_key": row.get("id") or f"{a.get('tx_hash')}_{block_ts}",
+            "tx_hash":   a.get("tx_hash"),
+            "wallet":    wallet.lower() if wallet.startswith("0x") else wallet,
+            "side":      side,
+            "amount_usd": usd,
+            "price_usd": price_usd,
+            "block_ts":  block_ts,
+        })
+    return out

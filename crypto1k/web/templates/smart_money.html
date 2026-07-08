@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Smart Money — Signal Analyzer</title>
+        <style>
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            :root {
+                --bg: #0d0f14;
+                --surface: #161a23;
+                --surface2: #1b212c;
+                --border: #2a3040;
+                --text: #e2e8f0;
+                --muted: #64748b;
+                --accent: #6366f1;
+                --green: #16a34a;
+                --red: #dc2626;
+                --amber: #f59e0b;
+                --blue: #38bdf8;
+            }
+            body {
+                background: var(--bg);
+                color: var(--text);
+                font-family: "Inter", system-ui, sans-serif;
+                font-size: 14px;
+                padding-bottom: 60px;
+            }
+            a {
+                color: inherit;
+            }
+            header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 22px;
+                border-bottom: 1px solid var(--border);
+                background: var(--surface);
+            }
+            header h1 {
+                font-size: 17px;
+                font-weight: 700;
+            }
+            header .links {
+                display: flex;
+                gap: 18px;
+                font-size: 13px;
+            }
+            header .links a {
+                color: var(--muted);
+                text-decoration: none;
+            }
+            header .links a:hover {
+                color: var(--text);
+            }
+            .wrap {
+                max-width: 1180px;
+                margin: 0 auto;
+                padding: 22px;
+            }
+            .panel {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 18px;
+                margin-bottom: 18px;
+            }
+            .panel h2 {
+                font-size: 13px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: var(--muted);
+                margin-bottom: 14px;
+            }
+            button {
+                font-family: inherit;
+                cursor: pointer;
+                border: none;
+                border-radius: 7px;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 8px 14px;
+                transition: opacity 0.15s;
+            }
+            button:hover {
+                opacity: 0.85;
+            }
+            button:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+            }
+            .btn-primary {
+                background: var(--accent);
+                color: #fff;
+            }
+            .btn-ghost {
+                background: var(--surface2);
+                color: var(--text);
+                border: 1px solid var(--border);
+            }
+            .btn-mini {
+                padding: 3px 9px;
+                font-size: 11px;
+            }
+            input {
+                padding: 9px 12px;
+                background: #0d0f14;
+                border: 1px solid var(--border);
+                border-radius: 7px;
+                color: var(--text);
+                font-size: 14px;
+            }
+            input:focus {
+                outline: none;
+                border-color: var(--accent);
+            }
+            /* overview stats */
+            .stats {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 26px;
+                align-items: center;
+            }
+            .stat {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .stat .label {
+                font-size: 11px;
+                color: var(--muted);
+                text-transform: uppercase;
+            }
+            .stat .value {
+                font-size: 17px;
+                font-weight: 700;
+            }
+            .spacer {
+                flex: 1;
+            }
+            /* add-wallet row */
+            .add-row {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+            .add-row input.addr {
+                flex: 2;
+                min-width: 260px;
+            }
+            .add-row input.small {
+                flex: 1;
+                min-width: 120px;
+            }
+            /* tables */
+            .table-wrap {
+                width: 100%;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 13px;
+            }
+            th {
+                text-align: left;
+                color: var(--muted);
+                font-weight: 500;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+                padding: 8px 10px;
+                border-bottom: 1px solid var(--border);
+                white-space: nowrap;
+            }
+            td {
+                padding: 9px 10px;
+                border-bottom: 1px solid var(--border);
+                vertical-align: middle;
+                white-space: nowrap;
+            }
+            tr.row:hover {
+                background: var(--surface2);
+            }
+            .num {
+                font-variant-numeric: tabular-nums;
+            }
+            .pos {
+                color: var(--green);
+            }
+            .neg {
+                color: var(--red);
+            }
+            .sub {
+                color: var(--muted);
+                font-size: 11px;
+            }
+            .empty {
+                color: var(--muted);
+                font-size: 13px;
+            }
+            .mono {
+                font-family: ui-monospace, "SF Mono", Menlo, monospace;
+                font-size: 12px;
+            }
+            .badge {
+                display: inline-block;
+                padding: 2px 8px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            .badge.buy {
+                background: rgba(22, 163, 74, 0.18);
+                color: #4ade80;
+            }
+            .badge.sell {
+                background: rgba(220, 38, 38, 0.18);
+                color: #f87171;
+            }
+            .badge.smart {
+                background: rgba(99, 102, 241, 0.18);
+                color: #a5b4fc;
+            }
+            .badge.manual {
+                background: rgba(56, 189, 248, 0.16);
+                color: #7dd3fc;
+            }
+            .badge.auto {
+                background: rgba(245, 158, 11, 0.16);
+                color: #fbbf24;
+            }
+            #msg {
+                font-size: 13px;
+                margin-left: 8px;
+            }
+            .loading {
+                color: var(--amber);
+            }
+            .wallet-trades td {
+                background: #10141c;
+            }
+            .wallet-trades ul {
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 5px;
+                padding: 6px 2px;
+            }
+            .caret {
+                cursor: pointer;
+                color: var(--muted);
+                user-select: none;
+            }
+            .doc-note {
+                font-size: 13px;
+                color: #cbd5e1;
+                line-height: 1.55;
+                margin-bottom: 12px;
+                padding: 10px 12px;
+                background: var(--surface2);
+                border-left: 3px solid var(--accent);
+                border-radius: 6px;
+            }
+            @media (max-width: 640px) {
+                header {
+                    padding: 12px 14px;
+                    flex-wrap: wrap;
+                    gap: 6px 14px;
+                }
+                header h1 {
+                    font-size: 15px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>🧠 Smart Money</h1>
+            <div class="links">
+                <a href="/symbol/BTC">Analyzer</a>
+                <a href="/scanner">Scanner</a>
+                <a href="/smart-money">Smart Money</a>
+                <a href="/logout">Logout</a>
+            </div>
+        </header>
+
+        <div class="wrap">
+            <!-- Overview -->
+            <div class="panel">
+                <h2>Overview</h2>
+                <div class="stats">
+                    <div class="stat">
+                        <span class="label">Whale trades recorded</span>
+                        <span class="value" id="stTrades">—</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Wallets seen</span>
+                        <span class="value" id="stWallets">—</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Buys scored</span>
+                        <span class="value" id="stScored">—</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Tracked (manual)</span>
+                        <span class="value" id="stManual">—</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Auto-qualified</span>
+                        <span class="value" id="stAuto">—</span>
+                    </div>
+                    <div class="spacer"></div>
+                    <button class="btn-ghost" id="backfillBtn">
+                        Score pending buys now
+                    </button>
+                </div>
+                <div style="margin-top: 8px"><span id="msg"></span></div>
+            </div>
+
+            <!-- Track a wallet manually -->
+            <div class="panel">
+                <h2>Track a wallet</h2>
+                <div class="add-row">
+                    <input class="addr" id="walletAddr"
+                        placeholder="Wallet address (0x… or Solana address)" />
+                    <input class="small" id="walletChain"
+                        placeholder="Chain (optional, e.g. solana)" />
+                    <input class="small" id="walletLabel"
+                        placeholder="Label (optional, e.g. gmgn top #3)" />
+                    <button class="btn-primary" id="walletAdd">Track</button>
+                </div>
+                <p class="sub" style="margin-top: 8px">
+                    Paste wallets you found on GMGN / Birdeye / Solscan — their
+                    trades on watched pools will show in the feed and can fire
+                    scanner alerts.
+                </p>
+            </div>
+
+            <!-- Movements feed -->
+            <div class="panel">
+                <h2>Smart Money Movements</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>When</th>
+                                <th>Wallet</th>
+                                <th>Action</th>
+                                <th>Coin</th>
+                                <th>Amount</th>
+                                <th>Price</th>
+                                <th>+1h</th>
+                                <th>+24h</th>
+                            </tr>
+                        </thead>
+                        <tbody id="feedBody">
+                            <tr><td colspan="8" class="empty" style="padding: 18px; text-align: center">
+                                No movements yet — smart wallets appear here once
+                                the scanner records trades and wallets qualify
+                                (or you track some manually above).
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Wallet leaderboard -->
+            <div class="panel">
+                <h2>Wallet Leaderboard — every whale seen on watched pools</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Wallet</th>
+                                <th>Status</th>
+                                <th>Buys</th>
+                                <th>Scored</th>
+                                <th>Win rate</th>
+                                <th>Avg +1h</th>
+                                <th>Avg +24h</th>
+                                <th>Volume</th>
+                                <th>Coins</th>
+                                <th>Last seen</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="lbBody">
+                            <tr><td colspan="12" class="empty" style="padding: 18px; text-align: center">
+                                No whale trades recorded yet — run the scanner
+                                with a watchlist and this fills up on its own.
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- How it works -->
+            <div class="panel">
+                <h2>How this works</h2>
+                <p class="doc-note">
+                    Every scan also pulls the <b>individual trades</b> (with
+                    wallet addresses) for coins that score well. Whale-sized
+                    trades are recorded; each <b>buy is scored 1 h and 24 h
+                    later</b> from on-chain candles. A wallet whose buys keep
+                    preceding pumps <b>auto-qualifies as smart money</b> — from
+                    then on, its buys add a score bonus in the scanner and can
+                    fire a 🧠 <b>smart alert</b> on their own.
+                </p>
+                <p class="doc-note">
+                    <b>Coverage:</b> wallets are observed on the pools your
+                    scanner watches (watchlist + alerted coins) — not globally
+                    across every chain. Add wallets you trust manually to widen
+                    the net.
+                </p>
+            </div>
+        </div>
+
+        <script src="/static/smart_money.js"></script>
+    </body>
+</html>

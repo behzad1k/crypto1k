@@ -14,7 +14,7 @@ import pandas as pd
 import requests
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
-from crypto1k.core import db, evaluation, outcomes, scanner
+from crypto1k.core import db, evaluation, outcomes, scanner, smart_money
 from crypto1k.core.scalp_signal_analyzer import ScalpSignalAnalyzer
 from crypto1k.notify import emailer, telegram_notify
 from crypto1k.config.scanner_config import MONITOR
@@ -106,6 +106,70 @@ def symbol_page(symbol):
 @login_required
 def scanner_page():
     return render_template("scanner.html")
+
+
+@app.route("/smart-money")
+@login_required
+def smart_money_page():
+    return render_template("smart_money.html")
+
+
+# ── Smart Money API ───────────────────────────────────────────────────────────
+
+
+@app.route("/api/smart-money/overview")
+@login_required
+def smart_money_overview():
+    return jsonify({"success": True, **smart_money.overview()})
+
+
+@app.route("/api/smart-money/feed")
+@login_required
+def smart_money_feed():
+    limit = int(request.args.get("limit", 100))
+    return jsonify({"success": True, "feed": smart_money.feed(limit)})
+
+
+@app.route("/api/smart-money/wallets", methods=["GET", "POST"])
+@login_required
+def smart_money_wallets():
+    if request.method == "POST":
+        data = request.get_json() or {}
+        address = (data.get("address") or "").strip()
+        if not address:
+            return jsonify({"success": False, "error": "address is required"}), 400
+        smart_money.add_wallet(
+            address, (data.get("chain") or "").strip(), (data.get("label") or "").strip() or None
+        )
+        return jsonify({"success": True})
+    min_buys = int(request.args.get("min_buys", 2))
+    return jsonify(
+        {"success": True, "wallets": smart_money.leaderboard(min_buys=min_buys)}
+    )
+
+
+@app.route("/api/smart-money/wallets/<address>", methods=["DELETE"])
+@login_required
+def smart_money_wallet_remove(address):
+    smart_money.remove_wallet(address, request.args.get("chain", ""))
+    return jsonify({"success": True})
+
+
+@app.route("/api/smart-money/wallet/<address>")
+@login_required
+def smart_money_wallet_detail(address):
+    return jsonify({"success": True, **smart_money.wallet_detail(address)})
+
+
+@app.route("/api/smart-money/backfill", methods=["POST"])
+@login_required
+def smart_money_backfill():
+    """Score pending whale buys now (normally the monitor does this)."""
+    data = request.get_json() or {}
+    result = smart_money.backfill_trade_outcomes(
+        max_pools=int(data.get("max_pools", 8))
+    )
+    return jsonify({"success": True, **result})
 
 
 # ── Scanner API ───────────────────────────────────────────────────────────────

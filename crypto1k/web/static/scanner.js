@@ -133,9 +133,15 @@ function renderResults(results) {
       return;
     }
     const m = r.metrics || {};
+    const sm = r.smart_money;
     const flags = [];
-    if (r.is_alert) flags.push('<span class="alert-tag">ALERT</span>');
+    if (r.is_alert) flags.push('<span class="alert-tag">ALERT' + (r.alert_path === 'smart' ? ' 🧠' : '') + '</span>');
+    if (sm && sm.smart_buys > 0)
+      flags.push(`<span class="smart-tag" title="tracked smart wallet bought ${fmtUsd(sm.smart_buy_usd)} in last ${sm.lookback_minutes}m">🧠 smart $</span>`);
+    else if (sm && Math.abs(sm.net_flow_usd) >= 5000)
+      flags.push(`<span class="whale-tag ${sm.net_flow_usd > 0 ? 'pos' : 'neg'}" title="whale net flow over last ${sm.lookback_minutes}m (trades ≥ ${fmtUsd(sm.min_trade_usd)})">🐳 ${sm.net_flow_usd > 0 ? '+' : ''}${fmtUsd(sm.net_flow_usd)}</span>`);
     if (r.wash_warning) flags.push('<span class="wash-tag">wash?</span>');
+    if (r.thin_exit_warning) flags.push(`<span class="wash-tag" title="liquidity is only ${m.liq_mcap_pct}% of market cap — exit door is thin">thin exit</span>`);
     if (!r.passes_filters) flags.push(`<span class="sub" title="${(r.filter_fails||[]).join('; ')}">filtered</span>`);
 
     const row = document.createElement('tr');

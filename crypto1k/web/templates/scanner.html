@@ -342,6 +342,21 @@
                 border-radius: 5px;
                 font-size: 10px;
             }
+            .smart-tag {
+                background: rgba(99, 102, 241, 0.18);
+                color: #a5b4fc;
+                padding: 2px 7px;
+                border-radius: 5px;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            .whale-tag {
+                background: var(--surface2);
+                border: 1px solid var(--border);
+                padding: 2px 7px;
+                border-radius: 5px;
+                font-size: 10px;
+            }
 
             /* Horizontal-scroll safety net so a wide table never breaks layout */
             .table-wrap {
@@ -551,6 +566,7 @@
             <div class="links">
                 <a href="/symbol/BTC">Analyzer</a>
                 <a href="/scanner">Scanner</a>
+                <a href="/smart-money">Smart Money</a>
                 <a href="/logout">Logout</a>
             </div>
         </header>
@@ -719,12 +735,33 @@
                                 <li>merely passes filters → 0.5 pt</li>
                             </ul>
                         </div>
+                        <div class="doc-card">
+                            <div class="doc-card-title">
+                                Smart money <span class="doc-pts">bonus, max 1.5</span>
+                            </div>
+                            <ul>
+                                <li>a tracked smart wallet bought (last 60m) → +1.5 pts and can fire a 🧠 alert on its own</li>
+                                <li>whale net flow ≥ +$20K in 60m → +1.0 pt; ≥ +$5K → +0.5 pt</li>
+                                <li>single whale buy ≥ $2.5K → +0.5 pt</li>
+                                <li>whale = trades ≥ $500; wallets are auto-promoted to "smart" when ≥5 scored buys hit ≥55% win rate (+5% in 1h or +10% in 24h) — see the Smart Money page</li>
+                            </ul>
+                        </div>
+                        <div class="doc-card">
+                            <div class="doc-card-title">
+                                Market structure <span class="doc-pts">info + caps</span>
+                            </div>
+                            <ul>
+                                <li>24h volume ≥ 2× market cap → "actively traded" signal (≥5× = strong)</li>
+                                <li>liquidity &lt; 3% of market cap → ⚠️ thin exit door: score capped at 6.0 and flagged — you can't get out without moving the price</li>
+                            </ul>
+                        </div>
                     </div>
 
                     <p class="doc-note">
                         <b>Wash-trade cap:</b> if 24h volume ÷ liquidity ≥ 75×,
                         the score is capped at 6.0 (GOOD) and flagged
-                        regardless of the raw total.
+                        regardless of the raw total. The same cap applies when
+                        liquidity is under 3% of market cap (thin exit).
                     </p>
 
                     <div class="doc-badges">

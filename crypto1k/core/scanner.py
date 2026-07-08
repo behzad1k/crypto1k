@@ -20,7 +20,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from crypto1k.core import db, digest
+from crypto1k.core import db, digest, smart_money
 from crypto1k.data import btc_market, dexscreener
 from crypto1k.notify import emailer, telegram_notify
 from crypto1k.config.scanner_config import (
@@ -95,12 +95,20 @@ def evaluate(pair: dict) -> dict:
     turnover    = round((vol['h24'] or 0.0) / liq, 1) if liq > 0 else None
     age_h       = _age_hours(pair['pair_created_at'])
 
+    # Market-structure ratios (mcap falls back to FDV — micro-caps often only
+    # report one of the two on DexScreener).
+    mcap = pair['market_cap'] or pair['fdv']
+    vol_mcap_24h = round((vol['h24'] or 0.0) / mcap, 2) if mcap else None
+    liq_mcap_pct = round(liq / mcap * 100, 2) if mcap else None
+
     metrics = {
         'vol_pace_1h':  vol_pace_1h,
         'vol_pace_5m':  vol_pace_5m,
         'txns_1h':      txns_1h,
         'buy_ratio_1h': buy_ratio,
         'turnover':     turnover,
+        'vol_mcap_24h': vol_mcap_24h,
+        'liq_mcap_pct': liq_mcap_pct,
         'age_hours':    round(age_h, 1) if age_h is not None else None,
     }
 
@@ -122,6 +130,10 @@ def evaluate(pair: dict) -> dict:
     passes_filters = not filter_fails
 
     wash_warning = (turnover is not None and turnover >= FILTERS['wash_turnover_ratio'])
+    # Exit-door check: liquidity too shallow relative to the market cap means
+    # nobody can actually realize the valuation — sells crater the price.
+    thin_exit_warning = (liq_mcap_pct is not None
+                         and liq_mcap_pct < FILTERS['min_liq_to_mcap_pct'])
 
     # ── Signals + scoring ────────────────────────────────────────────────────
     signals = []
@@ -213,8 +225,23 @@ def evaluate(pair: dict) -> dict:
         apts = SCORING['max_activity'] * 0.5
     score += apts
 
-    # Wash-trade caution caps the score
-    if wash_warning:
+    # (5) Market structure — informational signals (no extra points, but the
+    # exit-risk one caps the score just like the wash-trade check).
+    if vol_mcap_24h is not None and vol_mcap_24h >= THRESHOLDS['vol_mcap_strong']:
+        signals.append(_sig('vol_vs_mcap', 'structure', mom_dir,
+            f"24h volume is {vol_mcap_24h}× the market cap — the entire valuation "
+            f"is trading hands, real participation", vol_mcap_24h))
+    elif vol_mcap_24h is not None and vol_mcap_24h >= THRESHOLDS['vol_mcap_notable']:
+        signals.append(_sig('vol_vs_mcap', 'structure', mom_dir,
+            f"24h volume is {vol_mcap_24h}× the market cap — actively traded", vol_mcap_24h))
+    if thin_exit_warning:
+        signals.append(_sig('exit_liquidity_risk', 'structure', 'bearish',
+            f"liquidity is only {liq_mcap_pct}% of market cap "
+            f"(< {FILTERS['min_liq_to_mcap_pct']}%) — exit door is thin, sells "
+            f"will crater the price", liq_mcap_pct))
+
+    # Wash-trade / thin-exit caution caps the score
+    if wash_warning or thin_exit_warning:
         score = min(score, SCORING['label_good'])
 
     score = round(min(score, 10.0), 1)
@@ -287,6 +314,7 @@ def evaluate(pair: dict) -> dict:
         'passes_filters': passes_filters,
         'filter_fails':   filter_fails,
         'wash_warning':   wash_warning,
+        'thin_exit_warning': thin_exit_warning,
         'is_alert':       is_alert,
         'alert_path':     ('fast' if fast_alert and not standard_alert
                            else 'standard' if is_alert else None),
@@ -321,6 +349,9 @@ def build_summary(r: dict) -> str:
     if r.get('alert_path') == 'fast':
         parts.append("⚡ Early catch: extreme 5-minute spike — volume, price and "
                      "order flow all agree, alerted before the 1h stats caught up.")
+    elif r.get('alert_path') == 'smart':
+        parts.append("🧠 Smart-money alert: a tracked winning wallet just bought "
+                     "this coin.")
 
     if m['vol_pace_1h'] >= THRESHOLDS['vol_pace_1h_notable']:
         parts.append(
@@ -352,6 +383,21 @@ def build_summary(r: dict) -> str:
     if r['wash_warning']:
         parts.append("⚠️ Very high volume-to-liquidity ratio — possible wash trading, treat with caution.")
 
+    if r.get('thin_exit_warning'):
+        parts.append(f"⚠️ Thin exit: liquidity is only {m.get('liq_mcap_pct')}% of "
+                     f"market cap — large sells will move the price hard.")
+
+    sm = r.get('smart_money')
+    if sm:
+        if sm.get('smart_buys'):
+            parts.append(f"🧠 Smart money: {sm['smart_buys']} tracked wallet buy(s) "
+                         f"in the last {sm['lookback_minutes']}m (${sm['smart_buy_usd']:,.0f}).")
+        if sm.get('net_flow_usd'):
+            flow = sm['net_flow_usd']
+            parts.append(f"🐳 Whale net flow {'+' if flow >= 0 else ''}${flow:,.0f} over "
+                         f"{sm['lookback_minutes']}m ({sm['buyers']} buyers / {sm['sellers']} sellers "
+                         f"≥ ${sm['min_trade_usd']:,.0f}).")
+
     return ' '.join(parts)
 
 
@@ -360,6 +406,7 @@ def build_summary(r: dict) -> str:
 def scan_symbols(symbols: list) -> list:
     """Resolve + evaluate each symbol. Returns results sorted best-first."""
     results = []
+    smart_money.begin_cycle()  # reset the per-cycle trades-fetch budget
     for sym in symbols:
         try:
             pair = dexscreener.resolve_symbol(sym)
@@ -367,7 +414,13 @@ def scan_symbols(symbols: list) -> list:
                 results.append({'symbol': sym.upper(), 'error': 'not found on DexScreener',
                                 'score': 0, 'is_alert': False, 'passes_filters': False})
             else:
-                results.append(evaluate(pair))
+                r = evaluate(pair)
+                r = smart_money.enrich(r)
+                if r.get('smart_money'):
+                    # Enrichment may have bumped score / direction / alert.
+                    r['label'] = _label(r['score'])
+                    r['summary'] = build_summary(r)
+                results.append(r)
         except Exception as e:
             logger.warning(f'Scan failed for {sym}: {e}')
             results.append({'symbol': str(sym).upper(), 'error': str(e),
@@ -494,6 +547,9 @@ def _monitor_loop():
             # Daily 24h-outcome digest — runs even while scanning is paused,
             # since past alerts still deserve their scorecard.
             digest.maybe_send_daily_digest()
+            # Score pending whale buys (throttled internally) so wallet
+            # win-rates keep accruing even between scans.
+            smart_money.maybe_backfill()
         except Exception as e:
             logger.warning(f'Monitor cycle error: {e}')
         # Poll the shared flag frequently so start/stop feel responsive.

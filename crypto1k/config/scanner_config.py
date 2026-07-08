@@ -83,6 +83,10 @@ FILTERS = {
     # Wash-trade sanity: volume/liquidity above this is suspicious but NOT
     # auto-rejected — it only caps the score and adds a warning to the email.
     "wash_turnover_ratio": 75.0,  # vol_24h / liquidity
+    # Exit-door sanity: liquidity as a % of market cap. Below this, the pool is
+    # too shallow relative to the token's valuation — you (or any holder) can't
+    # exit without cratering the price. Warning + score cap, not a hard gate.
+    "min_liq_to_mcap_pct": 3.0,
 }
 
 
@@ -109,6 +113,12 @@ THRESHOLDS = {
     #     before the rolling 1h window has caught up) ---
     "price_move_5m_notable": 1.5,
     "price_move_5m_strong": 3.0,
+    # --- Volume vs market cap (is the whole valuation actually trading?) ---
+    # 24h volume as a multiple of market cap. High = the move is being actively
+    # traded, not a few prints in a thin pool. Meme coins in a real trend
+    # commonly run 2–10× mcap in a day.
+    "vol_mcap_notable": 2.0,
+    "vol_mcap_strong": 5.0,
 }
 
 
@@ -121,6 +131,9 @@ SCORING = {
     "max_momentum": 3.0,  # price move + multi-window alignment
     "max_buy_pressure": 2.0,
     "max_activity": 1.0,  # liquidity + trade-count health
+    # Smart-money bonus (added on top by the enrichment pass, total still
+    # clamped at 10): whale net flow and tracked-smart-wallet buys.
+    "max_smart_money": 1.5,
     # Score → label bands (out of 10)
     "label_strong": 8.0,
     "label_good": 6.0,
@@ -216,4 +229,65 @@ BTC_IMPACT = {
         "enabled": False,
         "min_regime_score": 3.5,
     },
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10. SMART MONEY  —  whale trades + tracked-wallet movements
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Data source: GeckoTerminal's per-pool trades endpoint (free, keyless) — every
+# trade includes the buyer/seller wallet address. We record whale-sized trades
+# on the pools the scanner watches, score each buy 1h/24h later from OHLCV
+# candles, and auto-promote wallets whose buys consistently precede pumps.
+# Coverage note: we see wallets on WATCHED pools only, not their activity on
+# pools we never scan — that's the trade-off of staying keyless and free.
+#
+SMART_MONEY = {
+    "enabled": True,
+
+    # --- What counts as a whale trade (recorded + analyzed) ---
+    "min_trade_usd": 500.0,     # ignore dust; meme-coin whale threshold
+    "big_trade_usd": 2_500.0,   # single print this size gets its own signal
+
+    # --- Per-coin enrichment during a scan ---
+    "lookback_minutes": 60,        # window for whale net-flow metrics
+    "min_score_to_fetch": 4.0,     # only enrich coins already worth a look
+    "cache_ttl_seconds": 240,      # per-pool trade cache (rate-limit shield)
+    "max_fetch_per_cycle": 6,      # GeckoTerminal free tier is ~30 req/min
+    "per_request_pause": 2.2,      # polite pause after each trades fetch
+
+    # --- Signal thresholds ---
+    "net_flow_notable_usd": 5_000.0,   # |whale buys - sells| in the window
+    "net_flow_strong_usd": 20_000.0,
+
+    # --- Score bonus split (capped at SCORING['max_smart_money']) ---
+    "pts_net_flow_notable": 0.5,
+    "pts_net_flow_strong": 1.0,
+    "pts_big_trade": 0.5,
+    "pts_smart_wallet_buy": 1.5,   # a tracked winner bought — the whole bonus
+
+    # --- Alerting: a smart-wallet buy can fire an alert on its own ---
+    # (third alert path next to 'standard' and 'fast'; still requires the coin
+    # to pass filters and not be a wash-trading suspect)
+    "alert_on_smart_wallet_buy": True,
+
+    # --- Auto-qualification: when does a wallet become "smart money"? ---
+    # A wallet's buys are scored 1h/24h later; a buy is a WIN if the price is
+    # up by either threshold. Enough scored buys + a high win rate = promoted.
+    "qualify": {
+        "min_scored_buys": 5,
+        "min_win_rate": 0.55,
+        "win_ret_1h_pct": 5.0,     # +5% one hour after the buy, or…
+        "win_ret_24h_pct": 10.0,   # …+10% within a day
+    },
+
+    # --- Outcome backfill (piggybacks on the monitor loop) ---
+    "backfill_every_minutes": 15,
+    "backfill_max_pools": 4,        # one OHLCV fetch per pool per run
+    "min_trade_age_minutes": 70,    # 1h return must be observable
+    "give_up_after_hours": 48,      # dead pool: stop retrying, mark complete
+
+    # --- Feed / UI ---
+    "feed_limit": 100,
 }
