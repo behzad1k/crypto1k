@@ -112,6 +112,11 @@ def send_alert(r: dict) -> bool:
     ) or '<li>No individual signals fired.</li>'
 
     m = r['metrics']
+    # Emoji, not the Phosphor icons the web UI uses: mail clients are hostile
+    # to SVG (Gmail strips <svg> outright) and to webfonts, so an icon set that
+    # renders in the browser would arrive here as a blank space. Emoji is the
+    # only glyph system that survives every client, including the plain-text
+    # alternative part below.
     html = f"""\
 <div style="font-family:Inter,Arial,sans-serif;max-width:620px;color:#1a1a1a">
   <h2 style="margin:0 0 4px">🚨 {r['symbol']} — unusual volume detected</h2>

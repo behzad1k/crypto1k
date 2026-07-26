@@ -62,13 +62,14 @@ $('backfillBtn').onclick = async () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
     });
     $('msg').className = d.success ? 'pos' : 'neg';
-    $('msg').textContent = d.success
-      ? `✓ ${d.pools} pool(s) processed, ${d.scored} buy(s) scored.`
-      : '✗ backfill failed';
+    // innerHTML, not textContent: the status icon is markup.
+    $('msg').innerHTML = d.success
+      ? icon('check-circle', 'ph-pos') + ` ${escapeAttr(d.pools)} pool(s) processed, ${escapeAttr(d.scored)} buy(s) scored.`
+      : icon('x-circle', 'ph-neg') + ' backfill failed';
     refreshAll();
   } catch (e) {
     $('msg').className = 'neg';
-    $('msg').textContent = '✗ ' + e;
+    $('msg').innerHTML = icon('x-circle', 'ph-neg') + ' ' + escapeAttr(e);
   } finally {
     $('backfillBtn').disabled = false;
   }
@@ -122,7 +123,7 @@ async function loadLeaderboard() {
   d.wallets.forEach((w, i) => {
     const status = w.manually_tracked
       ? `<span class="badge manual">${w.manual_source === 'auto' ? 'AUTO' : 'TRACKED'}</span>`
-      : w.is_smart ? '<span class="badge auto">AUTO ✓</span>'
+      : w.is_smart ? `<span class="badge auto">AUTO ${icon('check-circle')}</span>`
       : '<span class="sub">observed</span>';
     const trackBtn = w.manually_tracked
       ? `<button class="btn-ghost btn-mini" data-untrack="${w.wallet}" data-chain="${w.chain||''}">untrack</button>`

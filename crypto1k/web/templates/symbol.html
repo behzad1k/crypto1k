@@ -1278,6 +1278,7 @@
         </style>
     </head>
     <body>
+        {% include "_icons.html" %}
         <!-- Header -->
         <header>
             <div class="header-left">
@@ -1297,8 +1298,8 @@
                 class="header-right"
                 style="display: flex; align-items: center; gap: 16px"
             >
-                <a href="/scanner" class="logout-link">📡 Scanner</a>
-                <a href="/smart-money" class="logout-link">🧠 Smart Money</a>
+                <a href="/scanner" class="logout-link"><svg class="ph" aria-hidden="true"><use href="#ph-broadcast"/></svg> Scanner</a>
+                <a href="/smart-money" class="logout-link"><svg class="ph" aria-hidden="true"><use href="#ph-brain"/></svg> Smart Money</a>
                 <a href="/logout" class="logout-link">Logout</a>
             </div>
         </header>
@@ -1365,7 +1366,7 @@
 
             <!-- Empty -->
             <div id="emptyState">
-                <div class="empty-icon">📊</div>
+                <div class="empty-icon"><svg class="ph ph-xl" aria-hidden="true"><use href="#ph-chart-bar"/></svg></div>
                 <p>
                     Select a horizon and click Analyze to run signal detection
                 </p>
@@ -1400,7 +1401,7 @@
                 <div id="liqPanel">
                     <div class="liq-header">
                         <span class="liq-header-label"
-                            >⚡ Liquidation Clusters</span
+                            ><svg class="ph" aria-hidden="true"><use href="#ph-lightning"/></svg> Liquidation Clusters</span
                         >
                         <span class="liq-header-meta" id="liqHeaderMeta"></span>
                     </div>
@@ -1416,6 +1417,7 @@
             </div>
         </main>
 
+        <script src="/static/icons.js"></script>
         <script src="/static/symbol.js"></script>
     </body>
 </html>

@@ -282,8 +282,9 @@
         </style>
     </head>
     <body>
+        {% include "_icons.html" %}
         <header>
-            <h1>🧠 Smart Money</h1>
+            <h1><svg class="ph" aria-hidden="true"><use href="#ph-brain"/></svg> Smart Money</h1>
             <div class="links">
                 <a href="/symbol/BTC">Analyzer</a>
                 <a href="/scanner">Scanner</a>
@@ -413,7 +414,7 @@
                     later</b> from on-chain candles. A wallet whose buys keep
                     preceding pumps <b>auto-qualifies as smart money</b> — from
                     then on, its buys add a score bonus in the scanner and can
-                    fire a 🧠 <b>smart alert</b> on their own.
+                    fire a <svg class="ph" aria-hidden="true"><use href="#ph-brain"/></svg> <b>smart alert</b> on their own.
                 </p>
                 <p class="doc-note">
                     <b>Coverage:</b> wallets are observed on the pools your
@@ -424,6 +425,7 @@
             </div>
         </div>
 
+        <script src="/static/icons.js"></script>
         <script src="/static/smart_money.js"></script>
     </body>
 </html>

@@ -62,8 +62,11 @@ $('testEmailBtn').onclick = async () => {
   $('msg').className = 'loading';
   const d = await api('/api/scanner/test-email', { method:'POST' });
   $('msg').className = d.success ? 'pos' : 'neg';
-  $('msg').textContent = d.success ? `✓ Test email sent to ${d.recipients} recipient(s).`
-                                   : `✗ ${d.message}`;
+  // innerHTML, not textContent: the status icon is markup. Everything
+  // interpolated from the API is escaped first.
+  $('msg').innerHTML = d.success
+    ? icon('check-circle', 'ph-pos') + ` Test email sent to ${escapeAttr(d.recipients)} recipient(s).`
+    : icon('x-circle', 'ph-neg') + ` ${escapeAttr(d.message)}`;
 };
 
 // ── watchlist ───────────────────────────────────────────────────────────────
@@ -135,11 +138,11 @@ function renderResults(results) {
     const m = r.metrics || {};
     const sm = r.smart_money;
     const flags = [];
-    if (r.is_alert) flags.push('<span class="alert-tag">ALERT' + (r.alert_path === 'smart' ? ' 🧠' : '') + '</span>');
+    if (r.is_alert) flags.push('<span class="alert-tag">ALERT' + (r.alert_path === 'smart' ? ' ' + icon('brain') : '') + '</span>');
     if (sm && sm.smart_buys > 0)
-      flags.push(`<span class="smart-tag" title="tracked smart wallet bought ${fmtUsd(sm.smart_buy_usd)} in last ${sm.lookback_minutes}m">🧠 smart $</span>`);
+      flags.push(`<span class="smart-tag" title="tracked smart wallet bought ${fmtUsd(sm.smart_buy_usd)} in last ${sm.lookback_minutes}m">${icon('brain')} smart $</span>`);
     else if (sm && Math.abs(sm.net_flow_usd) >= 5000)
-      flags.push(`<span class="whale-tag ${sm.net_flow_usd > 0 ? 'pos' : 'neg'}" title="whale net flow over last ${sm.lookback_minutes}m (trades ≥ ${fmtUsd(sm.min_trade_usd)})">🐳 ${sm.net_flow_usd > 0 ? '+' : ''}${fmtUsd(sm.net_flow_usd)}</span>`);
+      flags.push(`<span class="whale-tag ${sm.net_flow_usd > 0 ? 'pos' : 'neg'}" title="whale net flow over last ${sm.lookback_minutes}m (trades ≥ ${fmtUsd(sm.min_trade_usd)})">${icon('fish')} ${sm.net_flow_usd > 0 ? '+' : ''}${fmtUsd(sm.net_flow_usd)}</span>`);
     if (r.wash_warning) flags.push('<span class="wash-tag">wash?</span>');
     if (r.thin_exit_warning) flags.push(`<span class="wash-tag" title="liquidity is only ${m.liq_mcap_pct}% of market cap — exit door is thin">thin exit</span>`);
     if (!r.passes_filters) flags.push(`<span class="sub" title="${(r.filter_fails||[]).join('; ')}">filtered</span>`);
@@ -170,7 +173,7 @@ function renderResults(results) {
        <span class="dir-${s.direction}">(${s.direction})</span> — ${s.detail}</li>`).join('')
        || '<li class="sub">No individual signals fired.</li>';
     sig.innerHTML = `<td></td><td colspan="10">
-       <div class="summary">${r.summary || ''}</div><ul>${items}</ul></td>`;
+       <div class="summary">${iconifySummary(r.summary)}</div><ul>${items}</ul></td>`;
     body.appendChild(sig);
 
     row.querySelector('.caret').onclick = (e) => {
@@ -225,7 +228,7 @@ async function loadAlerts() {
       <div class="meta">
         <b>${a.symbol}</b> · <span class="${cls(a.price_change_1h)}">${pct(a.price_change_1h)}</span>
         · vol ${(a.vol_pace_1h||0).toFixed(1)}× · liq ${fmtUsd(a.liquidity_usd)}
-        <div class="sub">${a.summary || ''}</div>
+        <div class="sub">${iconifySummary(a.summary)}</div>
       </div>
       <div style="text-align:right">
         <a href="${analyzerUrl(a.symbol)}" class="analyze-link">analyze ↗</a><br>

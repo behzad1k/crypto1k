@@ -439,7 +439,7 @@ function buildSnapshotEl(snapshot) {
 
   const notice = `
     <div style="background:rgba(245,158,11,0.08);border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text)">
-      ⚠️ No OHLCV candles available for this token (not on a CEX, and no on-chain
+      ${icon('warning','ph-warn')} No OHLCV candles available for this token (not on a CEX, and no on-chain
       candle history). Showing <strong>non-OHLCV signals</strong> derived from
       DexScreener aggregates only — technical indicators are unavailable.
     </div>`;
@@ -472,7 +472,7 @@ function buildSnapshotEl(snapshot) {
 function buildPrimaryEl(primarySignals) {
   const el = document.createElement("div");
   el.style.marginBottom = "12px";
-  el.innerHTML = `<div class="strip-label">⭐ Grade A — Primary signals</div>`;
+  el.innerHTML = `<div class="strip-label">${icon('star')} Grade A — Primary signals</div>`;
   const pills = document.createElement("div");
   pills.className = "primary-pills";
   primarySignals.forEach((s) => {
@@ -561,7 +561,7 @@ function buildScalpEl(m, bias) {
 
   el.innerHTML = `
     <div class="scalp-header">
-      <span class="scalp-header-label">⚡ Setup Quality</span>
+      <span class="scalp-header-label">${icon('lightning')} Setup Quality</span>
       <div class="setup-score-badge">
         <span class="setup-score-label ${label}">${label}</span>
         <div class="setup-score-bar">${pipsHtml}</div>

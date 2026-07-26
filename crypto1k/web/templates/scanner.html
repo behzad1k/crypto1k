@@ -561,8 +561,9 @@
         </style>
     </head>
     <body>
+        {% include "_icons.html" %}
         <header>
-            <h1>📡 Volume Scanner</h1>
+            <h1><svg class="ph" aria-hidden="true"><use href="#ph-broadcast"/></svg> Volume Scanner</h1>
             <div class="links">
                 <a href="/symbol/BTC">Analyzer</a>
                 <a href="/scanner">Scanner</a>
@@ -740,7 +741,7 @@
                                 Smart money <span class="doc-pts">bonus, max 1.5</span>
                             </div>
                             <ul>
-                                <li>a tracked smart wallet bought (last 60m) → +1.5 pts and can fire a 🧠 alert on its own</li>
+                                <li>a tracked smart wallet bought (last 60m) → +1.5 pts and can fire a <svg class="ph" aria-hidden="true"><use href="#ph-brain"/></svg> smart alert on its own</li>
                                 <li>whale net flow ≥ +$20K in 60m → +1.0 pt; ≥ +$5K → +0.5 pt</li>
                                 <li>single whale buy ≥ $2.5K → +0.5 pt</li>
                                 <li>whale = trades ≥ $500; wallets are auto-promoted to "smart" when ≥5 scored buys hit ≥55% win rate (+5% in 1h or +10% in 24h) — see the Smart Money page</li>
@@ -752,7 +753,7 @@
                             </div>
                             <ul>
                                 <li>24h volume ≥ 2× market cap → "actively traded" signal (≥5× = strong)</li>
-                                <li>liquidity &lt; 3% of market cap → ⚠️ thin exit door: score capped at 6.0 and flagged — you can't get out without moving the price</li>
+                                <li>liquidity &lt; 3% of market cap → <svg class="ph ph-warn" aria-hidden="true"><use href="#ph-warning"/></svg> thin exit door: score capped at 6.0 and flagged — you can't get out without moving the price</li>
                             </ul>
                         </div>
                     </div>
@@ -791,6 +792,7 @@
             </div>
         </div>
 
+        <script src="/static/icons.js"></script>
         <script src="/static/scanner.js"></script>
     </body>
 </html>
