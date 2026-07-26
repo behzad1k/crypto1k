@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 
 import pandas as pd
 
-from crypto1k.config.scanner_config import BTC_IMPACT
+from crypto1k.config.scanner_config import BTC_IMPACT, EXIT_PLAN
 from crypto1k.core import db
 from crypto1k.data import dexscreener, geckoterminal
 
@@ -133,6 +133,27 @@ def _window_extreme_at(df: pd.DataFrame, start: datetime, end: datetime, col: st
     return float(sub.loc[idx]), df.loc[idx, 'timestamp'].isoformat()
 
 
+def _first_cross_at(df: pd.DataFrame, start: datetime, end: datetime,
+                    level: float, col: str, above: bool):
+    """
+    ISO timestamp of the FIRST candle in the window to cross `level`, or None.
+
+    This is what distinguishes "the target was touched at some point" from
+    "the target filled before the stop". The stored high_24h / low_24h
+    aggregates can't answer the second question — a coin that dropped 10%
+    before running 30% shows the same high and low as one that ran first, and
+    only the second is a winning trade.
+    """
+    mask = (df['timestamp'] >= pd.Timestamp(start)) & (df['timestamp'] <= pd.Timestamp(end))
+    sub = df.loc[mask]
+    if sub.empty:
+        return None
+    hit = sub[sub[col] >= level] if above else sub[sub[col] <= level]
+    if hit.empty:
+        return None
+    return hit.iloc[0]['timestamp'].isoformat()
+
+
 def compute_outcome_for_alert(alert: dict) -> dict:
     """
     Fetch candles for one alert and derive its outcome fields.
@@ -171,7 +192,18 @@ def compute_outcome_for_alert(alert: dict) -> dict:
     # by the 4h/24h mark. Widen tolerance for the later horizons accordingly.
     high_24h, high_24h_at = _window_extreme_at(df, alert_time, window_end, 'high', 'max')
 
+    # When each exit level was first reached, so a later review can ask which
+    # one filled first instead of just how often each was touched.
+    tp_hit_at = sl_hit_at = None
+    if EXIT_PLAN.get('enabled') and alert.get('direction') == 'bullish':
+        tp_level = price_at_alert * (1 + EXIT_PLAN['take_profit_pct'] / 100)
+        sl_level = price_at_alert * (1 - EXIT_PLAN['stop_loss_pct'] / 100)
+        tp_hit_at = _first_cross_at(df, alert_time, window_end, tp_level, 'high', above=True)
+        sl_hit_at = _first_cross_at(df, alert_time, window_end, sl_level, 'low', above=False)
+
     fields = {
+        'tp_hit_at':       tp_hit_at,
+        'sl_hit_at':       sl_hit_at,
         'price_at_alert':  price_at_alert,
         'price_1h_before': _closest_close(df, alert_time - timedelta(hours=1), tolerance_minutes=60),
         'price_15m':       _closest_close(df, alert_time + timedelta(minutes=15)),

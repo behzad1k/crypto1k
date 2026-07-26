@@ -25,6 +25,7 @@ from crypto1k.data import btc_market, dexscreener
 from crypto1k.notify import emailer, telegram_notify
 from crypto1k.config.scanner_config import (
     FILTERS, THRESHOLDS, SCORING, ALERTING, MONITOR, BTC_IMPACT,
+    EXTENSION, EXIT_PLAN,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,13 @@ def evaluate(pair: dict) -> dict:
                          and liq_mcap_pct < FILTERS['min_liq_to_mcap_pct'])
 
     # ── Signals + scoring ────────────────────────────────────────────────────
+    #
+    # Weights were rebalanced on 2026-07-26 against 810 alerts with complete
+    # 24h outcomes. The short version: volume pace is the only factor whose
+    # relationship to forward return survived a temporal train/test split, and
+    # price momentum was actively harmful — so volume now carries half the
+    # score and momentum an eighth of it. See scanner_config.SCORING.
+    #
     signals = []
     score = 0.0
 
@@ -152,55 +160,84 @@ def evaluate(pair: dict) -> dict:
     vol_dir_1h = _dir(pc1)
     vol_dir_5m = _dir(pc5m)
 
-    # (1) Volume surge — headline factor (direction follows price)
-    vp = max(vol_pace_1h, vol_pace_5m)
-    if vol_pace_1h >= THRESHOLDS['vol_pace_1h_strong']:
+    # (1) Volume surge — now graded up to an "extreme" tier. The 10×+ bucket
+    # returned +11.9% / +10.9% at 1h across the two halves of the split (60%
+    # and 71% win) and is where nearly a third of alerts touch +10% inside the
+    # hour, so it earns the full budget rather than sharing a tier with 5×.
+    if vol_pace_1h >= THRESHOLDS['vol_pace_1h_extreme']:
         pts = SCORING['max_volume_surge']
+        signals.append(_sig('volume_surge', 'volume', vol_dir_1h,
+            f"1h volume {vol_pace_1h}× its 24h average — extreme surge on a {vol_dir_1h} move", vol_pace_1h))
+    elif vol_pace_1h >= THRESHOLDS['vol_pace_1h_strong']:
+        pts = SCORING['max_volume_surge'] * 0.85
         signals.append(_sig('volume_surge', 'volume', vol_dir_1h,
             f"1h volume {vol_pace_1h}× its 24h average — strong surge on a {vol_dir_1h} move", vol_pace_1h))
     elif vol_pace_1h >= THRESHOLDS['vol_pace_1h_notable']:
-        pts = SCORING['max_volume_surge'] * 0.6
+        pts = SCORING['max_volume_surge'] * 0.5
         signals.append(_sig('volume_surge', 'volume', vol_dir_1h,
             f"1h volume {vol_pace_1h}× its 24h average — notable surge on a {vol_dir_1h} move", vol_pace_1h))
     else:
-        pts = SCORING['max_volume_surge'] * 0.15 * min(vol_pace_1h, 2.0)
-    # 5-minute acceleration bonus (within the headline budget)
+        pts = SCORING['max_volume_surge'] * 0.12 * min(vol_pace_1h, 2.0)
+    # 5-minute acceleration (within the headline budget). Only the 12×+ band
+    # separated in both halves; 6–12× was flat, so it no longer maxes the tier.
     if vol_pace_5m >= THRESHOLDS['vol_pace_5m_strong']:
         signals.append(_sig('volume_acceleration', 'volume', vol_dir_5m,
-            f"5m volume {vol_pace_5m}× average — accelerating right now ({vol_dir_5m})", vol_pace_5m))
-        pts = SCORING['max_volume_surge']
+            f"5m volume {vol_pace_5m}× average — accelerating hard right now ({vol_dir_5m})", vol_pace_5m))
+        pts = max(pts, SCORING['max_volume_surge'] * 0.8)
     elif vol_pace_5m >= THRESHOLDS['vol_pace_5m_notable']:
         signals.append(_sig('volume_acceleration', 'volume', vol_dir_5m,
             f"5m volume {vol_pace_5m}× average — picking up ({vol_dir_5m})", vol_pace_5m))
+        pts = max(pts, SCORING['max_volume_surge'] * 0.45)
     score += min(pts, SCORING['max_volume_surge'])
 
-    # (2) Momentum — price move + multi-window alignment. The 5m move gets its
-    # own weight so a fresh spike scores before the rolling 1h window catches up.
+    # (2) Momentum — deliberately small, and now *inverted* at the top end. A
+    # move that is merely underway is mildly useful; one that has already gone
+    # far is a warning. 24h mean return by 1h price change at alert time ran
+    # -1.4% (0–3%), -6.3% (3–8%), -6.8% (8–15%), -16.4% (15–30%), -28.5% (30%+),
+    # so the "strong move" tier now scores LESS than the notable one.
     aligned = (pc5m > 0 and pc1 > 0 and pc6 > 0) or (pc5m < 0 and pc1 < 0 and pc6 < 0)
     mpts = 0.0
     if abs(pc1) >= THRESHOLDS['price_move_1h_strong']:
-        mpts += SCORING['max_momentum'] * 0.6
+        mpts += SCORING['max_momentum'] * 0.25
         signals.append(_sig('price_momentum', 'momentum', mom_dir,
-            f"price {pc1:+.1f}% in 1h — strong move", pc1))
+            f"price {pc1:+.1f}% in 1h — already extended", pc1))
     elif abs(pc1) >= THRESHOLDS['price_move_1h_notable']:
-        mpts += SCORING['max_momentum'] * 0.35
+        mpts += SCORING['max_momentum'] * 0.5
         signals.append(_sig('price_momentum', 'momentum', mom_dir,
             f"price {pc1:+.1f}% in 1h", pc1))
     if abs(pc5m) >= THRESHOLDS['price_move_5m_strong']:
-        mpts += SCORING['max_momentum'] * 0.35
-        signals.append(_sig('price_momentum_5m', 'momentum', vol_dir_5m,
-            f"price {pc5m:+.1f}% in the last 5m — moving right now", pc5m))
-    elif abs(pc5m) >= THRESHOLDS['price_move_5m_notable']:
         mpts += SCORING['max_momentum'] * 0.2
+        signals.append(_sig('price_momentum_5m', 'momentum', vol_dir_5m,
+            f"price {pc5m:+.1f}% in the last 5m — moving fast", pc5m))
+    elif abs(pc5m) >= THRESHOLDS['price_move_5m_notable']:
+        mpts += SCORING['max_momentum'] * 0.5
         signals.append(_sig('price_momentum_5m', 'momentum', vol_dir_5m,
             f"price {pc5m:+.1f}% in the last 5m", pc5m))
     if aligned:
-        mpts += SCORING['max_momentum'] * 0.4
+        mpts += SCORING['max_momentum'] * 0.3
         signals.append(_sig('momentum_alignment', 'trend', mom_dir,
             f"5m/1h/6h all {mom_dir} — aligned momentum", None))
     score += min(mpts, SCORING['max_momentum'])
 
-    # (3) Buy pressure
+    # (2b) Over-extension penalty — softer than the hard gate below, for moves
+    # that are stretched but not yet disqualifying.
+    over_extended = []
+    if EXTENSION.get('enabled'):
+        if abs(pc1) >= EXTENSION['penalty_price_change_1h_pct']:
+            score -= EXTENSION['penalty_points']
+            over_extended.append(f"{pc1:+.1f}% in 1h")
+        if abs(pc6) >= EXTENSION['penalty_price_change_6h_pct']:
+            score -= EXTENSION['penalty_points_6h']
+            over_extended.append(f"{pc6:+.1f}% in 6h")
+        if over_extended:
+            signals.append(_sig('over_extended', 'structure', 'bearish',
+                f"move already stretched ({', '.join(over_extended)}) — most of "
+                f"this run is behind us; late entries here averaged a double-digit "
+                f"24h loss", pc1))
+
+    # (3) Buy pressure — halved. The buy_ratio bands that looked best in the
+    # first half of the data (1.5–2.5×) were the worst in the second half, so
+    # this is treated as weak corroboration rather than evidence.
     bpts = 0.0
     if buy_ratio >= THRESHOLDS['buy_ratio_strong']:
         bpts = SCORING['max_buy_pressure']
@@ -217,12 +254,20 @@ def evaluate(pair: dict) -> dict:
             f"{txns['h1']['sells']} sells vs {txns['h1']['buys']} buys — sellers leading", buy_ratio))
     score += bpts
 
-    # (4) Activity / liquidity health
+    # (4) Activity / liquidity depth — raised from a 1-point rounding term to a
+    # real 2.5-point factor, and now graded on absolute depth rather than on a
+    # multiple of the (now much higher) filter floor. Liquidity was the second
+    # most robust predictor in the review: alerts under $150k liquidity
+    # averaged -13.8% at 24h with a 19.8% win rate against -4.0% / 41.0% above.
     apts = 0.0
-    if liq >= FILTERS['min_liquidity_usd'] * 3 and txns_1h >= FILTERS['min_txns_1h'] * 3:
+    if liq >= 1_000_000 and txns_1h >= 100:
         apts = SCORING['max_activity']
-    elif passes_filters:
+    elif liq >= 500_000 and txns_1h >= 60:
+        apts = SCORING['max_activity'] * 0.8
+    elif liq >= FILTERS['min_liquidity_usd'] and txns_1h >= 30:
         apts = SCORING['max_activity'] * 0.5
+    elif passes_filters:
+        apts = SCORING['max_activity'] * 0.25
     score += apts
 
     # (5) Market structure — informational signals (no extra points, but the
@@ -244,20 +289,38 @@ def evaluate(pair: dict) -> dict:
     if wash_warning or thin_exit_warning:
         score = min(score, SCORING['label_good'])
 
-    score = round(min(score, 10.0), 1)
+    score = round(max(0.0, min(score, 10.0)), 1)
 
     # ── Net direction ────────────────────────────────────────────────────────
     bull = sum(1 for s in signals if s['direction'] == 'bullish')
     bear = sum(1 for s in signals if s['direction'] == 'bearish')
     direction = 'bullish' if bull > bear else 'bearish' if bear > bull else 'neutral'
 
-    # ── Alert decision (lenient by config) ───────────────────────────────────
+    # ── Over-extension hard gate ─────────────────────────────────────────────
+    # Past these thresholds we are buying the tail of a move someone else is
+    # already selling. The 15%+/1h bucket averaged -16.4% at 24h (24% win) and
+    # the 50%+/6h bucket -38.2% (0 of 10 profitable). No score, and no alert
+    # path, may override this.
+    extension_block = None
+    if EXTENSION.get('enabled'):
+        if abs(pc1) >= EXTENSION['max_price_change_1h_pct']:
+            extension_block = (f"1h move {pc1:+.1f}% ≥ "
+                               f"{EXTENSION['max_price_change_1h_pct']}%")
+        elif pc5m >= EXTENSION['max_price_change_5m_pct']:
+            extension_block = (f"5m move {pc5m:+.1f}% ≥ "
+                               f"{EXTENSION['max_price_change_5m_pct']}%")
+        elif pc6 >= EXTENSION['max_price_change_6h_pct']:
+            extension_block = (f"6h move {pc6:+.1f}% ≥ "
+                               f"{EXTENSION['max_price_change_6h_pct']}%")
+
+    # ── Alert decision ───────────────────────────────────────────────────────
     # Volume qualifies on a 1h surge OR a 5m acceleration — the latter catches
     # setups heating up right now while the full hour still reads average.
     vol_ok = (vol_pace_1h >= ALERTING['min_vol_pace_1h']
               or vol_pace_5m >= ALERTING.get('min_vol_pace_5m', float('inf')))
     standard_alert = (
         passes_filters
+        and not extension_block
         and score >= ALERTING['min_validity_score']
         and vol_ok
         and (not ALERTING['require_bullish'] or direction == 'bullish')
@@ -265,7 +328,10 @@ def evaluate(pair: dict) -> dict:
 
     # Fast path: an extreme, coherent 5m spike (volume + price + flow all in
     # the same direction) alerts without waiting for the score — the score is
-    # mostly 1h windows, which lag a fresh move by 30–60 minutes.
+    # mostly 1h windows, which lag a fresh move by 30–60 minutes. This was the
+    # best-performing path in the outcome review, so it keeps its own bar; it
+    # is only subject to the extension gate, which exists to stop it firing on
+    # a move that has already run 15%+.
     buys_5m, sells_5m = txns['m5']['buys'], txns['m5']['sells']
     flow_5m = round((buys_5m if pc5m >= 0 else sells_5m)
                     / max((sells_5m if pc5m >= 0 else buys_5m), 1), 2)
@@ -273,6 +339,7 @@ def evaluate(pair: dict) -> dict:
     fast_alert = (
         bool(fp.get('enabled'))
         and passes_filters
+        and not extension_block
         and not wash_warning
         and vol_pace_5m >= fp['min_vol_pace_5m']
         and abs(pc5m) >= fp['min_price_move_5m_pct']
@@ -315,13 +382,46 @@ def evaluate(pair: dict) -> dict:
         'filter_fails':   filter_fails,
         'wash_warning':   wash_warning,
         'thin_exit_warning': thin_exit_warning,
+        'over_extended':  bool(over_extended),
+        'extension_block': extension_block,
         'is_alert':       is_alert,
         'alert_path':     ('fast' if fast_alert and not standard_alert
                            else 'standard' if is_alert else None),
         'scanned_at':     datetime.now(timezone.utc).isoformat(),
     }
+    result['exit_plan'] = _exit_plan(result)
     result['summary'] = build_summary(result)
     return result
+
+
+def _exit_plan(r: dict) -> dict:
+    """
+    Concrete take-profit / stop / time-stop levels for a bullish alert.
+
+    The outcome review's central finding is that these alerts are short trades:
+    bullish alerts averaged +0.55% at 15m and +0.34% at 1h but -5.5% by 24h,
+    while 59% of them touched +5% and 39% touched +10% somewhere inside the
+    day. The edge is real and it is brief, so the exit belongs in the alert
+    itself rather than in the reader's judgement an hour later.
+    """
+    # Only for coins we are actually calling — attaching a trade plan to a
+    # coin that failed filters or never alerted reads as a recommendation.
+    if not EXIT_PLAN.get('enabled') or not r.get('is_alert'):
+        return None
+    if r.get('direction') != 'bullish':
+        return None
+    price = r.get('price_usd')
+    if not price:
+        return None
+    tp, sl = EXIT_PLAN['take_profit_pct'], EXIT_PLAN['stop_loss_pct']
+    return {
+        'take_profit_pct':   tp,
+        'stop_loss_pct':     sl,
+        'max_hold_hours':    EXIT_PLAN['max_hold_hours'],
+        'take_profit_price': price * (1 + tp / 100),
+        'stop_loss_price':   price * (1 - sl / 100),
+        'observed':          EXIT_PLAN.get('observed', {}),
+    }
 
 
 def _sig(name, category, direction, detail, value):
@@ -332,7 +432,17 @@ def _sig(name, category, direction, detail, value):
 # ── Human-readable description (used in the email + UI) ──────────────────────
 
 def build_summary(r: dict) -> str:
-    """A plain-English paragraph describing what the scanner sees."""
+    """
+    A plain-English paragraph describing what the scanner sees.
+
+    The emoji in here are deliberate and must stay. This one string is sent to
+    three places — Telegram, plain-text email, and the web UI — and only the
+    last can render SVG. Telegram's formatting supports a small HTML subset
+    with no <svg> or <use>, so emitting Phosphor markup here would put visible
+    tag soup in the channel. The browser swaps these for Phosphor icons at
+    render time via iconifySummary() in static/icons.js; if you add or change
+    an emoji below, add it to SUMMARY_ICONS there too.
+    """
     m = r['metrics']
     sym = r['symbol']
     parts = []
@@ -387,18 +497,74 @@ def build_summary(r: dict) -> str:
         parts.append(f"⚠️ Thin exit: liquidity is only {m.get('liq_mcap_pct')}% of "
                      f"market cap — large sells will move the price hard.")
 
+    if r.get('over_extended'):
+        parts.append("⚠️ Already extended: a large part of this move has happened. "
+                     "Alerts this late historically gave back more than they gained.")
+
     sm = r.get('smart_money')
     if sm:
         if sm.get('smart_buys'):
             parts.append(f"🧠 Smart money: {sm['smart_buys']} tracked wallet buy(s) "
-                         f"in the last {sm['lookback_minutes']}m (${sm['smart_buy_usd']:,.0f}).")
+                         f"in the last {sm['lookback_minutes']}m (${sm['smart_buy_usd']:,.0f}) "
+                         f"— confirmation only, not a reason to buy on its own.")
         if sm.get('net_flow_usd'):
             flow = sm['net_flow_usd']
             parts.append(f"🐳 Whale net flow {'+' if flow >= 0 else ''}${flow:,.0f} over "
                          f"{sm['lookback_minutes']}m ({sm['buyers']} buyers / {sm['sellers']} sellers "
                          f"≥ ${sm['min_trade_usd']:,.0f}).")
 
+    xp = r.get('exit_plan')
+    if xp:
+        obs = xp.get('observed', {})
+        parts.append(
+            f"🎯 Plan: take profit +{xp['take_profit_pct']:.0f}% "
+            f"({_fmt_price(xp['take_profit_price'])}), stop -{xp['stop_loss_pct']:.0f}% "
+            f"({_fmt_price(xp['stop_loss_price'])}), and close by "
+            f"{xp['max_hold_hours']}h regardless."
+        )
+        if obs:
+            parts.append(
+                f"On comparable past alerts {obs.get('hit_tp_within_24h_pct')}% reached "
+                f"the target within 24h and {obs.get('hit_sl_within_24h_pct')}% hit the "
+                f"stop ({obs.get('reached_5pct_within_24h_pct')}% got at least +5%), with "
+                f"the typical peak about {obs.get('median_hours_to_peak')}h in. The edge "
+                f"decays fast — this is a same-day trade, not a hold."
+            )
+
     return ' '.join(parts)
+
+
+# ── Post-enrichment revalidation ────────────────────────────────────────────
+
+def _revalidate_after_enrichment(r: dict) -> dict:
+    """
+    Re-apply the alert gates that depend on values smart-money enrichment can
+    change. Enrichment appends signals and recounts `direction`, so a coin that
+    was bullish when `evaluate` decided to alert can come out of enrichment
+    bearish or neutral — with the alert flag still set from before.
+
+    That is exactly how 148 bearish and 64 neutral alerts reached the feed
+    during the review period despite require_bullish being on the whole time,
+    and none of them had an edge (bearish alerts averaged a -1.2% adverse move
+    at 24h with a 42.5% hit rate, i.e. worse than a coin flip). The direction
+    check has to run last, after every signal is in.
+    """
+    if not r.get('is_alert'):
+        return r
+    if ALERTING['require_bullish'] and r.get('direction') != 'bullish':
+        logger.info(f"{r.get('symbol')} alert dropped: direction became "
+                    f"{r.get('direction')} after smart-money enrichment")
+        r['is_alert'] = False
+        r['alert_path'] = None
+        return r
+    # A score bonus must not carry a coin over the bar if enrichment also
+    # pushed it below the minimum (possible via the wash/thin-exit cap).
+    if r.get('alert_path') == 'standard' and r['score'] < ALERTING['min_validity_score']:
+        logger.info(f"{r.get('symbol')} alert dropped: score {r['score']} fell "
+                    f"below {ALERTING['min_validity_score']} after enrichment")
+        r['is_alert'] = False
+        r['alert_path'] = None
+    return r
 
 
 # ── Scanning many symbols ───────────────────────────────────────────────────
@@ -419,6 +585,8 @@ def scan_symbols(symbols: list) -> list:
                 if r.get('smart_money'):
                     # Enrichment may have bumped score / direction / alert.
                     r['label'] = _label(r['score'])
+                    _revalidate_after_enrichment(r)
+                    r['exit_plan'] = _exit_plan(r)
                     r['summary'] = build_summary(r)
                 results.append(r)
         except Exception as e:
@@ -477,6 +645,20 @@ def scan_and_alert(symbols: list = None) -> dict:
                 logger.info(f"{r['symbol']} alert suppressed by BTC gate "
                             f"(regime {btc['regime_score']} < {gate['min_regime_score']})")
                 continue
+        # Daily per-symbol ceiling. Unlike the cooldown below, no score jump
+        # can override this: repeat alerting on one symbol was a top source of
+        # bad alerts (DIH fired 60 times in a month, averaging -19.9% at 24h
+        # with a 22% win rate; CASHCAT fired 131 times), and the score-jump
+        # re-arm is precisely what let a pumping-then-dumping coin keep
+        # re-qualifying all day.
+        cap = ALERTING.get('max_alerts_per_symbol_24h')
+        if cap:
+            sent_24h = db.alert_count_within(r['symbol'], 1440)
+            if sent_24h >= cap:
+                logger.info(f"{r['symbol']} alert suppressed "
+                            f"(daily cap: {sent_24h}/{cap} in last 24h)")
+                continue
+
         # Cooldown, with a re-arm: a repeat alert gets through if its score
         # beats the best one already sent in the window by a clear margin.
         prev_best = db.best_alert_score_within(r['symbol'], ALERTING['cooldown_minutes'])

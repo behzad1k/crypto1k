@@ -191,7 +191,12 @@ def enrich(result: dict) -> dict:
     bonus = 0.0
     lb = m['lookback_minutes']
 
-    # Tracked smart wallet bought — the headline signal.
+    # Tracked smart wallet bought. Was the headline signal; demoted on
+    # 2026-07-26 to a minor confirmation input. Alerts carrying it averaged
+    # -10.4% at 24h (33% win) against -2.9% without it, and a forward test
+    # showed wallets selected on past win rate underperform randomly-chosen
+    # wallets on their *next* buys. It stays visible because the movement feed
+    # is genuinely interesting; it barely moves the score.
     if m['smart_buys']:
         top = m['smart_wallets'][0]
         who = top.get('label') or _short(top['wallet'])
@@ -243,11 +248,19 @@ def enrich(result: dict) -> dict:
                            else 'bearish' if bear > bull else 'neutral')
 
     # Third alert path: a tracked winner just bought this coin.
+    #
+    # Off by default since 2026-07-26 (see alert_on_smart_wallet_buy in the
+    # config). It produced the worst alerts in the system — 232 of them at a
+    # -10.4% mean 24h return and a 32% win rate, negative in both halves of a
+    # train/test split and negative with the two dominant symbols removed.
+    # The extension gate applies here too: if the coin's move has already run
+    # too far, a smart-wallet buy does not earn it an exemption.
     if (SMART_MONEY.get('alert_on_smart_wallet_buy')
             and m['smart_buys']
             and not result.get('wash_warning')
             and not result.get('thin_exit_warning')
-            and result['direction'] != 'bearish'
+            and not result.get('extension_block')
+            and result['direction'] == 'bullish'
             and not result.get('is_alert')):
         result['is_alert'] = True
         result['alert_path'] = 'smart'
@@ -269,9 +282,16 @@ def _closest_close(df: pd.DataFrame, target: datetime, tolerance_minutes: float)
 
 def backfill_trade_outcomes(max_pools: int = None) -> dict:
     """
-    Score pending whale buys. Trades are grouped by pool so ONE candle fetch
-    scores every pending buy on that pool — the request budget is per pool,
+    Score pending whale trades. Trades are grouped by pool so ONE candle fetch
+    scores every pending trade on that pool — the request budget is per pool,
     not per trade.
+
+    Sells are scored as well as buys (they were skipped before, leaving zero
+    sell outcomes on record). The stored return is always the raw forward price
+    change, not direction-adjusted, so a sell followed by a fall shows as
+    negative — that is what makes it possible to tell a wallet that exits well
+    from one that panics, and to spot the flippers whose buys look good at 1h
+    only because they are already out by then.
     """
     max_pools = max_pools or SMART_MONEY['backfill_max_pools']
     pending = db.get_trades_needing_outcome(SMART_MONEY['min_trade_age_minutes'])
@@ -327,7 +347,7 @@ def backfill_trade_outcomes(max_pools: int = None) -> dict:
                 scored += 1
 
     logger.info(f'Smart-money backfill: {pools_done} pool(s), '
-                f'{scored} buy(s) scored, {gave_up} given up')
+                f'{scored} trade(s) scored, {gave_up} given up')
     return {'pools': pools_done, 'scored': scored, 'gave_up': gave_up}
 
 
@@ -353,8 +373,19 @@ def maybe_backfill():
 # ── Web-facing wrappers ──────────────────────────────────────────────────────
 
 def feed(limit: int = None) -> list:
-    return db.smart_money_feed(SMART_MONEY['qualify'],
-                               limit or SMART_MONEY['feed_limit'])
+    """
+    Movements of tracked wallets, falling back to raw whale flow.
+
+    With auto-qualification off (the default since 2026-07-26) the tracked set
+    is empty until the user adds wallets by hand, which would leave this page
+    blank. Rows carry source='whale' in that case so the UI can say what it is
+    showing rather than implying these wallets are vetted.
+    """
+    limit = limit or SMART_MONEY['feed_limit']
+    rows = db.smart_money_feed(SMART_MONEY['qualify'], limit)
+    if rows:
+        return rows
+    return db.whale_trade_feed(SMART_MONEY['big_trade_usd'], limit)
 
 
 def leaderboard(min_buys: int = 2, limit: int = 200) -> list:
@@ -365,6 +396,15 @@ def overview() -> dict:
     d = db.smart_money_overview(SMART_MONEY['qualify'])
     d['qualify'] = SMART_MONEY['qualify']
     d['min_trade_usd'] = SMART_MONEY['min_trade_usd']
+    d['alerts_on_smart_buy'] = bool(SMART_MONEY.get('alert_on_smart_wallet_buy'))
+    if not d.get('auto_qualify_enabled'):
+        d['notice'] = (
+            "Auto-qualification is off. Wallets selected on past win rate "
+            "forward-tested worse than randomly chosen wallets on their next "
+            "buys, so no wallet is promoted automatically any more — only "
+            "wallets you add by hand count as tracked. Whale flow below is "
+            "raw observed activity, not a vetted list."
+        )
     return d
 
 

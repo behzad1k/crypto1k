@@ -188,16 +188,12 @@ def init_db():
         ''')
     # Migrate: add columns that were added after initial schema
     with get_conn() as conn:
-        existing = {r[1] for r in conn.execute("PRAGMA table_info(signals)").fetchall()}
         for col, definition in [
             ('price_level', 'REAL'),
             ('candles_ago', 'INTEGER'),
         ]:
-            if col not in existing:
-                conn.execute(f'ALTER TABLE signals ADD COLUMN {col} {definition}')
-                logger.info(f'Migrated: added signals.{col}')
+            _add_column(conn, 'signals', col, definition)
 
-        existing = {r[1] for r in conn.execute("PRAGMA table_info(scanner_alerts)").fetchall()}
         for col, definition in [
             # Correctly-cased pool address (DexScreener's url slug lowercases
             # it, which corrupts case-sensitive base58 addresses on Solana).
@@ -209,26 +205,54 @@ def init_db():
             ('btc_change_1h', 'REAL'),
             ('btc_change_24h', 'REAL'),
         ]:
-            if col not in existing:
-                conn.execute(f'ALTER TABLE scanner_alerts ADD COLUMN {col} {definition}')
-                logger.info(f'Migrated: added scanner_alerts.{col}')
+            _add_column(conn, 'scanner_alerts', col, definition)
 
-        existing = {r[1] for r in conn.execute("PRAGMA table_info(alert_outcomes)").fetchall()}
-        if 'high_24h_at' not in existing:
-            conn.execute('ALTER TABLE alert_outcomes ADD COLUMN high_24h_at TEXT')
-            logger.info('Migrated: added alert_outcomes.high_24h_at')
-        if 'btc_change_window' not in existing:
-            # BTC's own % move over this alert's 24h outcome window — separates
-            # "the coin was fake" from "BTC dumped and took everything down".
-            conn.execute('ALTER TABLE alert_outcomes ADD COLUMN btc_change_window REAL')
-            logger.info('Migrated: added alert_outcomes.btc_change_window')
-        if 'digest_sent' not in existing:
-            conn.execute('ALTER TABLE alert_outcomes ADD COLUMN digest_sent INTEGER NOT NULL DEFAULT 0')
+        _add_column(conn, 'alert_outcomes', 'high_24h_at', 'TEXT')
+        # BTC's own % move over this alert's 24h outcome window — separates
+        # "the coin was fake" from "BTC dumped and took everything down".
+        _add_column(conn, 'alert_outcomes', 'btc_change_window', 'REAL')
+        if _add_column(conn, 'alert_outcomes', 'digest_sent',
+                       'INTEGER NOT NULL DEFAULT 0'):
             # Outcomes that were already complete before the digest feature
             # existed are old news — the first digest starts from now.
             conn.execute('UPDATE alert_outcomes SET digest_sent = 1 WHERE data_complete = 1')
-            logger.info('Migrated: added alert_outcomes.digest_sent')
+        # First time each exit level was crossed. Without these, the stored
+        # high/low aggregates only give unordered "did it ever touch" rates —
+        # you cannot tell whether the take-profit would have filled before the
+        # stop, which is exactly the question EXIT_PLAN needs answered. Only
+        # populated for alerts scored after this migration.
+        _add_column(conn, 'alert_outcomes', 'tp_hit_at', 'TEXT')
+        _add_column(conn, 'alert_outcomes', 'sl_hit_at', 'TEXT')
     logger.info('Database initialised')
+
+
+def _add_column(conn, table: str, col: str, definition: str) -> bool:
+    """
+    Add a column if it isn't there yet. Returns True if this call added it.
+
+    Checking PRAGMA table_info and then running ALTER TABLE is a race: init_db()
+    runs at import time and gunicorn starts three workers at once, so on the
+    deploy that introduces a new column all three can read "missing" before any
+    of them writes. The loser used to raise "duplicate column name" straight
+    out of module import, which kills the worker and puts systemd into a
+    restart loop. Catching the two errors SQLite can raise here makes the
+    migration safe to run concurrently and repeatedly.
+    """
+    existing = {r[1] for r in conn.execute(f'PRAGMA table_info({table})').fetchall()}
+    if col in existing:
+        return False
+    try:
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN {col} {definition}')
+    except sqlite3.OperationalError as e:
+        msg = str(e).lower()
+        if 'duplicate column' in msg:
+            return False           # another worker won the race — fine
+        if 'locked' in msg or 'busy' in msg:
+            logger.info(f'Migration for {table}.{col} deferred (db busy)')
+            return False
+        raise
+    logger.info(f'Migrated: added {table}.{col}')
+    return True
 
 
 def save_analysis(symbol: str, horizon: str, timeframes: list, result: dict):
@@ -391,6 +415,22 @@ def best_alert_score_within(symbol: str, cooldown_minutes: int):
     return row['best'] if row and row['best'] is not None else None
 
 
+def alert_count_within(symbol: str, minutes: int = 1440) -> int:
+    """
+    How many times this symbol has alerted in the last `minutes`. Backs the
+    max_alerts_per_symbol_24h cap: the 2026-07-26 review found repeat alerts
+    on one symbol degrade badly (DIH alerted 60× and averaged -19.9% at 24h),
+    and the score-jump re-arm alone was not enough to stop a single
+    manipulated coin from owning the feed.
+    """
+    with get_conn() as conn:
+        row = conn.execute('''
+            SELECT COUNT(*) AS n FROM scanner_alerts
+            WHERE symbol = ? AND created_at >= datetime('now', ?)
+        ''', (symbol, f'-{int(minutes)} minutes')).fetchone()
+    return row['n'] if row else 0
+
+
 def get_recent_alerts(limit: int = 50) -> list:
     with get_conn() as conn:
         rows = conn.execute('''
@@ -479,6 +519,10 @@ def get_alerts_with_outcomes(limit: int = 2000) -> list:
                 json_extract(a.payload, '$.metrics.vol_pace_5m')   AS vol_pace_5m,
                 json_extract(a.payload, '$.price_change.m5')       AS price_change_5m,
                 json_extract(a.payload, '$.wash_warning')          AS wash_warning,
+                -- Signal names as a JSON array, so the report can measure each
+                -- signal's contribution without re-parsing the whole payload.
+                (SELECT json_group_array(json_extract(s.value, '$.name'))
+                   FROM json_each(a.payload, '$.signals') s)      AS signal_names,
                 o.price_at_alert, o.price_1h_before, o.price_15m, o.price_1h,
                 o.price_4h, o.price_24h, o.high_1h, o.low_1h, o.high_24h,
                 o.low_24h, o.data_complete
@@ -510,22 +554,33 @@ def get_recent_runs(symbol: str, horizon: Optional[str] = None, limit: int = 20)
 # ── Smart money: wallets, whale trades, outcomes ─────────────────────────────
 
 # A buy is a WIN when the price was up ≥ win_1h% one hour later OR ≥ win_24h%
-# a day later. Used both for auto-qualification and the leaderboard.
+# a day later. Drives the leaderboard's win-rate column, and auto-qualification
+# on the deployments that still enable it.
 _WIN_CASE = ('(o.ret_1h_pct >= :w1 OR COALESCE(o.ret_24h_pct, -999999) >= :w24)')
 
-# Wallets we treat as smart money: manually tracked, plus any wallet whose
-# scored buys clear the win-rate bar.
-_TRACKED_CTE = f'''
-    WITH qualified AS (
+# The auto-qualified half of the tracked set. Gated behind
+# SMART_MONEY['auto_qualify'], which is OFF by default since the 2026-07-26
+# forward test showed past win rate is anti-predictive of a wallet's next buy
+# (see the long note in scanner_config.SMART_MONEY['qualify']). The `:auto_on`
+# parameter is 1/0 rather than string interpolation so the two variants share
+# one query plan and one parameter set.
+_QUALIFIED_CTE = f'''
+    qualified AS (
         SELECT t.wallet, t.chain,
                COUNT(*) AS scored,
                AVG(CASE WHEN {_WIN_CASE} THEN 1.0 ELSE 0.0 END) AS win_rate
         FROM wallet_trades t
         JOIN wallet_trade_outcomes o ON o.trade_id = t.id
-        WHERE t.side = 'buy' AND o.ret_1h_pct IS NOT NULL
+        WHERE t.side = 'buy' AND o.ret_1h_pct IS NOT NULL AND :auto_on = 1
         GROUP BY t.wallet, t.chain
         HAVING scored >= :min_buys AND win_rate >= :min_wr
-    ),
+    )
+'''
+
+# Wallets we treat as smart money: manually tracked, plus (only when
+# auto-qualification is enabled) wallets whose scored buys clear the bar.
+_TRACKED_CTE = f'''
+    WITH {_QUALIFIED_CTE},
     tracked AS (
         SELECT address AS wallet, chain, label, source
         FROM smart_wallets WHERE is_active = 1
@@ -547,6 +602,18 @@ def _qualify_params(qualify: dict) -> dict:
         'min_buys': qualify['min_scored_buys'],
         'min_wr':   qualify['min_win_rate'],
     }
+
+
+def auto_qualify_enabled() -> bool:
+    """Whether wallets may be promoted to smart money on past win rate."""
+    from crypto1k.config.scanner_config import SMART_MONEY
+    return bool(SMART_MONEY.get('auto_qualify'))
+
+
+def _tracked_params(qualify: dict) -> dict:
+    """Params for queries built on _TRACKED_CTE (adds the auto-qualify switch)."""
+    return {**_qualify_params(qualify),
+            'auto_on': 1 if auto_qualify_enabled() else 0}
 
 
 def record_wallet_trades(trades: list, chain: str, pool_address: str,
@@ -591,20 +658,21 @@ def remove_smart_wallet(address: str, chain: str = ''):
 def get_tracked_wallets(qualify: dict) -> dict:
     """
     {wallet_address: {'chain', 'label', 'source', 'win_rate'?}} for every
-    wallet currently considered smart money (manual + auto-qualified).
+    wallet currently considered smart money (manual, plus auto-qualified only
+    when SMART_MONEY['auto_qualify'] is on — it is off by default).
     """
     with get_conn() as conn:
         rows = conn.execute(f'''
             {_TRACKED_CTE}
             SELECT wallet, chain, label, source FROM tracked
-        ''', _qualify_params(qualify)).fetchall()
+        ''', _tracked_params(qualify)).fetchall()
     return {r['wallet']: {'chain': r['chain'], 'label': r['label'],
                           'source': r['source']} for r in rows}
 
 
 def smart_money_feed(qualify: dict, limit: int = 100) -> list:
     """Recent movements (all trades) of tracked/qualified wallets, newest first."""
-    params = {**_qualify_params(qualify), 'limit': limit}
+    params = {**_tracked_params(qualify), 'limit': limit}
     with get_conn() as conn:
         rows = conn.execute(f'''
             {_TRACKED_CTE}
@@ -619,6 +687,31 @@ def smart_money_feed(qualify: dict, limit: int = 100) -> list:
             ORDER BY tr.block_ts DESC
             LIMIT :limit
         ''', params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def whale_trade_feed(min_usd: float, limit: int = 100) -> list:
+    """
+    Recent large trades from any wallet, newest first.
+
+    Backs the movements page when nothing is tracked. Since auto-qualification
+    was switched off (it forward-tested as anti-predictive), the tracked set is
+    empty unless the user has added wallets by hand — and an empty page would
+    read as a broken feature rather than a deliberate change. Raw whale flow is
+    still real, observable data; it just isn't a claim about anyone's skill.
+    """
+    with get_conn() as conn:
+        rows = conn.execute('''
+            SELECT tr.id, tr.wallet, tr.chain, tr.pool_address, tr.symbol,
+                   tr.side, tr.amount_usd, tr.price_usd, tr.block_ts,
+                   NULL AS label, 'whale' AS source,
+                   o.ret_1h_pct, o.ret_24h_pct
+            FROM wallet_trades tr
+            LEFT JOIN wallet_trade_outcomes o ON o.trade_id = tr.id
+            WHERE tr.amount_usd >= ?
+            ORDER BY tr.block_ts DESC
+            LIMIT ?
+        ''', (min_usd, limit)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -656,15 +749,18 @@ def wallet_leaderboard(qualify: dict, min_buys: int = 2, limit: int = 200) -> li
             LIMIT :limit
         ''', params).fetchall()
 
+    auto_on = auto_qualify_enabled()
     out = []
     for r in rows:
         d = dict(r)
         scored = d['scored_buys'] or 0
         d['win_rate'] = round((d['wins'] or 0) / scored, 3) if scored else None
-        d['is_smart'] = bool(d['manually_tracked']) or (
-            scored >= qualify['min_scored_buys']
-            and (d['win_rate'] or 0) >= qualify['min_win_rate']
-        )
+        # Clears the historical bar. Kept as its own field because with
+        # auto-qualification off this is a leaderboard ranking hint only — it
+        # no longer makes the wallet smart money.
+        d['meets_bar'] = (scored >= qualify['min_scored_buys']
+                          and (d['win_rate'] or 0) >= qualify['min_win_rate'])
+        d['is_smart'] = bool(d['manually_tracked']) or (auto_on and d['meets_bar'])
         out.append(d)
     return out
 
@@ -684,21 +780,29 @@ def get_wallet_trades(address: str, limit: int = 100) -> list:
     return [dict(r) for r in rows]
 
 
-def get_trades_needing_outcome(min_age_minutes: int, limit: int = 400) -> list:
+def get_trades_needing_outcome(min_age_minutes: int, limit: int = 400,
+                                include_sells: bool = True) -> list:
     """
-    Whale BUYS old enough to have an observable 1h return but no complete
+    Whale trades old enough to have an observable 1h return but no complete
     outcome yet. Oldest first; the backfill groups them by pool so one candle
     fetch scores every pending trade on that pool.
+
+    Sells are scored too (include_sells, default on). They used to be skipped,
+    which left 0 sell outcomes on record and made it impossible to tell an
+    accumulating wallet from one that round-trips in minutes — the distinction
+    that the 2026-07-26 review showed actually matters, since the tracked
+    cohort's edge (+1.4% at 1h) had fully decayed by 24h (-2.4%).
     """
+    side_clause = '' if include_sells else "AND t.side = 'buy'"
     with get_conn() as conn:
-        rows = conn.execute('''
+        rows = conn.execute(f'''
             SELECT t.id, t.wallet, t.chain, t.pool_address, t.symbol,
-                   t.price_usd, t.block_ts
+                   t.side, t.price_usd, t.block_ts
             FROM wallet_trades t
             LEFT JOIN wallet_trade_outcomes o ON o.trade_id = t.id
-            WHERE t.side = 'buy'
-              AND t.block_ts <= datetime('now', ?)
+            WHERE t.block_ts <= datetime('now', ?)
               AND (o.trade_id IS NULL OR o.data_complete = 0)
+              {side_clause}
             ORDER BY t.block_ts ASC
             LIMIT ?
         ''', (f'-{int(min_age_minutes)} minutes', limit)).fetchall()
@@ -729,13 +833,15 @@ def smart_money_overview(qualify: dict) -> dict:
         auto = conn.execute(f'''
             {_TRACKED_CTE}
             SELECT COUNT(*) AS n FROM tracked WHERE source = 'auto'
-        ''', _qualify_params(qualify)).fetchone()
+        ''', _tracked_params(qualify)).fetchone()
     return {
         'trades_recorded': trades['n'],
         'wallets_seen':    trades['w'],
         'buys_scored':     scored['n'],
         'manual_wallets':  manual['n'],
         'auto_qualified':  auto['n'],
+        # Surfaced so the UI can explain a zero above rather than look broken.
+        'auto_qualify_enabled': auto_qualify_enabled(),
     }
 
 

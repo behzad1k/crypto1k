@@ -9,11 +9,15 @@ Public surface:
   format_report(report) -> str   (human-readable, for CLI / API)
 """
 
-from statistics import mean
+import json
+from statistics import mean, median
 
 from crypto1k.core import db
 
 HIT_THRESHOLD_PCT = 2.0  # a "win" = reached this % in the alert's favor
+
+# A signal needs at least this many alerts before its numbers mean anything.
+MIN_SIGNAL_SAMPLE = 10
 
 
 def _signed(alert: dict, favorable_pct=None, adverse_pct=None):
@@ -101,6 +105,100 @@ def _bucket_stats(rows: list, min_n: int) -> dict:
     }
 
 
+def _signal_names(alert: dict) -> list:
+    raw = alert.get('signal_names')
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [s for s in raw if s]
+    try:
+        return [s for s in json.loads(raw) if s]
+    except (TypeError, ValueError):
+        return []
+
+
+def _by_signal(rows: list, min_n: int = MIN_SIGNAL_SAMPLE) -> list:
+    """
+    Per-signal effectiveness: for each signal name, how alerts carrying it
+    performed versus alerts that did not.
+
+    This is the question the score weights are supposed to answer and could
+    not be asked from inside the app before — the 2026-07-26 rebalance was
+    done by hand against a database copy. `edge_*_pp` is the difference in
+    average return (percentage points) between alerts with and without the
+    signal, which is what actually justifies a weight going up or down.
+    Sorted best-edge first.
+    """
+    all_names = sorted({n for r in rows for n in _signal_names(r)})
+    out = []
+    for name in all_names:
+        with_sig = [r for r in rows if name in _signal_names(r)]
+        without = [r for r in rows if name not in _signal_names(r)]
+        if len(with_sig) < min_n:
+            continue
+
+        def avg(subset, field):
+            vals = [r[field] for r in subset if r.get(field) is not None]
+            return mean(vals) if vals else None
+
+        def winrate(subset, field):
+            vals = [r[field] for r in subset if r.get(field) is not None]
+            return 100 * sum(1 for v in vals if v > 0) / len(vals) if vals else None
+
+        def edge(field):
+            a, b = avg(with_sig, field), avg(without, field)
+            return round(a - b, 2) if (a is not None and b is not None) else None
+
+        out.append({
+            'signal':        name,
+            'n':             len(with_sig),
+            'avg_ret_1h_pct':  _r(avg(with_sig, 'ret_1h')),
+            'avg_ret_24h_pct': _r(avg(with_sig, 'ret_24h')),
+            'win_rate_1h_pct':  _r(winrate(with_sig, 'ret_1h'), 1),
+            'win_rate_24h_pct': _r(winrate(with_sig, 'ret_24h'), 1),
+            'edge_1h_pp':    edge('ret_1h'),
+            'edge_24h_pp':   edge('ret_24h'),
+        })
+    out.sort(key=lambda d: (d['edge_1h_pp'] is None, -(d['edge_1h_pp'] or 0)))
+    return out
+
+
+def _r(v, nd=2):
+    return round(v, nd) if v is not None else None
+
+
+def _exit_calibration(rows: list) -> dict:
+    """
+    How a take-profit / stop / time-stop would actually have played out.
+
+    Bullish alerts in the review period peaked a median 5.6h after firing and
+    then gave the move back, so the practical question is not "what is the 24h
+    return" but "would the target have filled before the stop". These are the
+    numbers that set EXIT_PLAN in scanner_config.
+    """
+    fav24 = [r['max_favorable_24h'] for r in rows if r.get('max_favorable_24h') is not None]
+    adv24 = [r['max_adverse_24h'] for r in rows if r.get('max_adverse_24h') is not None]
+    if not fav24:
+        return {'n': 0}
+    out = {'n': len(fav24)}
+    for tp in (5, 10, 20):
+        out[f'reached_plus_{tp}pct_within_24h'] = _r(
+            100 * sum(1 for v in fav24 if v >= tp) / len(fav24), 1)
+    for sl in (10, 20):
+        out[f'drew_down_{sl}pct_within_24h'] = _r(
+            100 * sum(1 for v in adv24 if v >= sl) / len(adv24), 1) if adv24 else None
+    out['median_max_favorable_24h_pct'] = _r(median(fav24))
+    out['median_max_adverse_24h_pct'] = _r(median(adv24)) if adv24 else None
+    # Alerts that ran 10%+ in our favor and still closed the day red — the
+    # clearest argument for taking profit rather than holding.
+    closed = [r for r in rows
+              if r.get('max_favorable_24h') is not None and r.get('ret_24h') is not None]
+    if closed:
+        gave_back = [r for r in closed if r['max_favorable_24h'] >= 10 and r['ret_24h'] < 0]
+        out['ran_10pct_then_closed_red_pct'] = _r(100 * len(gave_back) / len(closed), 1)
+    return out
+
+
 def _score_band(score):
     if score is None:
         return 'unknown'
@@ -126,9 +224,19 @@ def generate_report(min_alerts_per_bucket: int = 3) -> dict:
             min_alerts_per_bucket)
 
     by_path = {}
-    for path in ('fast', 'standard'):
+    for path in ('fast', 'standard', 'smart'):
         by_path[path] = _bucket_stats(
             [r for r in complete if r.get('alert_path') == path], min_alerts_per_bucket)
+
+    # Liquidity is the strongest single conditioner found in the review, so the
+    # report now breaks it out rather than leaving it to be rediscovered.
+    by_liquidity = {}
+    for name, lo, hi in (('<150k', 0, 150_000), ('150k-500k', 150_000, 500_000),
+                         ('500k-1m', 500_000, 1_000_000), ('>1m', 1_000_000, float('inf'))):
+        by_liquidity[name] = _bucket_stats(
+            [r for r in complete
+             if r.get('liquidity_usd') is not None and lo <= r['liquidity_usd'] < hi],
+            min_alerts_per_bucket)
 
     wash = _bucket_stats([r for r in complete if r.get('wash_warning') == 1], min_alerts_per_bucket)
     clean = _bucket_stats([r for r in complete if r.get('wash_warning') != 1], min_alerts_per_bucket)
@@ -144,7 +252,11 @@ def generate_report(min_alerts_per_bucket: int = 3) -> dict:
     overall = _bucket_stats(complete, 1)
     lateness = _bucket_stats(complete, 1)  # same rows; report reads moved_before/max_favorable
 
-    suggestions = _suggest(by_score, by_path, wash, clean, overall)
+    by_signal = _by_signal(complete)
+    suggestions = _suggest(by_score, by_path, wash, clean, overall,
+                           by_signal, by_liquidity)
+
+    bullish = [r for r in complete if r.get('direction') == 'bullish']
 
     return {
         'n_alerts_total': len(raw),
@@ -153,6 +265,9 @@ def generate_report(min_alerts_per_bucket: int = 3) -> dict:
         'overall': overall,
         'by_score_band': by_score,
         'by_alert_path': by_path,
+        'by_liquidity': by_liquidity,
+        'by_signal': by_signal,
+        'exit_calibration': _exit_calibration(bullish),
         'wash_warning_alerts': wash,
         'clean_alerts': clean,
         'worst_symbols': ranked_symbols[:5],
@@ -161,8 +276,44 @@ def generate_report(min_alerts_per_bucket: int = 3) -> dict:
     }
 
 
-def _suggest(by_score, by_path, wash, clean, overall) -> list:
+def _suggest(by_score, by_path, wash, clean, overall,
+             by_signal=None, by_liquidity=None) -> list:
     out = []
+
+    # Signals that cost the alert money but still earn score points. This is
+    # the check that would have caught the pre-2026-07-26 weighting, where
+    # price momentum carried 3 of 10 points while being the most reliably
+    # negative signal family in the data.
+    for s in (by_signal or []):
+        if s['edge_1h_pp'] is not None and s['edge_1h_pp'] < -0.5:
+            out.append(
+                f"Signal '{s['signal']}' underperforms: alerts carrying it average "
+                f"{s['avg_ret_1h_pct']:+.2f}% at 1h, {abs(s['edge_1h_pp']):.2f}pp worse "
+                f"than alerts without it (n={s['n']}). If it earns score points in "
+                f"SCORING/THRESHOLDS, that weight is working against you."
+            )
+    best = next((s for s in (by_signal or [])
+                 if s['edge_1h_pp'] is not None and s['edge_1h_pp'] > 0.5), None)
+    if best:
+        out.append(
+            f"Signal '{best['signal']}' is the strongest performer: "
+            f"{best['avg_ret_1h_pct']:+.2f}% at 1h, {best['edge_1h_pp']:+.2f}pp better "
+            f"than alerts without it (n={best['n']}). Worth more weight, or its own "
+            f"threshold tier."
+        )
+
+    if by_liquidity:
+        thin = by_liquidity.get('<150k', {})
+        deep = by_liquidity.get('>1m', {})
+        if (not thin.get('insufficient') and not deep.get('insufficient')
+                and thin.get('avg_ret_24h_pct') is not None
+                and deep.get('avg_ret_24h_pct') is not None
+                and thin['avg_ret_24h_pct'] < deep['avg_ret_24h_pct'] - 3.0):
+            out.append(
+                f"Sub-$150k-liquidity alerts average {thin['avg_ret_24h_pct']:+.1f}% at 24h "
+                f"(n={thin['n']}) vs {deep['avg_ret_24h_pct']:+.1f}% above $1m (n={deep['n']}). "
+                f"FILTERS['min_liquidity_usd'] is the highest-leverage knob here."
+            )
 
     bands = ['6.1-7', '7-8', '8-9', '9-10']
     valid_bands = [(b, by_score[b]) for b in bands if not by_score[b].get('insufficient')]
@@ -278,9 +429,48 @@ def format_report(r: dict) -> str:
     lines.append("")
 
     lines.append("By alert path:")
-    for path in ('fast', 'standard'):
-        lines.append(fmt_bucket(path, r['by_alert_path'][path]))
+    for path in ('fast', 'standard', 'smart'):
+        if path in r['by_alert_path']:
+            lines.append(fmt_bucket(path, r['by_alert_path'][path]))
     lines.append("")
+
+    if r.get('by_liquidity'):
+        lines.append("By liquidity (the strongest single conditioner):")
+        for name in ('<150k', '150k-500k', '500k-1m', '>1m'):
+            if name in r['by_liquidity']:
+                lines.append(fmt_bucket(name, r['by_liquidity'][name]))
+        lines.append("")
+
+    if r.get('by_signal'):
+        lines.append("Per-signal effectiveness — 'edge' is the difference in average")
+        lines.append("return between alerts carrying the signal and alerts without it.")
+        lines.append("Negative edge on a signal that earns score points is a bug in the")
+        lines.append("weights, not a fact about the market:")
+        for s in r['by_signal']:
+            lines.append(
+                f"  {s['signal']:<22} n={s['n']:<4} "
+                f"1h={_fmt(s['avg_ret_1h_pct']):>7}% (win {_fmt(s['win_rate_1h_pct'])}%) "
+                f"24h={_fmt(s['avg_ret_24h_pct']):>7}%  "
+                f"edge_1h={_fmt(s['edge_1h_pp']):>7}pp edge_24h={_fmt(s['edge_24h_pp']):>7}pp")
+        lines.append("")
+
+    xc = r.get('exit_calibration') or {}
+    if xc.get('n'):
+        lines.append(f"Exit calibration (bullish alerts, n={xc['n']}) — would the")
+        lines.append("target have filled before the stop?")
+        for tp in (5, 10, 20):
+            k = f'reached_plus_{tp}pct_within_24h'
+            if xc.get(k) is not None:
+                lines.append(f"  reached +{tp}% within 24h:  {xc[k]:>5}%")
+        for sl in (10, 20):
+            k = f'drew_down_{sl}pct_within_24h'
+            if xc.get(k) is not None:
+                lines.append(f"  drew down -{sl}% within 24h: {xc[k]:>5}%")
+        if xc.get('ran_10pct_then_closed_red_pct') is not None:
+            lines.append(f"  ran +10% then closed 24h red: "
+                          f"{xc['ran_10pct_then_closed_red_pct']}%  "
+                          f"← the case for taking profit")
+        lines.append("")
 
     lines.append("Wash-warning vs clean:")
     lines.append(fmt_bucket('wash_warning', r['wash_warning_alerts']))

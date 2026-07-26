@@ -23,7 +23,7 @@ import threading
 import time
 from datetime import datetime
 
-from crypto1k.config.scanner_config import BTC_IMPACT, DIGEST
+from crypto1k.config.scanner_config import BTC_IMPACT, DIGEST, EXIT_PLAN
 from crypto1k.core import db, outcomes
 from crypto1k.data import dexscreener
 from crypto1k.notify import telegram_notify
@@ -139,11 +139,20 @@ def _build_message(today: str, buys: list) -> str:
             lines.append(f"   ₿ BTC: {' · '.join(btc_bits)}")
         lines.append("")
 
-    tp = DIGEST.get('tp_target_pct', 5.0)
+    # Report against the exit plan the alerts actually shipped with, so the
+    # scorecard grades the advice given rather than a separate yardstick.
+    tp = (EXIT_PLAN.get('take_profit_pct') if EXIT_PLAN.get('enabled')
+          else DIGEST.get('tp_target_pct', 5.0))
     hit_tp = sum(1 for p in best_moves if p >= tp)
     srt = sorted(best_moves)
     median = srt[len(srt) // 2]
     lines.append(f"— TP check: {hit_tp}/{len(buys)} reached +{tp:g}% within 24h")
+    if EXIT_PLAN.get('enabled'):
+        sl = EXIT_PLAN['stop_loss_pct']
+        hit_sl = sum(1 for r in buys
+                     if r.get('low_24h') and r.get('price_at_alert')
+                     and (r['low_24h'] - r['price_at_alert']) / r['price_at_alert'] * 100 <= -sl)
+        lines.append(f"— SL check: {hit_sl}/{len(buys)} dropped to -{sl:g}% within 24h")
     lines.append(f"— best-move range: min {min(srt):+.1f}% · median {median:+.1f}% "
                  f"· max {max(srt):+.1f}%")
     lines.append(f"  (min = the gain every alert reached — a TP at or below it "
