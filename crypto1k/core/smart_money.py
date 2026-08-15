@@ -192,11 +192,13 @@ def enrich(result: dict) -> dict:
     lb = m['lookback_minutes']
 
     # Tracked smart wallet bought. Was the headline signal; demoted on
-    # 2026-07-26 to a minor confirmation input. Alerts carrying it averaged
-    # -10.4% at 24h (33% win) against -2.9% without it, and a forward test
-    # showed wallets selected on past win rate underperform randomly-chosen
-    # wallets on their *next* buys. It stays visible because the movement feed
-    # is genuinely interesting; it barely moves the score.
+    # 2026-07-26 to a minor confirmation input after alerts carrying it
+    # averaged -10.4% at 24h (33% win) against -2.9% without it. The
+    # 2026-08-15 re-test restored auto-qualification, but only as a 1h-horizon
+    # signal: qualified wallets beat the baseline on 1h win rate and median at
+    # every cutoff while staying worse at 24h (see the long note in
+    # scanner_config.SMART_MONEY). So it stays exactly this — a small score
+    # nudge on a short trade, never an alert trigger.
     if m['smart_buys']:
         top = m['smart_wallets'][0]
         who = top.get('label') or _short(top['wallet'])
@@ -376,9 +378,9 @@ def feed(limit: int = None) -> list:
     """
     Movements of tracked wallets, falling back to raw whale flow.
 
-    With auto-qualification off (the default since 2026-07-26) the tracked set
-    is empty until the user adds wallets by hand, which would leave this page
-    blank. Rows carry source='whale' in that case so the UI can say what it is
+    If auto-qualification is off (it was 2026-07-26..2026-08-15) and no wallet
+    is tracked by hand, the tracked set is empty and this page would be blank.
+    Rows carry source='whale' in that case so the UI can say what it is
     showing rather than implying these wallets are vetted.
     """
     limit = limit or SMART_MONEY['feed_limit']

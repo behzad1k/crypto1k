@@ -205,11 +205,18 @@ SCORING = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ALERTING = {
-    # Re-tuned for the new scoring scale (see SCORING). Simulated over the
-    # historical alert set, the full proposed pipeline at this threshold keeps
-    # ~33% of old alerts and turns the 1h return from +0.34% / 48.0% win into
-    # +0.41% / 56.9% win, with the 24h mean improving from -5.5% to -0.8%.
-    "min_validity_score": 5.5,
+    # Raised 5.5 → 6.0 on 2026-08-15, from 322 post-rebalance alerts with
+    # complete 24h outcomes (fired 2026-07-26..08-14 under the new scoring).
+    # The rebalanced score is finally monotone with outcome, and the 5.5–6.0
+    # band is where the noise lives: 228 alerts (71% of the feed) averaging
+    # -0.22% at 24h with a 45% win rate. Above the line:
+    #   score ≥ 6.0: n=91  +4.37% / 60% win, TP:SL 30:11
+    #   score 6–7:   n=44  +2.11% / 57% win   (positive, so 6.0 not 6.5)
+    #   score 7–8:   n=32  +7.69% / 69% win, 41% hit TP vs 12% SL
+    # Holds ex-CASHCAT (the dominant symbol): ≥6.5 still +3.01% / 57% win.
+    # The fast path bypasses this score and is unaffected — it produced only
+    # 10 of the 322 alerts and performed fine (+2.45% 1h, 70% win).
+    "min_validity_score": 6.0,
     # Volume gate: a coin qualifies if it shows a 1h surge OR a 5m acceleration.
     # The 5m path catches setups heating up *right now* even when the full hour
     # still looks average (e.g. PENGU: 1h 1.1× but 5m 6.4×).
@@ -417,36 +424,34 @@ SMART_MONEY = {
 
     # --- Auto-qualification: when does a wallet become "smart money"? ---
     #
-    # TURNED OFF 2026-07-26 — not tightened, turned off. Auto-qualification was
-    # tested properly for the first time: qualify wallets using only trades
-    # before a cutoff date, then measure how their buys performed AFTER it.
-    # It is reliably ANTI-predictive. Qualified wallets underperformed the
-    # all-wallet baseline at 1h at every one of six cutoffs tested:
+    # RE-ENABLED 2026-08-15 as a 1h-horizon confirmation input — nothing more.
     #
-    #   cutoff       qualified 1h / win      all wallets 1h / win
-    #   2026-07-11   +0.23% / 51%            +1.04% / 51%
-    #   2026-07-13   +0.25% / 51%            +1.22% / 51%
-    #   2026-07-15   +0.10% / 48%            +2.05% / 51%
-    #   2026-07-17   +3.18% / 57%            +3.22% / 53%
-    #   2026-07-19   +0.37% / 53%            +3.56% / 53%
-    #   2026-07-21   +0.21% / 52%            +5.00% / 53%
+    # History: turned off 2026-07-26 after qualified wallets underperformed the
+    # all-wallet baseline's 1h *average* at all six cutoffs tested. Re-tested
+    # 2026-08-15 on 140k scored buys (through 08-14) at four fresh cutoffs
+    # (07-28, 08-01, 08-05, 08-08). On averages the July conclusion still
+    # holds — the baseline mean is carried by moonshot outliers qualified
+    # wallets miss. But on the robust stats the qualified set now beats the
+    # baseline at 1h at every cutoff, and the ranking never flips:
     #
-    # At 24h they were worse in five of six (e.g. -12.3% vs -5.4%). Tightening
-    # the bar does not fix it — 20 buys / 60% win / positive average 24h return
-    # / multiple pools still forward-tested at -0.29% 1h and -10.3% 24h, worse
-    # than picking wallets at random. Past win rate on meme-coin buys is
-    # measuring luck and regime, not skill, and selecting on it concentrates
-    # whichever wallets were most exposed to the coins that had already run.
+    #   1h win rate:  qualified 62–65%  vs  baseline 50–57%
+    #   1h median:    qualified +0.63..+1.06%  vs  baseline +0.01..+0.20%
     #
-    # Whale trades are still recorded and the leaderboard still renders — the
-    # data is worth having and the page is worth reading. What no longer
-    # happens is a wallet being silently promoted to "smart money" on this
-    # basis and then feeding score or alerts. Manually tracked wallets
-    # (smart_wallets table, source='manual') are unaffected and still count.
-    "auto_qualify": False,
+    # At 24h the edge is confirmed NEGATIVE (qualified median -0.6..-0.8% vs
+    # baseline ~+0.1%): these wallets' buys pop within the hour and fade, so
+    # qualification may inform a short trade and never a hold. That matches
+    # exactly how the scanner consumes it — a capped score nudge
+    # (pts_smart_wallet_buy, ≤ max_smart_money total) on alerts that carry an
+    # 8h max-hold exit plan — and is why alert_on_smart_wallet_buy stays off.
+    #
+    # Known caveat: the qualified set's test buys are concentrated (CASHCAT,
+    # VVV, CARDS, ETH held ~2/3 of them), so part of the edge may be symbol
+    # regime rather than wallet skill. Acceptable for a ≤0.25-point nudge;
+    # revisit before ever letting it gate or open alerts.
+    "auto_qualify": True,
     "qualify": {
-        # Retained for the leaderboard's win-rate column and for the manual
-        # tracking UI. With auto_qualify False these no longer promote anyone.
+        # These exact parameters are what the 2026-08-15 forward test
+        # validated — change them and the numbers above no longer apply.
         "min_scored_buys": 20,
         "min_win_rate": 0.60,
         "win_ret_1h_pct": 5.0,     # +5% one hour after the buy, or…
